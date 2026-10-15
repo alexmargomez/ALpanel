@@ -31,7 +31,8 @@ services:
       - panel_db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOST_PROJECTS_PATH:-/home/ubuntu}:${PROJECTS_ROOT:-/home/ubuntu}
+      - ${PANEL_SELF_PATH:-/opt/alpanel}:${PANEL_SELF_PATH:-/opt/alpanel}
+      - ${HOST_PROJECTS_PATH:-/opt/projects}:${PROJECTS_ROOT:-/opt/projects}
       - ./data:/app/data
     networks:
       - alpanel_net
