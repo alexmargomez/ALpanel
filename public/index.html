@@ -97,12 +97,12 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <button onclick="openCloneModal()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-600/20">
-            <i class="fa-solid fa-plus"></i> Nuevo Proyecto (Git)
+        <div class="flex items-center gap-1.5 sm:gap-2">
+          <button onclick="openCloneModal()" class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
+            <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Nuevo Proyecto (Git)</span><span class="sm:hidden">Nuevo</span>
           </button>
-          <button onclick="pruneServerDocker()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-2" title="Liberar espacio limpiando imágenes huérfanas y caché de compilación Docker">
-            <i class="fa-solid fa-broom"></i> Limpiar Caché Docker
+          <button onclick="pruneServerDocker()" class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5" title="Liberar espacio limpiando imágenes huérfanas y caché de compilación Docker">
+            <i class="fa-solid fa-broom"></i> <span class="hidden sm:inline">Limpiar Caché Docker</span><span class="sm:hidden">Caché</span>
           </button>
           <button onclick="refreshAll()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition" title="Refrescar ahora">
             <i class="fa-solid fa-rotate"></i>
@@ -113,78 +113,76 @@
         </div>
       </div>
 
-      <!-- Global Server Resource Strip -->
-      <div class="bg-slate-950/70 border-t border-slate-800/80">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <!-- CPU -->
-          <div class="flex items-center gap-3 bg-slate-900/70 border border-slate-800/80 rounded-xl px-4 py-2">
-            <div class="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-              <i class="fa-solid fa-microchip"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between text-xs mb-1">
-                <span class="text-slate-400 font-medium">CPU Servidor <span id="cpu-cores" class="text-slate-500"></span></span>
-                <span id="cpu-percent" class="font-bold text-white">0%</span>
-              </div>
-              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div id="cpu-bar" class="h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- RAM -->
-          <div class="flex items-center gap-3 bg-slate-900/70 border border-slate-800/80 rounded-xl px-4 py-2">
-            <div class="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <i class="fa-solid fa-memory"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between text-xs mb-1">
-                <span class="text-slate-400 font-medium">Memoria RAM</span>
-                <span id="ram-text" class="font-bold text-white">0 MB / 0 GB</span>
-              </div>
-              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div id="ram-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- DISK -->
-          <div class="flex items-center gap-3 bg-slate-900/70 border border-slate-800/80 rounded-xl px-4 py-2">
-            <div class="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <i class="fa-solid fa-hard-drive"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between text-xs mb-1">
-                <span class="text-slate-400 font-medium">Disco SSD</span>
-                <span id="disk-text" class="font-bold text-white">0 GB / 0 GB</span>
-              </div>
-              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div id="disk-bar" class="h-full bg-amber-500 transition-all duration-300" style="width: 0%"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Navigation Tabs -->
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap gap-6 text-sm border-t border-slate-800/60">
-        <button onclick="switchTab('projects')" id="tab-btn-projects" class="py-3 border-b-2 border-indigo-500 text-indigo-400 font-semibold flex items-center gap-2">
-          <i class="fa-solid fa-layer-group"></i> Proyectos & Contenedores
+      <!-- Navigation Tabs (Single horizontal scrollable line on mobile) -->
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 flex overflow-x-auto whitespace-nowrap gap-4 sm:gap-6 text-xs sm:text-sm border-t border-slate-800/60">
+        <button onclick="switchTab('projects')" id="tab-btn-projects" class="py-2.5 sm:py-3 border-b-2 border-indigo-500 text-indigo-400 font-semibold flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-layer-group"></i> <span>Proyectos</span><span class="hidden sm:inline">& Contenedores</span>
         </button>
-        <button onclick="switchTab('domains')" id="tab-btn-domains" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-2">
-          <i class="fa-solid fa-globe"></i> Dominios & Proxy SSL
+        <button onclick="switchTab('domains')" id="tab-btn-domains" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-globe"></i> <span>Dominios SSL</span>
         </button>
-        <button onclick="switchTab('guide')" id="tab-btn-guide" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-2">
-          <i class="fa-solid fa-book-open"></i> Estructura Multilenguaje (Front + Back + DB)
+        <button onclick="switchTab('guide')" id="tab-btn-guide" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-book-open"></i> <span>Guía Multi-Stack</span>
         </button>
-        <button onclick="switchTab('audit')" id="tab-btn-audit" class="py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-2">
-          <i class="fa-solid fa-shield-halved"></i> Auditoría
+        <button onclick="switchTab('audit')" id="tab-btn-audit" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-shield-halved"></i> <span>Auditoría</span>
         </button>
       </div>
     </header>
 
     <!-- Main Content Container -->
-    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1">
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6 flex-1 space-y-5">
+
+      <!-- Global Server Resource Strip (Scrolls naturally on mobile instead of blocking sticky header) -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-4">
+        <!-- CPU -->
+        <div class="flex items-center gap-3 bg-slate-900/90 border border-slate-800/80 rounded-xl px-3.5 py-2">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-microchip"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400 font-medium">CPU Servidor <span id="cpu-cores" class="text-slate-500"></span></span>
+              <span id="cpu-percent" class="font-bold text-white">0%</span>
+            </div>
+            <div class="w-full h-1.5 sm:h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div id="cpu-bar" class="h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAM -->
+        <div class="flex items-center gap-3 bg-slate-900/90 border border-slate-800/80 rounded-xl px-3.5 py-2">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-memory"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400 font-medium">Memoria RAM</span>
+              <span id="ram-text" class="font-bold text-white">0 MB / 0 GB</span>
+            </div>
+            <div class="w-full h-1.5 sm:h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div id="ram-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DISK -->
+        <div class="flex items-center gap-3 bg-slate-900/90 border border-slate-800/80 rounded-xl px-3.5 py-2">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-hard-drive"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400 font-medium">Disco SSD</span>
+              <span id="disk-text" class="font-bold text-white">0 GB / 0 GB</span>
+            </div>
+            <div class="w-full h-1.5 sm:h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div id="disk-bar" class="h-full bg-amber-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- TAB 1: PROJECTS -->
       <section id="tab-projects" class="space-y-5">
