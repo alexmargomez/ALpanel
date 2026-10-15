@@ -3,6 +3,13 @@ services:
     image: mysql:8.0
     container_name: sm_panel_db
     restart: unless-stopped
+    command: >
+      --performance-schema=OFF
+      --innodb-buffer-pool-size=24M
+      --innodb-log-buffer-size=4M
+      --max-connections=25
+      --table-open-cache=200
+      --host-cache-size=0
     env_file:
       - .env
     ports:
