@@ -124,6 +124,9 @@
         <button onclick="switchTab('guide')" id="tab-btn-guide" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
           <i class="fa-solid fa-book-open"></i> <span>Guía Multi-Stack</span>
         </button>
+        <button onclick="switchTab('users')" id="tab-btn-users" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-users-gear"></i> <span>Usuarios & Roles</span>
+        </button>
         <button onclick="switchTab('audit')" id="tab-btn-audit" class="py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0">
           <i class="fa-solid fa-shield-halved"></i> <span>Auditoría</span>
         </button>
@@ -355,7 +358,46 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
         </div>
       </section>
 
-      <!-- TAB 4: AUDIT LOG -->
+      <!-- TAB 4: USERS & ROLES -->
+      <section id="tab-users" class="hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Left / Main: Users Table (2 cols) -->
+          <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                  <i class="fa-solid fa-users text-indigo-400"></i> Usuarios del Panel
+                </h3>
+                <p class="text-xs text-slate-400">Contraseñas encriptadas en MariaDB 11 con <code class="text-emerald-400">scrypt + salt (16B)</code>.</p>
+              </div>
+              <button onclick="openUserModal()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
+                <i class="fa-solid fa-user-plus"></i> Nuevo Usuario
+              </button>
+            </div>
+
+            <div id="users-list" class="space-y-2.5 text-xs"></div>
+          </div>
+
+          <!-- Right: Roles Table (1 col) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                  <i class="fa-solid fa-id-badge text-amber-400"></i> Tabla de Roles
+                </h3>
+                <p class="text-xs text-slate-400">Catálogo de roles asignables a usuarios.</p>
+              </div>
+              <button onclick="openRoleModal()" class="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-plus"></i> Nuevo Rol
+              </button>
+            </div>
+
+            <div id="roles-list" class="space-y-2.5 text-xs"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: AUDIT LOG -->
       <section id="tab-audit" class="hidden space-y-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <div class="flex items-center justify-between mb-4">
@@ -492,6 +534,79 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
     </div>
   </div>
 
+  <!-- MODAL 5: CREATE / EDIT USER -->
+  <div id="user-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <h3 id="user-modal-title" class="text-sm font-bold text-white"><i class="fa-solid fa-user-shield text-indigo-400 mr-2"></i>Nuevo Usuario</h3>
+        <button onclick="closeModal('user-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="user-form" class="space-y-3 text-xs">
+        <input type="hidden" id="user-id" value="" />
+        <div>
+          <label class="block text-slate-400 mb-1">Nombre Completo</label>
+          <input type="text" id="user-fullname" placeholder="ej. Alex Gómez" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Usuario (username)</label>
+          <input type="text" id="user-username" placeholder="ej. alexmar" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Rol del Usuario</label>
+          <select id="user-role-id" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500"></select>
+        </div>
+        <div>
+          <label id="user-pass-label" class="block text-slate-400 mb-1">Contraseña (mín. 6 caracteres, se encripta con scrypt)</label>
+          <input type="password" id="user-password" placeholder="••••••••"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div class="pt-3 flex justify-end gap-2">
+          <button type="button" onclick="closeModal('user-modal')" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+            <i class="fa-solid fa-floppy-disk mr-1"></i> Guardar Usuario
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 6: CREATE / EDIT ROLE -->
+  <div id="role-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <h3 id="role-modal-title" class="text-sm font-bold text-white"><i class="fa-solid fa-id-badge text-amber-400 mr-2"></i>Nuevo Rol</h3>
+        <button onclick="closeModal('role-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="role-form" class="space-y-3 text-xs">
+        <input type="hidden" id="role-id" value="" />
+        <div>
+          <label class="block text-slate-400 mb-1">Nombre del Rol</label>
+          <input type="text" id="role-name" placeholder="ej. Soporte Técnico" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Código identificador (sin espacios)</label>
+          <input type="text" id="role-code" placeholder="ej. soporte" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Descripción / Permisos</label>
+          <textarea id="role-desc" rows="3" placeholder="Describe el alcance de este rol..."
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500"></textarea>
+        </div>
+        <div class="pt-3 flex justify-end gap-2">
+          <button type="button" onclick="closeModal('role-modal')" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold">
+            <i class="fa-solid fa-floppy-disk mr-1"></i> Guardar Rol
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION -->
   <div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-semibold flex items-center gap-2">
     <i class="fa-solid fa-circle-check"></i>
@@ -501,6 +616,8 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
   <script>
     let authToken = localStorage.getItem('sm_panel_token') || '';
     let allProjects = [];
+    let allUsers = [];
+    let allRoles = [];
     let currentEnvProject = '';
     let currentLogsProject = '';
     let socket = null;
@@ -543,20 +660,25 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
         logout();
         throw new Error('Sesión expirada');
       }
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Error en la solicitud');
+      }
+      return data;
     }
 
     function switchTab(tab) {
-      ['projects', 'domains', 'guide', 'audit'].forEach((t) => {
+      ['projects', 'domains', 'guide', 'users', 'audit'].forEach((t) => {
         document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
         const btn = document.getElementById(`tab-btn-${t}`);
         if (t === tab) {
-          btn.className = 'py-3 border-b-2 border-indigo-500 text-indigo-400 font-semibold flex items-center gap-2';
+          btn.className = 'py-2.5 sm:py-3 border-b-2 border-indigo-500 text-indigo-400 font-semibold flex items-center gap-1.5 shrink-0';
         } else {
-          btn.className = 'py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-2';
+          btn.className = 'py-2.5 sm:py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 shrink-0';
         }
       });
       if (tab === 'domains') loadDomains();
+      if (tab === 'users') loadUsersAndRoles();
       if (tab === 'audit') loadAuditLogs();
     }
 
@@ -1083,7 +1205,7 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
       list.innerHTML = (data.logs || [])
         .map(
           (l) => `
-        <div class="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5">
           <div class="flex items-center gap-3">
             <span class="px-2 py-0.5 rounded text-[10px] font-bold ${l.status === 'ok' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${l.action}</span>
             <span class="font-mono text-white">${l.target}</span>
@@ -1094,6 +1216,238 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
         </div>`
         )
         .join('') || '<div class="text-slate-500">Sin eventos registrados todavía.</div>';
+    }
+
+    async function loadUsersAndRoles() {
+      try {
+        const data = await apiFetch('/api/users');
+        allUsers = data.users || [];
+        allRoles = data.roles || [];
+        renderUsersAndRoles();
+      } catch (e) {
+        showToast(`Error cargando usuarios: ${e.message}`);
+      }
+    }
+
+    function renderUsersAndRoles() {
+      const usersList = document.getElementById('users-list');
+      const rolesList = document.getElementById('roles-list');
+
+      usersList.innerHTML =
+        allUsers
+          .map((u) => {
+            const roleColor =
+              u.role === 'admin'
+                ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                : u.role === 'developer'
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+
+            return `
+              <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3.5">
+                <div class="flex items-center gap-3 min-w-[200px]">
+                  <div class="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
+                    ${(u.fullName || u.username || 'U').slice(0, 1).toUpperCase()}
+                  </div>
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-bold text-white text-sm">${u.fullName || u.username}</span>
+                      <span class="font-mono text-[11px] text-slate-400">@${u.username}</span>
+                      <span class="px-2 py-0.5 rounded-md border text-[10px] font-bold ${roleColor}">
+                        <i class="fa-solid fa-id-badge mr-1"></i>${u.roleName} (${u.role})
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 mt-1">
+                      <span class="text-emerald-400"><i class="fa-solid fa-lock mr-1"></i>Hash scrypt</span>
+                      <span>•</span>
+                      <span>Último acceso: <strong class="text-slate-300">${u.lastLogin ? new Date(u.lastLogin).toLocaleString() : 'Nunca'}</strong></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button onclick="openUserModal(${u.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-[11px] font-semibold">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i>Editar
+                  </button>
+                  <button onclick="deleteUserItem(${u.id}, '${u.username.replace(/'/g, "\\'")}')" class="px-2.5 py-1.5 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border border-rose-800/50 text-[11px] font-semibold">
+                    <i class="fa-solid fa-trash mr-1"></i>Eliminar
+                  </button>
+                </div>
+              </div>`;
+          })
+          .join('') || '<div class="text-slate-500">No hay usuarios registrados.</div>';
+
+      rolesList.innerHTML =
+        allRoles
+          .map(
+            (r) => `
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                <div class="flex items-start justify-between gap-2">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="font-bold text-white text-sm">${r.name}</span>
+                      <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 text-[10px] font-mono">${r.code}</code>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-1">${r.description || 'Sin descripción'}</p>
+                  </div>
+                  <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-[10px] shrink-0">
+                    ${r.usersCount || 0} usuario(s)
+                  </span>
+                </div>
+                <div class="flex justify-end gap-1.5 pt-1 border-t border-slate-900">
+                  <button onclick="openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i>Editar
+                  </button>
+                  <button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold">
+                    <i class="fa-solid fa-trash"></i>
+                  </button>
+                </div>
+              </div>`
+          )
+          .join('') || '<div class="text-slate-500">No hay roles registrados.</div>';
+    }
+
+    function openUserModal(userId = null) {
+      const roleSelect = document.getElementById('user-role-id');
+      roleSelect.innerHTML = allRoles
+        .map((r) => `<option value="${r.id}">${r.name} (${r.code})</option>`)
+        .join('');
+
+      const idInput = document.getElementById('user-id');
+      const fullNameInput = document.getElementById('user-fullname');
+      const usernameInput = document.getElementById('user-username');
+      const passInput = document.getElementById('user-password');
+      const passLabel = document.getElementById('user-pass-label');
+      const title = document.getElementById('user-modal-title');
+
+      if (userId) {
+        const u = allUsers.find((item) => item.id === userId);
+        if (!u) return;
+        title.innerHTML = `<i class="fa-solid fa-user-pen text-indigo-400 mr-2"></i>Editar Usuario (@${u.username})`;
+        idInput.value = String(u.id);
+        fullNameInput.value = u.fullName || '';
+        usernameInput.value = u.username || '';
+        if (u.roleId) roleSelect.value = String(u.roleId);
+        passInput.value = '';
+        passInput.required = false;
+        passLabel.innerText = 'Nueva Contraseña (Opcional — déjala vacía para conservar la actual)';
+      } else {
+        title.innerHTML = `<i class="fa-solid fa-user-plus text-indigo-400 mr-2"></i>Crear Nuevo Usuario`;
+        idInput.value = '';
+        fullNameInput.value = '';
+        usernameInput.value = '';
+        passInput.value = '';
+        passInput.required = true;
+        passLabel.innerText = 'Contraseña (mín. 6 caracteres, se encripta con scrypt)';
+      }
+
+      document.getElementById('user-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('user-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('user-id').value.trim();
+      const payload = {
+        fullName: document.getElementById('user-fullname').value.trim(),
+        username: document.getElementById('user-username').value.trim(),
+        roleId: Number(document.getElementById('user-role-id').value),
+        password: document.getElementById('user-password').value,
+      };
+      try {
+        if (id) {
+          await apiFetch(`/api/users/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          });
+          showToast('Usuario actualizado correctamente');
+        } else {
+          await apiFetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          showToast('Usuario creado con contraseña encriptada');
+        }
+        closeModal('user-modal');
+        await loadUsersAndRoles();
+      } catch (err) {
+        showToast(`Error: ${err.message}`);
+      }
+    });
+
+    async function deleteUserItem(id, username) {
+      if (!confirm(`¿Seguro que deseas eliminar al usuario @${username}?`)) return;
+      try {
+        await apiFetch(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        showToast(`Usuario @${username} eliminado`);
+        await loadUsersAndRoles();
+      } catch (err) {
+        showToast(`Error: ${err.message}`);
+      }
+    }
+
+    function openRoleModal(roleId = null) {
+      const idInput = document.getElementById('role-id');
+      const nameInput = document.getElementById('role-name');
+      const codeInput = document.getElementById('role-code');
+      const descInput = document.getElementById('role-desc');
+      const title = document.getElementById('role-modal-title');
+
+      if (roleId) {
+        const r = allRoles.find((item) => item.id === roleId);
+        if (!r) return;
+        title.innerHTML = `<i class="fa-solid fa-pen-to-square text-amber-400 mr-2"></i>Editar Rol (${r.code})`;
+        idInput.value = String(r.id);
+        nameInput.value = r.name || '';
+        codeInput.value = r.code || '';
+        descInput.value = r.description || '';
+      } else {
+        title.innerHTML = `<i class="fa-solid fa-plus text-amber-400 mr-2"></i>Crear Nuevo Rol`;
+        idInput.value = '';
+        nameInput.value = '';
+        codeInput.value = '';
+        descInput.value = '';
+      }
+
+      document.getElementById('role-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('role-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('role-id').value.trim();
+      const payload = {
+        name: document.getElementById('role-name').value.trim(),
+        code: document.getElementById('role-code').value.trim(),
+        description: document.getElementById('role-desc').value.trim(),
+      };
+      try {
+        if (id) {
+          await apiFetch(`/api/roles/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          });
+          showToast('Rol actualizado correctamente');
+        } else {
+          await apiFetch('/api/roles', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          showToast('Nuevo rol creado');
+        }
+        closeModal('role-modal');
+        await loadUsersAndRoles();
+      } catch (err) {
+        showToast(`Error: ${err.message}`);
+      }
+    });
+
+    async function deleteRoleItem(id, name) {
+      if (!confirm(`¿Seguro que deseas eliminar el rol "${name}"?`)) return;
+      try {
+        await apiFetch(`/api/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        showToast(`Rol "${name}" eliminado`);
+        await loadUsersAndRoles();
+      } catch (err) {
+        showToast(`Error: ${err.message}`);
+      }
     }
 
     document.getElementById('domain-form').addEventListener('submit', async (e) => {

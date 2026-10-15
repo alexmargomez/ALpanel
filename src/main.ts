@@ -110,7 +110,98 @@ async function bootstrap() {
   });
 
   app.get('/api/users', { preHandler: [authenticate] }, async () => {
-    return { users: await dbService.listUsers() };
+    const [users, roles] = await Promise.all([dbService.listUsers(), dbService.listRoles()]);
+    return { users, roles };
+  });
+
+  app.post('/api/users', { preHandler: [authenticate] }, async (request, reply) => {
+    const body = request.body as { username?: string; fullName?: string; password?: string; roleId?: number };
+    try {
+      const created = await dbService.createUser({
+        username: body?.username || '',
+        fullName: body?.fullName || '',
+        password: body?.password || '',
+        roleId: body?.roleId ? Number(body.roleId) : undefined,
+      });
+      recordAudit('USER_CREATE', `${created.username} (${created.role})`, request.ip, 'ok');
+      return { success: true, user: created };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.put('/api/users/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { username?: string; fullName?: string; password?: string; roleId?: number };
+    try {
+      const updated = await dbService.updateUser(Number(id), {
+        username: body?.username || '',
+        fullName: body?.fullName || '',
+        password: body?.password,
+        roleId: body?.roleId ? Number(body.roleId) : undefined,
+      });
+      recordAudit('USER_UPDATE', `${updated.username} (${updated.role})`, request.ip, 'ok');
+      return { success: true, user: updated };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.delete('/api/users/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      await dbService.deleteUser(Number(id));
+      recordAudit('USER_DELETE', `id:${id}`, request.ip, 'ok');
+      return { success: true };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.get('/api/roles', { preHandler: [authenticate] }, async () => {
+    return { roles: await dbService.listRoles() };
+  });
+
+  app.post('/api/roles', { preHandler: [authenticate] }, async (request, reply) => {
+    const body = request.body as { code?: string; name?: string; description?: string };
+    try {
+      const created = await dbService.createRole({
+        code: body?.code || '',
+        name: body?.name || '',
+        description: body?.description || '',
+      });
+      recordAudit('ROLE_CREATE', `${created.code} (${created.name})`, request.ip, 'ok');
+      return { success: true, role: created };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.put('/api/roles/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { code?: string; name?: string; description?: string };
+    try {
+      const updated = await dbService.updateRole(Number(id), {
+        code: body?.code || '',
+        name: body?.name || '',
+        description: body?.description || '',
+      });
+      recordAudit('ROLE_UPDATE', `${updated.code} (${updated.name})`, request.ip, 'ok');
+      return { success: true, role: updated };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.delete('/api/roles/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      await dbService.deleteRole(Number(id));
+      recordAudit('ROLE_DELETE', `id:${id}`, request.ip, 'ok');
+      return { success: true };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
   });
 
   app.post('/api/users/password', { preHandler: [authenticate] }, async (request, reply) => {
@@ -119,7 +210,7 @@ async function bootstrap() {
     try {
       await dbService.changePassword(user.username, body?.newPassword || '');
       recordAudit('USER_PASSWORD_CHANGE', user.username, request.ip, 'ok');
-      return { success: true, message: 'Contraseña actualizada con hash scrypt en MySQL.' };
+      return { success: true, message: 'Contraseña actualizada con hash scrypt en MariaDB.' };
     } catch (e: any) {
       return reply.code(400).send({ error: e.message });
     }

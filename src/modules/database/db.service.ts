@@ -1,10 +1,22 @@
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
 
+export interface PanelRole {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  usersCount?: number;
+  createdAt: string;
+}
+
 export interface PanelUser {
   id: number;
   username: string;
+  fullName: string;
+  roleId: number | null;
   role: string;
+  roleName: string;
   lastLogin: string | null;
   createdAt: string;
 }
@@ -66,17 +78,48 @@ export class DbService {
       }
     }
 
+    // 1. Tabla de Roles
     await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE IF NOT EXISTS roles (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(100) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'admin',
-        last_login DATETIME NULL,
+        code VARCHAR(50) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        description VARCHAR(255) NOT NULL DEFAULT '',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 2. Semilla inicial de roles si está vacía
+    const [roleCountRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM roles');
+    if (Number(roleCountRows?.[0]?.total || 0) === 0) {
+      await this.pool.query(`
+        INSERT IGNORE INTO roles (code, name, description) VALUES
+        ('admin', 'Administrador', 'Control total del servidor, proyectos, dominios, bases de datos y usuarios'),
+        ('developer', 'Desarrollador', 'Gestión de despliegues, Modo Desarrollador (develop), logs y caché'),
+        ('viewer', 'Auditor / Lectura', 'Visualización de métricas, estado de contenedores y auditoría')
+      `);
+    }
+
+    // 3. Tabla de Usuarios
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        full_name VARCHAR(150) NOT NULL DEFAULT '',
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'admin',
+        role_id INT NULL,
+        last_login DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_users_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Migraciones suaves para bases de datos ya existentes
+    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(150) NOT NULL DEFAULT '' AFTER username`).catch(() => null);
+    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id INT NULL AFTER role`).catch(() => null);
+
+    // 4. Tabla de Auditoría
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -88,24 +131,46 @@ export class DbService {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 5. Usuario Administrador inicial si no existe ningún usuario
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM users');
     const total = Number(rows?.[0]?.total || 0);
     if (total === 0) {
       const initialUser = (process.env.PANEL_USER || 'admin').trim();
       const initialPass = process.env.PANEL_PASSWORD || 'admin123';
       const hashed = this.hashPassword(initialPass);
-      await this.pool.query(
-        'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-        [initialUser, hashed, 'admin']
+      const [adminRoleRows] = await this.pool.query<mysql.RowDataPacket[]>(
+        "SELECT id FROM roles WHERE code = 'admin' LIMIT 1"
       );
-      console.log(`✅ Usuario administrador inicial '${initialUser}' registrado en MySQL con hash scrypt.`);
+      const adminRoleId = adminRoleRows?.[0]?.id || null;
+      await this.pool.query(
+        'INSERT INTO users (username, full_name, password_hash, role, role_id) VALUES (?, ?, ?, ?, ?)',
+        [initialUser, 'Administrador Principal', hashed, 'admin', adminRoleId]
+      );
+      console.log(`✅ Usuario administrador inicial '${initialUser}' registrado en MariaDB con hash scrypt.`);
     }
+
+    // Sincronizar role_id y full_name de usuarios existentes que no lo tengan aún
+    await this.pool
+      .query(`
+        UPDATE users u
+        INNER JOIN roles r ON r.code = u.role
+        SET u.role_id = r.id
+        WHERE u.role_id IS NULL
+      `)
+      .catch(() => null);
+    await this.pool
+      .query(`UPDATE users SET full_name = username WHERE full_name = '' OR full_name IS NULL`)
+      .catch(() => null);
   }
 
   async verifyUserCredentials(username: string, password: string): Promise<{ valid: boolean; user?: PanelUser }> {
     try {
       const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-        'SELECT id, username, password_hash, role, last_login, created_at FROM users WHERE username = ? LIMIT 1',
+        `SELECT u.id, u.username, u.full_name, u.password_hash, u.role, u.role_id,
+                r.code as role_code, r.name as role_name, u.last_login, u.created_at
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE u.username = ? LIMIT 1`,
         [username.trim()]
       );
       if (!rows || rows.length === 0) {
@@ -123,7 +188,10 @@ export class DbService {
         user: {
           id: row.id,
           username: row.username,
-          role: row.role,
+          fullName: row.full_name || row.username,
+          roleId: row.role_id || null,
+          role: row.role_code || row.role || 'admin',
+          roleName: row.role_name || row.role || 'Administrador',
           lastLogin: new Date().toISOString(),
           createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
         },
@@ -134,39 +202,145 @@ export class DbService {
     }
   }
 
+  // ==================== CRUD DE USUARIOS ====================
+
   async listUsers(): Promise<PanelUser[]> {
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-      'SELECT id, username, role, last_login, created_at FROM users ORDER BY id ASC'
+      `SELECT u.id, u.username, u.full_name, u.role, u.role_id,
+              r.code as role_code, r.name as role_name, u.last_login, u.created_at
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       ORDER BY u.id ASC`
     );
-    return (rows || []).map((r) => ({
+    return (rows || []).map((r: any) => ({
       id: r.id,
       username: r.username,
-      role: r.role,
+      fullName: r.full_name || r.username,
+      roleId: r.role_id || null,
+      role: r.role_code || r.role || 'admin',
+      roleName: r.role_name || r.role || 'Administrador',
       lastLogin: r.last_login ? new Date(r.last_login).toISOString() : null,
       createdAt: r.created_at ? new Date(r.created_at).toISOString() : '',
     }));
   }
 
-  async createUser(username: string, password: string, role = 'admin'): Promise<PanelUser> {
-    const cleanUser = (username || '').trim();
+  async createUser(payload: {
+    username: string;
+    fullName: string;
+    password: string;
+    roleId?: number;
+  }): Promise<PanelUser> {
+    const cleanUser = (payload.username || '').trim();
+    const cleanName = (payload.fullName || '').trim() || cleanUser;
     if (!cleanUser || cleanUser.length < 3) {
-      throw new Error('El nombre de usuario debe tener al menos 3 caracteres.');
+      throw new Error('El nombre de usuario (username) debe tener al menos 3 caracteres.');
     }
-    if (!password || password.length < 6) {
+    if (!payload.password || payload.password.length < 6) {
       throw new Error('La contraseña debe tener al menos 6 caracteres.');
     }
-    const hashed = this.hashPassword(password);
-    const [res] = await this.pool.query<mysql.ResultSetHeader>(
-      'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-      [cleanUser, hashed, role]
-    );
-    return {
-      id: res.insertId,
-      username: cleanUser,
-      role,
-      lastLogin: null,
-      createdAt: new Date().toISOString(),
-    };
+
+    let roleId: number | null = payload.roleId ? Number(payload.roleId) : null;
+    let roleCode = 'admin';
+    let roleName = 'Administrador';
+
+    if (roleId) {
+      const [rRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT id, code, name FROM roles WHERE id = ? LIMIT 1', [roleId]);
+      if (!rRows || rRows.length === 0) {
+        throw new Error('El rol seleccionado no existe.');
+      }
+      roleCode = rRows[0].code;
+      roleName = rRows[0].name;
+    } else {
+      const [rRows] = await this.pool.query<mysql.RowDataPacket[]>("SELECT id, code, name FROM roles WHERE code = 'admin' LIMIT 1");
+      if (rRows && rRows.length > 0) {
+        roleId = rRows[0].id;
+        roleCode = rRows[0].code;
+        roleName = rRows[0].name;
+      }
+    }
+
+    const hashed = this.hashPassword(payload.password);
+    try {
+      const [res] = await this.pool.query<mysql.ResultSetHeader>(
+        'INSERT INTO users (username, full_name, password_hash, role, role_id) VALUES (?, ?, ?, ?, ?)',
+        [cleanUser, cleanName, hashed, roleCode, roleId]
+      );
+      return {
+        id: res.insertId,
+        username: cleanUser,
+        fullName: cleanName,
+        roleId,
+        role: roleCode,
+        roleName,
+        lastLogin: null,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        throw new Error(`El usuario '${cleanUser}' ya existe.`);
+      }
+      throw err;
+    }
+  }
+
+  async updateUser(
+    id: number,
+    payload: {
+      username: string;
+      fullName: string;
+      password?: string;
+      roleId?: number;
+    }
+  ): Promise<PanelUser> {
+    const userId = Number(id);
+    if (!userId) throw new Error('ID de usuario inválido.');
+
+    const cleanUser = (payload.username || '').trim();
+    const cleanName = (payload.fullName || '').trim() || cleanUser;
+    if (!cleanUser || cleanUser.length < 3) {
+      throw new Error('El nombre de usuario (username) debe tener al menos 3 caracteres.');
+    }
+
+    let roleId: number | null = payload.roleId ? Number(payload.roleId) : null;
+    let roleCode = 'admin';
+    let roleName = 'Administrador';
+
+    if (roleId) {
+      const [rRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT id, code, name FROM roles WHERE id = ? LIMIT 1', [roleId]);
+      if (!rRows || rRows.length === 0) {
+        throw new Error('El rol seleccionado no existe.');
+      }
+      roleCode = rRows[0].code;
+      roleName = rRows[0].name;
+    }
+
+    try {
+      if (payload.password && payload.password.trim().length > 0) {
+        if (payload.password.trim().length < 6) {
+          throw new Error('La nueva contraseña debe tener al menos 6 caracteres.');
+        }
+        const hashed = this.hashPassword(payload.password.trim());
+        await this.pool.query(
+          'UPDATE users SET username = ?, full_name = ?, password_hash = ?, role = ?, role_id = ? WHERE id = ?',
+          [cleanUser, cleanName, hashed, roleCode, roleId, userId]
+        );
+      } else {
+        await this.pool.query(
+          'UPDATE users SET username = ?, full_name = ?, role = ?, role_id = ? WHERE id = ?',
+          [cleanUser, cleanName, roleCode, roleId, userId]
+        );
+      }
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        throw new Error(`El nombre de usuario '${cleanUser}' ya está en uso.`);
+      }
+      throw err;
+    }
+
+    const users = await this.listUsers();
+    const updated = users.find((u) => u.id === userId);
+    if (!updated) throw new Error('Usuario no encontrado tras actualizar.');
+    return updated;
   }
 
   async changePassword(username: string, newPassword: string): Promise<void> {
@@ -180,10 +354,117 @@ export class DbService {
   async deleteUser(id: number): Promise<void> {
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM users');
     if (Number(rows?.[0]?.total || 0) <= 1) {
-      throw new Error('No puedes eliminar el único usuario administrador del panel.');
+      throw new Error('No puedes eliminar el único usuario registrado en el panel.');
     }
-    await this.pool.query('DELETE FROM users WHERE id = ?', [id]);
+    await this.pool.query('DELETE FROM users WHERE id = ?', [Number(id)]);
   }
+
+  // ==================== CRUD DE ROLES ====================
+
+  async listRoles(): Promise<PanelRole[]> {
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
+      `SELECT r.id, r.code, r.name, r.description, r.created_at, COUNT(u.id) as users_count
+       FROM roles r
+       LEFT JOIN users u ON u.role_id = r.id
+       GROUP BY r.id, r.code, r.name, r.description, r.created_at
+       ORDER BY r.id ASC`
+    );
+    return (rows || []).map((r: any) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      description: r.description || '',
+      usersCount: Number(r.users_count || 0),
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : '',
+    }));
+  }
+
+  async createRole(payload: { code: string; name: string; description?: string }): Promise<PanelRole> {
+    const cleanCode = (payload.code || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanName = (payload.name || '').trim();
+    const cleanDesc = (payload.description || '').trim();
+
+    if (!cleanCode || cleanCode.length < 2) {
+      throw new Error('El código del rol debe tener al menos 2 caracteres alfanuméricos (ej. soporte).');
+    }
+    if (!cleanName) {
+      throw new Error('El nombre del rol es obligatorio.');
+    }
+
+    try {
+      const [res] = await this.pool.query<mysql.ResultSetHeader>(
+        'INSERT INTO roles (code, name, description) VALUES (?, ?, ?)',
+        [cleanCode, cleanName, cleanDesc]
+      );
+      return {
+        id: res.insertId,
+        code: cleanCode,
+        name: cleanName,
+        description: cleanDesc,
+        usersCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        throw new Error(`Ya existe un rol con el código '${cleanCode}'.`);
+      }
+      throw err;
+    }
+  }
+
+  async updateRole(id: number, payload: { code: string; name: string; description?: string }): Promise<PanelRole> {
+    const roleId = Number(id);
+    if (!roleId) throw new Error('ID de rol inválido.');
+
+    const cleanCode = (payload.code || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanName = (payload.name || '').trim();
+    const cleanDesc = (payload.description || '').trim();
+
+    if (!cleanCode || cleanCode.length < 2) {
+      throw new Error('El código del rol debe tener al menos 2 caracteres alfanuméricos.');
+    }
+    if (!cleanName) {
+      throw new Error('El nombre del rol es obligatorio.');
+    }
+
+    try {
+      await this.pool.query(
+        'UPDATE roles SET code = ?, name = ?, description = ? WHERE id = ?',
+        [cleanCode, cleanName, cleanDesc, roleId]
+      );
+      await this.pool.query('UPDATE users SET role = ? WHERE role_id = ?', [cleanCode, roleId]);
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        throw new Error(`Ya existe otro rol con el código '${cleanCode}'.`);
+      }
+      throw err;
+    }
+
+    const roles = await this.listRoles();
+    const updated = roles.find((r) => r.id === roleId);
+    if (!updated) throw new Error('Rol no encontrado.');
+    return updated;
+  }
+
+  async deleteRole(id: number): Promise<void> {
+    const roleId = Number(id);
+    const [usedRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      'SELECT COUNT(*) as total FROM users WHERE role_id = ?',
+      [roleId]
+    );
+    if (Number(usedRows?.[0]?.total || 0) > 0) {
+      throw new Error('No puedes eliminar este rol porque tiene usuarios asignados actualmente.');
+    }
+
+    const [totalRoles] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM roles');
+    if (Number(totalRoles?.[0]?.total || 0) <= 1) {
+      throw new Error('Debe existir al menos un rol en el sistema.');
+    }
+
+    await this.pool.query('DELETE FROM roles WHERE id = ?', [roleId]);
+  }
+
+  // ==================== AUDITORÍA ====================
 
   async insertAuditLog(action: string, target: string, ip: string, status: 'ok' | 'error'): Promise<void> {
     try {
@@ -200,7 +481,7 @@ export class DbService {
         'SELECT id, action, target, ip, status, created_at FROM audit_logs ORDER BY id DESC LIMIT ?',
         [Number(limit) || 150]
       );
-      return (rows || []).map((r) => ({
+      return (rows || []).map((r: any) => ({
         id: r.id,
         time: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
         action: r.action,
