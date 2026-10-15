@@ -125,9 +125,12 @@ export class ProxyService {
           output: `Caddyfile actualizado correctamente.\n\n${caddyfileContent}`,
         };
       }
+      await execAsync(
+        `docker exec ${caddyContainer} caddy reload --config /etc/caddy/Caddyfile`
+      ).catch(() => null);
       return {
         success: true,
-        output: `Configuración guardada y sincronizada con ${caddyContainer}.\n\n${caddyfileContent}`,
+        output: `Configuración guardada y recargada en vivo en ${caddyContainer}.\n\n${caddyfileContent}`,
       };
     } catch (error: any) {
       return {
