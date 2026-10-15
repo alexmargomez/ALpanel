@@ -1,0 +1,227 @@
+<!-- MODAL 1: DATABASE CREDENTIALS -->
+<div id="db-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-database"></i>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">Credenciales de Base de Datos</h3>
+          <p id="db-modal-subtitle" class="text-xs text-slate-400">Proyecto: ...</p>
+        </div>
+      </div>
+      <button onclick="closeModal('db-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+
+    <div id="db-modal-body" class="space-y-3 text-xs"></div>
+
+    <div class="mt-6 flex items-center justify-between">
+      <button id="db-dump-btn" onclick="" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2">
+        <i class="fa-solid fa-download"></i> Descargar Backup .SQL
+      </button>
+      <button onclick="closeModal('db-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
+        Cerrar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL 2: CONSOLE OUTPUT / LOGS -->
+<div id="console-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl flex flex-col max-h-[85vh]">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-terminal text-emerald-400"></i>
+        <h3 id="console-modal-title" class="text-sm font-bold text-white">Consola del Servidor</h3>
+      </div>
+      <div class="flex items-center gap-2">
+        <select id="console-container-select" onchange="loadSelectedContainerLogs()" class="hidden bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white"></select>
+        <button onclick="closeModal('console-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+    </div>
+    <pre id="console-modal-output" class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-200 overflow-auto scrollbar-thin whitespace-pre-wrap"></pre>
+    <div class="mt-4 flex justify-between items-center">
+      <button onclick="copyText(document.getElementById('console-modal-output').innerText, 'Salida copiada')" class="text-xs text-indigo-400 hover:underline">
+        <i class="fa-regular fa-copy mr-1"></i>Copiar salida
+      </button>
+      <button onclick="closeModal('console-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
+        Cerrar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL 3: .ENV EDITOR -->
+<div id="env-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col max-h-[85vh]">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+      <div>
+        <h3 id="env-modal-title" class="text-sm font-bold text-white"><i class="fa-solid fa-key text-amber-400 mr-2"></i>Editor de Variables (.env)</h3>
+        <p class="text-[11px] text-slate-400">Se guarda con permisos seguros (0600) y reinicia los contenedores del proyecto.</p>
+      </div>
+      <button onclick="closeModal('env-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+    <textarea id="env-modal-textarea" rows="14" spellcheck="false"
+      class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-300 focus:outline-none focus:border-indigo-500"></textarea>
+    <div class="mt-4 flex justify-end gap-2">
+      <button onclick="closeModal('env-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+        Cancelar
+      </button>
+      <button onclick="saveEnvFile(true)" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+        <i class="fa-solid fa-floppy-disk mr-1"></i> Guardar y Reiniciar Docker
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL 4: CLONE NEW PROJECT -->
+<div id="clone-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+      <h3 class="text-sm font-bold text-white"><i class="fa-brands fa-git-alt text-indigo-400 mr-2"></i>Clonar y Desplegar Nuevo Proyecto</h3>
+      <button onclick="closeModal('clone-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+    <form id="clone-form" onsubmit="submitCloneForm(event)" class="space-y-3 text-xs">
+      <div>
+        <label class="block text-slate-400 mb-1">Nombre de la Carpeta del Proyecto</label>
+        <input type="text" id="clone-name" placeholder="ej. mi_sistema_laravel" required
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+      </div>
+      <div>
+        <label class="block text-slate-400 mb-1">URL del Repositorio Git (HTTPS o SSH)</label>
+        <input type="text" id="clone-url" placeholder="https://github.com/usuario/proyecto.git" required
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+      </div>
+      <div>
+        <label class="block text-slate-400 mb-1">Rama (Opcional)</label>
+        <input type="text" id="clone-branch" placeholder="main"
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+      </div>
+      <div>
+        <label class="block text-slate-400 mb-1">Variables .env iniciales (Opcional)</label>
+        <textarea id="clone-env" rows="4" placeholder="DB_NAME=mi_db&#10;DB_USER=app_user&#10;DB_PASSWORD=poner_password"
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-emerald-300"></textarea>
+      </div>
+      <label class="flex items-center gap-2 text-slate-300 pt-1">
+        <input type="checkbox" id="clone-autostart" checked class="rounded bg-slate-950 border-slate-700 text-indigo-600" />
+        Ejecutar <code class="text-indigo-400">docker compose up -d --build</code> automáticamente al terminar
+      </label>
+      <div class="pt-3 flex justify-end gap-2">
+        <button type="button" onclick="closeModal('clone-modal')" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">Cancelar</button>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+          <i class="fa-solid fa-rocket mr-1"></i> Clonar y Desplegar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL 5: CREATE / EDIT USER (CON MATRIZ DE PERMISOS DEL ROL) -->
+<div id="user-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+      <h3 id="user-modal-title" class="text-sm font-bold text-white"><i class="fa-solid fa-user-shield text-indigo-400 mr-2"></i>Nuevo Usuario</h3>
+      <button onclick="closeModal('user-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+    <form id="user-form" onsubmit="submitUserForm(event)" class="space-y-3.5 text-xs">
+      <input type="hidden" id="user-id" value="" />
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-slate-400 mb-1">Nombre Completo</label>
+          <input type="text" id="user-fullname" placeholder="ej. Alex Gómez" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Usuario (username)</label>
+          <input type="text" id="user-username" placeholder="ej. alexmar" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-slate-400 mb-1">Rol Asignado</label>
+          <select id="user-role-id" onchange="onUserRoleSelectChange()" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500"></select>
+        </div>
+        <div>
+          <label id="user-pass-label" class="block text-slate-400 mb-1">Contraseña (mín. 6 caracteres, hash scrypt)</label>
+          <input type="password" id="user-password" placeholder="••••••••"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+
+      <!-- Matriz de Permisos por Módulo del Rol seleccionado -->
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="font-bold text-slate-200 flex items-center gap-1.5">
+              <i class="fa-solid fa-key text-amber-400"></i> Permisos por Módulo del Rol Seleccionado
+            </span>
+            <p class="text-[11px] text-slate-400">Puedes ajustar aquí mismo qué módulos y acciones permite este rol.</p>
+          </div>
+          <span id="user-role-perm-badge" class="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold">RBAC</span>
+        </div>
+        <div id="user-role-permissions-matrix" class="overflow-x-auto"></div>
+      </div>
+
+      <div class="pt-2 flex justify-end gap-2">
+        <button type="button" onclick="closeModal('user-modal')" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">Cancelar</button>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+          <i class="fa-solid fa-floppy-disk mr-1"></i> Guardar Usuario y Permisos
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL 6: CREATE / EDIT ROLE (CON MATRIZ DE PERMISOS RBAC) -->
+<div id="role-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+      <h3 id="role-modal-title" class="text-sm font-bold text-white"><i class="fa-solid fa-id-badge text-amber-400 mr-2"></i>Nuevo Rol</h3>
+      <button onclick="closeModal('role-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+    <form id="role-form" onsubmit="submitRoleForm(event)" class="space-y-3.5 text-xs">
+      <input type="hidden" id="role-id" value="" />
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-slate-400 mb-1">Nombre del Rol</label>
+          <input type="text" id="role-name" placeholder="ej. Soporte Técnico" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Código identificador (sin espacios)</label>
+          <input type="text" id="role-code" placeholder="ej. soporte" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-slate-400 mb-1">Descripción del Rol</label>
+        <input type="text" id="role-desc" placeholder="Describe las responsabilidades de este rol..."
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500" />
+      </div>
+
+      <!-- Matriz de Permisos por Módulo -->
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="font-bold text-slate-200 flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-halved text-amber-400"></i> Matriz de Permisos por Módulo (RBAC)
+            </span>
+            <p class="text-[11px] text-slate-400">Marca a qué módulos y acciones tiene acceso este rol.</p>
+          </div>
+        </div>
+        <div id="role-permissions-matrix" class="overflow-x-auto"></div>
+      </div>
+
+      <div class="pt-2 flex justify-end gap-2">
+        <button type="button" onclick="closeModal('role-modal')" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold">Cancelar</button>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold">
+          <i class="fa-solid fa-floppy-disk mr-1"></i> Guardar Rol y Matriz RBAC
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

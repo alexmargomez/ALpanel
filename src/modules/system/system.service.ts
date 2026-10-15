@@ -2,35 +2,11 @@ import si from 'systeminformation';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
+import { HostMetrics } from './system.model';
+
+export { HostMetrics } from './system.model';
 
 const execAsync = promisify(exec);
-
-export interface HostMetrics {
-  hostname: string;
-  platform: string;
-  distro: string;
-  uptimeSeconds: number;
-  publicIp: string;
-  cpu: {
-    cores: number;
-    brand: string;
-    usagePercent: number;
-  };
-  memory: {
-    totalBytes: number;
-    usedBytes: number;
-    freeBytes: number;
-    usagePercent: number;
-  };
-  disk: {
-    totalBytes: number;
-    usedBytes: number;
-    freeBytes: number;
-    usagePercent: number;
-    mount: string;
-  };
-  timestamp: string;
-}
 
 export class SystemService {
   private cachedPublicIp: string | null = null;
@@ -43,7 +19,9 @@ export class SystemService {
       return this.cachedPublicIp;
     }
     try {
-      const { stdout } = await execAsync('curl -s --max-time 3 https://ifconfig.me || hostname -I | awk \'{print $1}\'');
+      const { stdout } = await execAsync(
+        "curl -s --max-time 3 https://ifconfig.me || hostname -I | awk '{print $1}'"
+      );
       const ip = stdout.trim();
       if (ip) {
         this.cachedPublicIp = ip;
@@ -65,7 +43,6 @@ export class SystemService {
       this.getPublicIp(),
     ]);
 
-    // Select primary root filesystem (or largest mounted disk)
     const rootDisk =
       fsSize.find((d) => d.mount === '/' || d.mount === '/host') ||
       fsSize.sort((a, b) => b.size - a.size)[0] || {
@@ -109,13 +86,14 @@ export class SystemService {
 
   async pruneDockerCache(): Promise<{ success: boolean; output: string }> {
     try {
-      const { stdout, stderr } = await execAsync(
-        'docker system prune -f && docker builder prune -f',
-        { timeout: 120000 }
-      );
+      const { stdout, stderr } = await execAsync('docker system prune -f && docker builder prune -f', {
+        timeout: 120000,
+      });
       return {
         success: true,
-        output: [stdout, stderr].filter(Boolean).join('\n').trim() || 'Caché de Docker limpiada correctamente.',
+        output:
+          [stdout, stderr].filter(Boolean).join('\n').trim() ||
+          'Caché de Docker limpiada correctamente.',
       };
     } catch (error: any) {
       return {
@@ -125,3 +103,5 @@ export class SystemService {
     }
   }
 }
+
+export const systemService = new SystemService();

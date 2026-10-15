@@ -4,6 +4,7 @@ RUN apk add --no-cache \
     git \
     curl \
     bash \
+    openssl \
     docker-cli \
     docker-cli-compose \
     openssh-client && \
@@ -12,6 +13,7 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 COPY package*.json ./
+COPY prisma ./prisma
 RUN npm install
 
 COPY tsconfig.json ./
