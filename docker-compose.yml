@@ -1,6 +1,6 @@
 services:
   panel_db:
-    image: mysql:8.0
+    image: mariadb:11
     container_name: sm_panel_db
     restart: unless-stopped
     command: >
@@ -9,7 +9,7 @@ services:
       --innodb-log-buffer-size=4M
       --max-connections=25
       --table-open-cache=200
-      --host-cache-size=0
+      --skip-name-resolve=ON
     env_file:
       - .env
     ports:

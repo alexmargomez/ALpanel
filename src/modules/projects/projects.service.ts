@@ -504,7 +504,7 @@ export class ProjectsService {
 
     const cmd = isPg
       ? `docker exec -e PGPASSWORD='${rootPass}' ${container} pg_dump -U ${db.rootUsername} ${dbName}`
-      : `docker exec ${container} mysqldump -u ${db.rootUsername} -p'${rootPass}' ${dbName}`;
+      : `docker exec ${container} sh -c "(command -v mariadb-dump >/dev/null 2>&1 && mariadb-dump -u ${db.rootUsername} -p'${rootPass}' ${dbName}) || mysqldump -u ${db.rootUsername} -p'${rootPass}' ${dbName}"`;
 
     const { stdout } = await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024, timeout: 120000 });
     const dateStr = new Date().toISOString().slice(0, 10);
