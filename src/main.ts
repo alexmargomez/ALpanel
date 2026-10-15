@@ -9,18 +9,18 @@ import dotenv from 'dotenv';
 import { SystemService } from './modules/system/system.service';
 import { ProjectsService } from './modules/projects/projects.service';
 import { ProxyService } from './modules/proxy/proxy.service';
+import { DbService } from './modules/database/db.service';
 
 dotenv.config();
 
 const PORT = Number(process.env.PANEL_PORT || 9000);
-const ADMIN_USER = process.env.PANEL_USER || 'admin';
-const ADMIN_PASSWORD = process.env.PANEL_PASSWORD || 'admin_demo_change_me';
 const JWT_SECRET = process.env.PANEL_JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
 // Rate limiter memory store against brute-force login attacks
 const loginAttempts = new Map<string, { count: number; lockUntil: number }>();
 
-// Lightweight Audit Log in memory (never stores secrets)
+const dbService = new DbService();
+
 interface AuditEntry {
   timestamp: string;
   action: string;
@@ -38,16 +38,12 @@ function recordAudit(action: string, target: string, ip: string, status: 'ok' | 
     status,
   });
   if (auditLogs.length > 100) auditLogs.pop();
-}
-
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  dbService.insertAuditLog(action, target, ip, status).catch(() => null);
 }
 
 async function bootstrap() {
+  await dbService.init();
+
   const app = Fastify({ logger: false });
 
   await app.register(fastifyCors, { origin: true, credentials: true });
@@ -64,6 +60,9 @@ async function bootstrap() {
   const projectsService = new ProjectsService(systemService);
   const proxyService = new ProxyService();
 
+  // Sincronizar red global de Caddy al iniciar
+  proxyService.reloadCaddy().catch(() => null);
+
   const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -72,7 +71,7 @@ async function bootstrap() {
     }
   };
 
-  // --- AUTH ENDPOINTS (With Brute-Force Rate Limiting) ---
+  // --- AUTH ENDPOINTS (MySQL + scrypt hash + Brute-Force Rate Limiting) ---
   app.post('/api/auth/login', async (request, reply) => {
     const ip = request.ip || 'unknown';
     const now = Date.now();
@@ -86,14 +85,16 @@ async function bootstrap() {
     }
 
     const body = request.body as { username?: string; password?: string };
-    const userOk = timingSafeEqualStr(body?.username || '', ADMIN_USER);
-    const passOk = timingSafeEqualStr(body?.password || '', ADMIN_PASSWORD);
+    const authRes = await dbService.verifyUserCredentials(body?.username || '', body?.password || '');
 
-    if (userOk && passOk) {
+    if (authRes.valid && authRes.user) {
       loginAttempts.delete(ip);
-      recordAudit('AUTH_LOGIN', ADMIN_USER, ip, 'ok');
-      const token = app.jwt.sign({ username: ADMIN_USER, role: 'superadmin' }, { expiresIn: '24h' });
-      return { token, username: ADMIN_USER };
+      recordAudit('AUTH_LOGIN_DB', authRes.user.username, ip, 'ok');
+      const token = app.jwt.sign(
+        { id: authRes.user.id, username: authRes.user.username, role: authRes.user.role },
+        { expiresIn: '24h' }
+      );
+      return { token, username: authRes.user.username };
     }
 
     const attempts = (record?.count || 0) + 1;
@@ -108,7 +109,35 @@ async function bootstrap() {
     return { user: request.user };
   });
 
+  app.get('/api/users', { preHandler: [authenticate] }, async () => {
+    return { users: await dbService.listUsers() };
+  });
+
+  app.post('/api/users/password', { preHandler: [authenticate] }, async (request, reply) => {
+    const body = request.body as { newPassword?: string };
+    const user = request.user as { username: string };
+    try {
+      await dbService.changePassword(user.username, body?.newPassword || '');
+      recordAudit('USER_PASSWORD_CHANGE', user.username, request.ip, 'ok');
+      return { success: true, message: 'Contraseña actualizada con hash scrypt en MySQL.' };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
   app.get('/api/audit', { preHandler: [authenticate] }, async () => {
+    const dbLogs = await dbService.getAuditLogs(150);
+    if (dbLogs.length > 0) {
+      return {
+        logs: dbLogs.map((l) => ({
+          timestamp: l.time,
+          action: l.action,
+          target: l.target,
+          ip: l.ip,
+          status: l.status,
+        })),
+      };
+    }
     return { logs: auditLogs };
   });
 

@@ -113,8 +113,18 @@ export class ProxyService {
   }
 
   async reloadCaddy(): Promise<{ success: boolean; output: string }> {
-    const caddyfileContent = this.generateCaddyfile();
+    const routes = this.listRoutes();
+    const caddyfileContent = this.generateCaddyfile(routes);
     try {
+      for (const r of routes) {
+        for (const t of [r.frontendTarget, r.backendTarget]) {
+          const host = (t || '').split(':')[0].trim().replace(/[^a-zA-Z0-9._-]/g, '');
+          if (host && host !== 'localhost' && host !== '127.0.0.1') {
+            await execAsync(`docker network connect alpanel_proxy_net ${host} 2>/dev/null || true`).catch(() => null);
+          }
+        }
+      }
+
       const { stdout } = await execAsync(
         'docker ps --filter "ancestor=caddy:2" --format "{{.Names}}" | head -n 1'
       );

@@ -826,9 +826,9 @@ export class ProjectsService {
         : `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -v /var/run/docker.sock:/var/run/docker.sock -v "${this.projectsRoot}:${this.projectsRoot}" ${imageTag}`;
 
       await execAsync(runCmd, { timeout: 120000 });
-      // Asegurar conexión con la red del proxy Caddy (api_sm_default)
-      if (networkName !== 'api_sm_default') {
-        await execAsync('docker network connect api_sm_default alpanel_dev_app 2>/dev/null || true');
+      // Asegurar conexión con la red global del proxy Caddy de ALpanel (alpanel_proxy_net)
+      if (networkName !== 'alpanel_proxy_net') {
+        await execAsync('docker network connect alpanel_proxy_net alpanel_dev_app 2>/dev/null || true').catch(() => null);
       }
 
       const internalTarget = `alpanel_dev_app:${internalPort}`;

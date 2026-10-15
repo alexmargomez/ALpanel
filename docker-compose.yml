@@ -1,4 +1,17 @@
 services:
+  db:
+    image: mysql:8.0
+    container_name: sm_panel_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PANEL_DB_PORT:-3308}:3306"
+    volumes:
+      - panel_mysql_data:/var/lib/mysql
+    networks:
+      - alpanel_net
+
   panel:
     build: .
     container_name: sm_server_panel
@@ -7,7 +20,38 @@ services:
       - "${PANEL_PORT:-9000}:9000"
     env_file:
       - .env
+    depends_on:
+      - db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PROJECTS_PATH:-/home/ubuntu}:${PROJECTS_ROOT:-/home/ubuntu}
       - ./data:/app/data
+    networks:
+      - alpanel_net
+
+  caddy:
+    image: caddy:2
+    container_name: sm_panel_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    depends_on:
+      - panel
+    volumes:
+      - ./data/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - alpanel_net
+
+volumes:
+  panel_mysql_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  alpanel_net:
+    name: alpanel_proxy_net
+    driver: bridge
