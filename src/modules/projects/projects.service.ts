@@ -752,7 +752,7 @@ export class ProjectsService {
 
   /**
    * Activa Modo Desarrollador (rama develop) exclusivamente en un proyecto y apunta el subdominio develop.* a él.
-   * Si otro proyecto tenía Modo Desarrollador activo, lo apaga primero automáticamente.
+   * Crea la carpeta temporal .alpanel_dev/<Proyecto> desde cero y, si otro proyecto estaba activo, la elimina primero.
    */
   async activateDevMode(
     projectName: string,
@@ -765,16 +765,15 @@ export class ProjectsService {
 
     const prevState = this.getDevModeState();
     if (prevState.active && prevState.projectName && prevState.projectName.toLowerCase() !== cleanName.toLowerCase()) {
-      logs.push(`==> Desactivando Modo Desarrollador anterior en [${prevState.projectName}]...`);
+      logs.push(`==> Desactivando y eliminando archivos de Modo Desarrollador anterior [${prevState.projectName}]...`);
     }
 
     try {
       await execAsync('docker rm -f alpanel_dev_app 2>/dev/null || true');
 
       const devRoot = path.join(this.projectsRoot, '.alpanel_dev');
-      if (!fs.existsSync(devRoot)) {
-        fs.mkdirSync(devRoot, { recursive: true });
-      }
+      // Limpiar carpeta anterior para garantizar que solo exista el proyecto activo en Modo Desarrollador
+      await execAsync(`rm -rf "${devRoot}" && mkdir -p "${devRoot}"`);
       const devDir = path.join(devRoot, cleanName);
 
       const remoteRes = await execAsync('git config --get remote.origin.url', { cwd: projectDir }).catch(() => ({
@@ -785,13 +784,9 @@ export class ProjectsService {
         throw new Error(`El proyecto ${cleanName} no tiene un repositorio Git remoto configurado.`);
       }
 
-      if (!fs.existsSync(path.join(devDir, '.git'))) {
-        logs.push(`==> Inicializando entorno aislado para rama [develop] de ${cleanName}...`);
-        await execAsync(`rm -rf "${devDir}" && git clone "${projectDir}" "${devDir}"`, { timeout: 120000 });
-        await execAsync(`git remote set-url origin "${remoteUrl}"`, { cwd: devDir });
-      }
-
-      logs.push(`==> Sincronizando rama [origin/develop] en entorno de pruebas...`);
+      logs.push(`==> Creando carpeta temporal aislada (${devDir}) y clonando rama [origin/develop]...`);
+      await execAsync(`git clone "${projectDir}" "${devDir}"`, { timeout: 120000 });
+      await execAsync(`git remote set-url origin "${remoteUrl}"`, { cwd: devDir });
       await execAsync('git fetch origin', { cwd: devDir, timeout: 60000 });
       await execAsync('git checkout -B develop origin/develop && git reset --hard origin/develop', {
         cwd: devDir,
@@ -813,33 +808,56 @@ export class ProjectsService {
       fs.writeFileSync(devEnvPath, envContent, 'utf-8');
       fs.chmodSync(devEnvPath, 0o600);
 
-      // Detectar puerto interno y red a partir del contenedor principal del proyecto
+      // Asegurar que la base de datos del proyecto esté encendida por si el proyecto estaba detenido
+      if (fs.existsSync(path.join(projectDir, 'docker-compose.yml'))) {
+        await execAsync('docker compose up -d db 2>/dev/null || docker compose up -d panel_db 2>/dev/null || true', {
+          cwd: projectDir,
+          timeout: 60000,
+        }).catch(() => null);
+      }
+
+      // Detectar puerto interno y red propia del proyecto (donde vive su contenedor db)
       let internalPort = '8000';
-      let networkName = 'api_sm_default';
+      let networkName = this.isSelfPanel(cleanName)
+        ? 'alpanel_proxy_net'
+        : `${path.basename(projectDir).toLowerCase()}_default`;
 
       if (fs.existsSync(path.join(devDir, 'package.json')) && !fs.existsSync(path.join(devDir, 'manage.py'))) {
         internalPort = this.isSelfPanel(cleanName) ? '9000' : '3000';
       }
 
       const allContainers = await this.docker.listContainers({ all: true });
-      const prodAppContainer = allContainers.find((c) => {
+      const projectContainers = allContainers.filter((c) => {
         const wDir = c.Labels?.['com.docker.compose.project.working_dir'] || '';
         const cName = (c.Names?.[0] || '').replace(/^\//, '');
         if (cName === 'alpanel_dev_app') return false;
-        const role = this.detectRole(c.Labels?.['com.docker.compose.service'] || cName, c.Image);
         const wDirBase = path.basename(wDir).toLowerCase();
-        return (
-          (wDirBase === cleanName.toLowerCase() || (this.isSelfPanel(cleanName) && this.isSelfPanel(wDirBase))) &&
-          (role === 'backend' || role === 'frontend')
-        );
+        return wDirBase === cleanName.toLowerCase() || (this.isSelfPanel(cleanName) && this.isSelfPanel(wDirBase));
+      });
+
+      const prodAppContainer = projectContainers.find((c) => {
+        const cName = (c.Names?.[0] || '').replace(/^\//, '');
+        const role = this.detectRole(c.Labels?.['com.docker.compose.service'] || cName, c.Image);
+        return role === 'backend' || role === 'frontend';
+      });
+      const prodDbContainer = projectContainers.find((c) => {
+        const cName = (c.Names?.[0] || '').replace(/^\//, '');
+        const role = this.detectRole(c.Labels?.['com.docker.compose.service'] || cName, c.Image);
+        return role === 'database';
       });
 
       if (prodAppContainer) {
         const pPort = (prodAppContainer.Ports || []).find((p) => p.PrivatePort)?.PrivatePort;
         if (pPort) internalPort = String(pPort);
-        const netKeys = Object.keys(prodAppContainer.NetworkSettings?.Networks || {});
-        if (netKeys.length > 0) {
-          networkName = netKeys[0];
+      }
+
+      // Preferir siempre la red donde vive la Base de Datos del proyecto (distinta de alpanel_proxy_net si existe)
+      const refContainer = prodDbContainer || prodAppContainer;
+      if (refContainer) {
+        const netKeys = Object.keys(refContainer.NetworkSettings?.Networks || {});
+        const projectNet = netKeys.find((n) => n !== 'alpanel_proxy_net' && n !== 'bridge') || netKeys[0];
+        if (projectNet) {
+          networkName = projectNet;
         }
       }
 
@@ -847,14 +865,14 @@ export class ProjectsService {
       logs.push(`==> Construyendo imagen Docker de pruebas (${imageTag})...`);
       await execAsync(`docker build -t ${imageTag} "${devDir}"`, { timeout: 600000 });
 
-      logs.push(`==> Levantando contenedor aislado [alpanel_dev_app] en puerto interno ${internalPort}...`);
+      logs.push(`==> Levantando contenedor aislado [alpanel_dev_app] en red [${networkName}] (puerto ${internalPort})...`);
       const isDjango = fs.existsSync(path.join(devDir, 'manage.py'));
       const runCmd = isDjango
         ? `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -e ALLOWED_HOSTS=* -v "${devDir}:/app" ${imageTag} sh -c "python manage.py migrate --noinput && gunicorn --bind 0.0.0.0:${internalPort} core.wsgi:application"`
         : `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -v /var/run/docker.sock:/var/run/docker.sock -v "${this.panelSelfDir}:${this.panelSelfDir}" -v "${this.projectsRoot}:${this.projectsRoot}" ${imageTag}`;
 
       await execAsync(runCmd, { timeout: 120000 });
-      // Asegurar conexión con la red global del proxy Caddy de ALpanel (alpanel_proxy_net)
+      // Asegurar conexión adicional con la red global del proxy Caddy de ALpanel (alpanel_proxy_net)
       if (networkName !== 'alpanel_proxy_net') {
         await execAsync('docker network connect alpanel_proxy_net alpanel_dev_app 2>/dev/null || true').catch(() => null);
       }
@@ -898,7 +916,7 @@ export class ProjectsService {
   }
 
   /**
-   * Apaga el Modo Desarrollador activo, detiene el contenedor de pruebas y libera el subdominio develop.*
+   * Apaga el Modo Desarrollador activo, detiene el contenedor de pruebas, elimina la carpeta temporal .alpanel_dev y libera el subdominio develop.*
    */
   async deactivateDevMode(
     proxyService: ProxyService
@@ -906,8 +924,17 @@ export class ProjectsService {
     const prev = this.getDevModeState();
     const logs: string[] = [];
     try {
-      logs.push(`==> Deteniendo contenedor de Modo Desarrollador (alpanel_dev_app)...`);
+      logs.push(`==> Deteniendo y eliminando contenedor de Modo Desarrollador (alpanel_dev_app)...`);
       await execAsync('docker rm -f alpanel_dev_app 2>/dev/null || true');
+
+      const devRoot = path.join(this.projectsRoot, '.alpanel_dev');
+      logs.push(`==> Eliminando carpeta temporal de archivos develop (${devRoot})...`);
+      await execAsync(`rm -rf "${devRoot}" 2>/dev/null || true`);
+
+      if (prev.projectName) {
+        const imageTag = `alpanel_dev_${prev.projectName.toLowerCase()}:develop`;
+        await execAsync(`docker rmi ${imageTag} 2>/dev/null || true`).catch(() => null);
+      }
 
       logs.push(`==> Desvinculando subdominio ${prev.domain} en Caddy...`);
       proxyService.deleteRoute('route-dev-mode');
@@ -926,7 +953,7 @@ export class ProjectsService {
       };
       fs.writeFileSync(this.devModeFile, JSON.stringify(newState, null, 2), 'utf-8');
 
-      logs.push(`✅ Modo Desarrollador apagado correctamente.`);
+      logs.push(`✅ Modo Desarrollador apagado y carpeta temporal eliminada correctamente.`);
       return { success: true, output: logs.join('\n'), state: newState };
     } catch (error: any) {
       return {
