@@ -1,0 +1,134 @@
+# ⚡ ALpanel — Orquestador Ligero de Proyectos, Docker & Bases de Datos para VPS
+
+**ALpanel** es un panel de control autoalojado (self-hosted), ultraligero y escalable para servidores Linux VPS. Está diseñado para administrar múltiples proyectos en cualquier lenguaje (**Node.js, Python/Django, Java/Spring Boot, PHP/Laravel/Symfony, React/Vue/Next.js**) basados en `docker compose`, sin opciones de relleno y con control total en 1 clic.
+
+![Node.js 20](https://img.shields.gl/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
+![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
+
+---
+
+## 🚀 ¿Qué hace único a ALpanel?
+
+A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limitados que solo permiten levantar un contenedor suelto por aplicación:
+
+1. **Soporte Nativo Multicontenedor (`Frontend` + `Backend` + `Database`):**
+   - Cada proyecto puede tener sus propios contenedores independientes (`frontend`, `backend`, `db`, `proxy`) dentro de su carpeta y su `docker-compose.yml`.
+   - Permite reiniciar o ver logs **solo del Frontend** o **solo del Backend** sin tocar la base de datos.
+2. **Monitoreo en Tiempo Real (WebSockets):**
+   - Barra superior con métricas reales del VPS (**CPU %**, **RAM usada/total**, **Disco SSD** y **Uptime**).
+   - Medición exacta de **CPU (%)**, **RAM (MB)** y **Disco (MB)** por cada proyecto y desglosado por cada contenedor individual.
+3. ** Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
+   - Botón **Verificar remoto** que te avisa con una insignia (`⬆️ X commit(s) por bajar`) si hay cambios nuevos en GitHub/GitLab.
+   - Al ejecutar **Git Pull & Restart**, guarda el commit estable actual (`HEAD`); si el despliegue falla, revierte automáticamente a la versión anterior funcional.
+4. **🗄️ Inspector y Backup de Base de Datos en 1 Clic:**
+   - El botón **Base de Datos** detecta automáticamente el motor (`MySQL`, `MariaDB`, `PostgreSQL`) y te entrega listos para copiar en **DBeaver, TablePlus o Navicat**:
+     - **Host / IP Pública del VPS** y **Host Interno Docker**
+     - **Puerto Externo** mapeado y **Puerto Interno**
+     - **Nombre de la Base de Datos (`Database`)**
+     - **Usuario (`Username`)** y **Contraseña (`Password`)** (con vista oculta y copiado rápido)
+     - **Usuario `root` / `postgres`** y su contraseña
+     - **URL de conexión directa** (`mysql://...` / `postgresql://...`) y **Comando de Terminal**
+     - **Botón `Descargar Backup .SQL`** que ejecuta `mysqldump` / `pg_dump` en caliente y descarga el archivo `.sql` a tu navegador.
+5. **🧹 Limpieza Inteligente de Caché (Por Proyecto y Global):**
+   - **Por Proyecto:** Limpia archivos de caché según el stack detectado (`__pycache__`/`.pyc` en Python/Django, `php artisan optimize:clear` en Laravel, `php symfony cc` en Symfony) y recarga los contenedores.
+   - **Global del Servidor (`Docker Prune`):** Libera gigas de disco eliminando imágenes huérfanas y caché de compilación de Docker.
+6. **🌐 Enrutador de Dominios SSL (Caddy) y Editor `.env`:**
+   - Edita las variables `.env` de cualquier proyecto desde el navegador (guardadas con permisos seguros `0600`) y reinicia el stack en 1 clic.
+   - Configura dominios y subdominios con HTTPS automático (Let's Encrypt), permitiendo enrutar `/` hacia el contenedor Frontend y `/api/*` hacia el contenedor Backend.
+
+---
+
+## 📦 Instalación en cualquier VPS (Ubuntu / Debian)
+
+### 1. Requisitos previos
+Tener instalado **Git**, **Docker** y **Docker Compose v2**:
+```bash
+sudo apt-get update && sudo apt-get install -y git curl docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+```
+
+### 2. Clonar y configurar `ALpanel`
+```bash
+git clone https://github.com/alexmargomez/ALpanel.git ~/ServerPanel
+cd ~/ServerPanel
+cp .env.example .env
+```
+
+Edita el archivo `.env` con tus propias credenciales seguras:
+```ini
+PANEL_PORT=9000
+PANEL_USER=admin
+PANEL_PASSWORD=TuPasswordSuperSeguroAqui
+PANEL_JWT_SECRET=GeneraUnSecretoAleatorioLargoAqui
+HOST_PROJECTS_PATH=/home/ubuntu
+PROJECTS_ROOT=/home/ubuntu
+```
+
+### 3. Levantar el panel
+```bash
+docker compose up -d --build
+```
+Ingresa desde tu navegador a: **`http://TU_IP_DEL_SERVIDOR:9000`**
+
+---
+
+## 📐 Cómo estructurar tus proyectos para que ALpanel los administre
+
+ALpanel escanea automáticamente todas las carpetas dentro de `PROJECTS_ROOT` (por defecto `/home/ubuntu`). Para que un proyecto sea detectado con todas sus funciones (métricas, Git Pull, Caché y Base de Datos):
+
+1. **Ubica cada proyecto en su propia carpeta:** ej. `/home/ubuntu/mi_proyecto`.
+2. **Incluye un `docker-compose.yml` y un `.env`:**
+   - Para que el botón **Base de Datos** detecte las credenciales automáticamente, usa nombres de variables estándar en tu `.env`:
+     - `MYSQL_DATABASE` / `POSTGRES_DB` / `DB_NAME`
+     - `MYSQL_USER` / `POSTGRES_USER` / `DB_USER`
+     - `MYSQL_PASSWORD` / `POSTGRES_PASSWORD` / `DB_PASSWORD`
+     - `MYSQL_ROOT_PASSWORD`
+   - Si quieres conectarte a la base de datos desde un cliente externo (DBeaver/TablePlus), mapea un puerto único en el servicio `db` de tu `docker-compose.yml` (ej. `"3307:3306"` en el Proyecto 1, `"3308:3306"` en el Proyecto 2).
+
+### Ejemplo de `docker-compose.yml` con Frontend + Backend + DB independientes
+```yaml
+services:
+  db:
+    image: mysql:8.0
+    container_name: miapp_db
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3308:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  backend:
+    build: ./backend
+    container_name: miapp_backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: miapp_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+```
+
+---
+
+## 🛡️ Seguridad y Prevención de Fallos Incorporada
+
+- **Cero Credenciales en el Código:** Ninguna contraseña real, IP ni dominio se almacena en el repositorio; todo se lee desde `.env` (ignorado por Git).
+- **Protección Anti-Fuerza Bruta (Rate Limiting):** Bloqueo automático temporal por IP tras 5 intentos fallidos de inicio de sesión y comparación criptográfica `timingSafeEqual`.
+- **Sanitización contra Path Traversal e Inyección:** Todos los nombres de proyectos, contenedores, ramas y dominios se validan estrictamente y se confinan dentro de `PROJECTS_ROOT`.
+- **Permisos `.env` Restringidos (`0600`):** Al crear o editar variables de entorno desde el panel, el archivo se protege con permisos `0600`.
+- **Registro de Auditoría (`Audit Log`):** Registra cada acción crítica (`GIT_PULL_DEPLOY`, `DOCKER_RESTART`, `DB_EXPORT_SQL`, `ENV_UPDATE`, `AUTH_LOGIN`) con IP y fecha sin exponer secretos en los logs.

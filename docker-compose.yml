@@ -1,0 +1,13 @@
+services:
+  panel:
+    build: .
+    container_name: sm_server_panel
+    restart: unless-stopped
+    ports:
+      - "${PANEL_PORT:-9000}:9000"
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOST_PROJECTS_PATH:-/home/ubuntu}:${PROJECTS_ROOT:-/home/ubuntu}
+      - ./data:/app/data
