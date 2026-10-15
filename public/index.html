@@ -54,7 +54,7 @@
       <form id="login-form" class="space-y-4">
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Usuario</label>
-          <input type="text" id="login-user" value="admin" required
+          <input type="text" id="login-user" value="superadmin" required
             class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500" />
         </div>
         <div>
@@ -1236,25 +1236,27 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
       usersList.innerHTML =
         allUsers
           .map((u) => {
-            const roleColor =
-              u.role === 'admin'
-                ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
-                : u.role === 'developer'
-                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+            const isSuper = u.role === 'superadmin' || u.username === 'superadmin';
+            const roleColor = isSuper
+              ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40'
+              : u.role === 'admin'
+              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+              : u.role === 'developer'
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+              : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
 
             return `
-              <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3.5">
+              <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-950 border ${isSuper ? 'border-fuchsia-500/30' : 'border-slate-800'} rounded-xl p-3.5">
                 <div class="flex items-center gap-3 min-w-[200px]">
-                  <div class="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
-                    ${(u.fullName || u.username || 'U').slice(0, 1).toUpperCase()}
+                  <div class="w-9 h-9 rounded-xl ${isSuper ? 'bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300' : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'} border flex items-center justify-center font-bold text-sm">
+                    ${isSuper ? '<i class="fa-solid fa-crown"></i>' : (u.fullName || u.username || 'U').slice(0, 1).toUpperCase()}
                   </div>
                   <div>
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-bold text-white text-sm">${u.fullName || u.username}</span>
                       <span class="font-mono text-[11px] text-slate-400">@${u.username}</span>
                       <span class="px-2 py-0.5 rounded-md border text-[10px] font-bold ${roleColor}">
-                        <i class="fa-solid fa-id-badge mr-1"></i>${u.roleName} (${u.role})
+                        <i class="fa-solid ${isSuper ? 'fa-crown' : 'fa-id-badge'} mr-1"></i>${u.roleName} (${u.role})
                       </span>
                     </div>
                     <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 mt-1">
@@ -1268,9 +1270,15 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                   <button onclick="openUserModal(${u.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-[11px] font-semibold">
                     <i class="fa-solid fa-pen-to-square mr-1"></i>Editar
                   </button>
-                  <button onclick="deleteUserItem(${u.id}, '${u.username.replace(/'/g, "\\'")}')" class="px-2.5 py-1.5 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border border-rose-800/50 text-[11px] font-semibold">
-                    <i class="fa-solid fa-trash mr-1"></i>Eliminar
-                  </button>
+                  ${
+                    isSuper
+                      ? `<span class="px-2.5 py-1.5 rounded-lg bg-fuchsia-950/40 text-fuchsia-300 border border-fuchsia-800/40 text-[11px] font-semibold" title="El Super Administrador principal es único y no puede eliminarse">
+                          <i class="fa-solid fa-shield-halved mr-1"></i>Principal
+                        </span>`
+                      : `<button onclick="deleteUserItem(${u.id}, '${u.username.replace(/'/g, "\\'")}')" class="px-2.5 py-1.5 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border border-rose-800/50 text-[11px] font-semibold">
+                          <i class="fa-solid fa-trash mr-1"></i>Eliminar
+                        </button>`
+                  }
                 </div>
               </div>`;
           })
@@ -1278,14 +1286,15 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
 
       rolesList.innerHTML =
         allRoles
-          .map(
-            (r) => `
-              <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          .map((r) => {
+            const isSuperRole = r.code === 'superadmin';
+            return `
+              <div class="bg-slate-950 border ${isSuperRole ? 'border-fuchsia-500/30' : 'border-slate-800'} rounded-xl p-3.5 space-y-2">
                 <div class="flex items-start justify-between gap-2">
                   <div>
                     <div class="flex items-center gap-2">
                       <span class="font-bold text-white text-sm">${r.name}</span>
-                      <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 text-[10px] font-mono">${r.code}</code>
+                      <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 ${isSuperRole ? 'text-fuchsia-300' : 'text-amber-300'} text-[10px] font-mono">${r.code}</code>
                     </div>
                     <p class="text-[11px] text-slate-400 mt-1">${r.description || 'Sin descripción'}</p>
                   </div>
@@ -1294,24 +1303,26 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                   </span>
                 </div>
                 <div class="flex justify-end gap-1.5 pt-1 border-t border-slate-900">
-                  <button onclick="openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
-                    <i class="fa-solid fa-pen-to-square mr-1"></i>Editar
-                  </button>
-                  <button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold">
-                    <i class="fa-solid fa-trash"></i>
-                  </button>
+                  ${
+                    isSuperRole
+                      ? `<span class="px-2.5 py-1 rounded-lg bg-fuchsia-950/40 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-semibold">
+                          <i class="fa-solid fa-lock mr-1"></i>Rol Único (No asignable)
+                        </span>`
+                      : `<button onclick="openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
+                          <i class="fa-solid fa-pen-to-square mr-1"></i>Editar
+                        </button>
+                        <button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold">
+                          <i class="fa-solid fa-trash"></i>
+                        </button>`
+                  }
                 </div>
-              </div>`
-          )
+              </div>`;
+          })
           .join('') || '<div class="text-slate-500">No hay roles registrados.</div>';
     }
 
     function openUserModal(userId = null) {
       const roleSelect = document.getElementById('user-role-id');
-      roleSelect.innerHTML = allRoles
-        .map((r) => `<option value="${r.id}">${r.name} (${r.code})</option>`)
-        .join('');
-
       const idInput = document.getElementById('user-id');
       const fullNameInput = document.getElementById('user-fullname');
       const usernameInput = document.getElementById('user-username');
@@ -1322,11 +1333,25 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
       if (userId) {
         const u = allUsers.find((item) => item.id === userId);
         if (!u) return;
+        const isSuper = u.role === 'superadmin' || u.username === 'superadmin';
         title.innerHTML = `<i class="fa-solid fa-user-pen text-indigo-400 mr-2"></i>Editar Usuario (@${u.username})`;
         idInput.value = String(u.id);
         fullNameInput.value = u.fullName || '';
         usernameInput.value = u.username || '';
-        if (u.roleId) roleSelect.value = String(u.roleId);
+        usernameInput.disabled = isSuper;
+
+        if (isSuper) {
+          roleSelect.innerHTML = `<option value="${u.roleId || ''}">Super Administrador (superadmin) — Rol Único</option>`;
+          roleSelect.disabled = true;
+        } else {
+          roleSelect.disabled = false;
+          roleSelect.innerHTML = allRoles
+            .filter((r) => r.code !== 'superadmin')
+            .map((r) => `<option value="${r.id}">${r.name} (${r.code})</option>`)
+            .join('');
+          if (u.roleId) roleSelect.value = String(u.roleId);
+        }
+
         passInput.value = '';
         passInput.required = false;
         passLabel.innerText = 'Nueva Contraseña (Opcional — déjala vacía para conservar la actual)';
@@ -1335,6 +1360,12 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
         idInput.value = '';
         fullNameInput.value = '';
         usernameInput.value = '';
+        usernameInput.disabled = false;
+        roleSelect.disabled = false;
+        roleSelect.innerHTML = allRoles
+          .filter((r) => r.code !== 'superadmin')
+          .map((r) => `<option value="${r.id}">${r.name} (${r.code})</option>`)
+          .join('');
         passInput.value = '';
         passInput.required = true;
         passLabel.innerText = 'Contraseña (mín. 6 caracteres, se encripta con scrypt)';

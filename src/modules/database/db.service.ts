@@ -89,12 +89,19 @@ export class DbService {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 2. Semilla inicial de roles si está vacía
-    const [roleCountRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM roles');
+    // 2. Asegurar rol único 'superadmin' y semilla inicial de roles
+    await this.pool.query(`
+      INSERT IGNORE INTO roles (code, name, description) VALUES
+      ('superadmin', 'Super Administrador', 'Propietario principal del servidor (Rol único e intransferible)')
+    `);
+
+    const [roleCountRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      "SELECT COUNT(*) as total FROM roles WHERE code != 'superadmin'"
+    );
     if (Number(roleCountRows?.[0]?.total || 0) === 0) {
       await this.pool.query(`
         INSERT IGNORE INTO roles (code, name, description) VALUES
-        ('admin', 'Administrador', 'Control total del servidor, proyectos, dominios, bases de datos y usuarios'),
+        ('admin', 'Administrador', 'Administración general de proyectos, dominios, bases de datos y usuarios'),
         ('developer', 'Desarrollador', 'Gestión de despliegues, Modo Desarrollador (develop), logs y caché'),
         ('viewer', 'Auditor / Lectura', 'Visualización de métricas, estado de contenedores y auditoría')
       `);
@@ -131,25 +138,44 @@ export class DbService {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 5. Usuario Administrador inicial si no existe ningún usuario
+    // Obtener ID del rol único superadmin
+    const [superRoleRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      "SELECT id FROM roles WHERE code = 'superadmin' LIMIT 1"
+    );
+    const superRoleId = superRoleRows?.[0]?.id || null;
+
+    // 5. Usuario Super Administrador inicial (si no existe ningún usuario) o migración del primer usuario a 'superadmin'
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM users');
     const total = Number(rows?.[0]?.total || 0);
     if (total === 0) {
-      const initialUser = (process.env.PANEL_USER || 'admin').trim();
       const initialPass = process.env.PANEL_PASSWORD || 'admin123';
       const hashed = this.hashPassword(initialPass);
-      const [adminRoleRows] = await this.pool.query<mysql.RowDataPacket[]>(
-        "SELECT id FROM roles WHERE code = 'admin' LIMIT 1"
-      );
-      const adminRoleId = adminRoleRows?.[0]?.id || null;
       await this.pool.query(
         'INSERT INTO users (username, full_name, password_hash, role, role_id) VALUES (?, ?, ?, ?, ?)',
-        [initialUser, 'Administrador Principal', hashed, 'admin', adminRoleId]
+        ['superadmin', 'Super Administrador', hashed, 'superadmin', superRoleId]
       );
-      console.log(`✅ Usuario administrador inicial '${initialUser}' registrado en MariaDB con hash scrypt.`);
+      console.log(`✅ Usuario principal 'superadmin' registrado en MariaDB con rol único Super Administrador.`);
+    } else {
+      // Asegurar que el primer usuario (ORDER BY id ASC LIMIT 1) sea siempre 'superadmin' con el rol único 'superadmin'
+      const [firstUsers] = await this.pool.query<mysql.RowDataPacket[]>(
+        'SELECT id, username, full_name FROM users ORDER BY id ASC LIMIT 1'
+      );
+      if (firstUsers && firstUsers.length > 0) {
+        const first = firstUsers[0];
+        const newFullName =
+          !first.full_name || first.full_name === 'admin' || first.full_name === 'Administrador Principal'
+            ? 'Super Administrador'
+            : first.full_name;
+        await this.pool
+          .query(
+            'UPDATE users SET username = ?, full_name = ?, role = ?, role_id = ? WHERE id = ?',
+            ['superadmin', newFullName, 'superadmin', superRoleId, first.id]
+          )
+          .catch(() => null);
+      }
     }
 
-    // Sincronizar role_id y full_name de usuarios existentes que no lo tengan aún
+    // Sincronizar role_id y full_name de cualquier otro usuario existente
     await this.pool
       .query(`
         UPDATE users u
@@ -235,6 +261,9 @@ export class DbService {
     if (!cleanUser || cleanUser.length < 3) {
       throw new Error('El nombre de usuario (username) debe tener al menos 3 caracteres.');
     }
+    if (cleanUser.toLowerCase() === 'superadmin') {
+      throw new Error("El nombre de usuario 'superadmin' está reservado para el usuario principal.");
+    }
     if (!payload.password || payload.password.length < 6) {
       throw new Error('La contraseña debe tener al menos 6 caracteres.');
     }
@@ -247,6 +276,9 @@ export class DbService {
       const [rRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT id, code, name FROM roles WHERE id = ? LIMIT 1', [roleId]);
       if (!rRows || rRows.length === 0) {
         throw new Error('El rol seleccionado no existe.');
+      }
+      if (rRows[0].code === 'superadmin') {
+        throw new Error("El rol 'Super Administrador' es único del primer usuario y no puede asignarse a otros usuarios.");
       }
       roleCode = rRows[0].code;
       roleName = rRows[0].name;
@@ -295,23 +327,48 @@ export class DbService {
     const userId = Number(id);
     if (!userId) throw new Error('ID de usuario inválido.');
 
-    const cleanUser = (payload.username || '').trim();
+    const [existingRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      'SELECT id, username, role, role_id FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    if (!existingRows || existingRows.length === 0) {
+      throw new Error('Usuario no encontrado.');
+    }
+    const existing = existingRows[0];
+    const isSuperAdminUser = existing.role === 'superadmin' || existing.username === 'superadmin';
+
+    const cleanUser = isSuperAdminUser ? 'superadmin' : (payload.username || '').trim();
     const cleanName = (payload.fullName || '').trim() || cleanUser;
     if (!cleanUser || cleanUser.length < 3) {
       throw new Error('El nombre de usuario (username) debe tener al menos 3 caracteres.');
     }
+    if (!isSuperAdminUser && cleanUser.toLowerCase() === 'superadmin') {
+      throw new Error("El nombre de usuario 'superadmin' está reservado para el usuario principal.");
+    }
 
-    let roleId: number | null = payload.roleId ? Number(payload.roleId) : null;
-    let roleCode = 'admin';
-    let roleName = 'Administrador';
+    let roleId: number | null = existing.role_id;
+    let roleCode: string = existing.role;
 
-    if (roleId) {
-      const [rRows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT id, code, name FROM roles WHERE id = ? LIMIT 1', [roleId]);
+    if (isSuperAdminUser) {
+      // El primer usuario conserva siempre su rol único 'superadmin'
+      const [sRows] = await this.pool.query<mysql.RowDataPacket[]>(
+        "SELECT id, code FROM roles WHERE code = 'superadmin' LIMIT 1"
+      );
+      roleId = sRows?.[0]?.id || existing.role_id;
+      roleCode = 'superadmin';
+    } else if (payload.roleId) {
+      const [rRows] = await this.pool.query<mysql.RowDataPacket[]>(
+        'SELECT id, code, name FROM roles WHERE id = ? LIMIT 1',
+        [Number(payload.roleId)]
+      );
       if (!rRows || rRows.length === 0) {
         throw new Error('El rol seleccionado no existe.');
       }
+      if (rRows[0].code === 'superadmin') {
+        throw new Error("El rol 'Super Administrador' es único del primer usuario y no puede asignarse a otros usuarios.");
+      }
+      roleId = rRows[0].id;
       roleCode = rRows[0].code;
-      roleName = rRows[0].name;
     }
 
     try {
@@ -352,11 +409,21 @@ export class DbService {
   }
 
   async deleteUser(id: number): Promise<void> {
+    const userId = Number(id);
+    const [targetRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      'SELECT id, username, role FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    if (targetRows && targetRows.length > 0) {
+      if (targetRows[0].role === 'superadmin' || targetRows[0].username === 'superadmin') {
+        throw new Error('El usuario Super Administrador principal es único y no puede ser eliminado.');
+      }
+    }
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) as total FROM users');
     if (Number(rows?.[0]?.total || 0) <= 1) {
       throw new Error('No puedes eliminar el único usuario registrado en el panel.');
     }
-    await this.pool.query('DELETE FROM users WHERE id = ?', [Number(id)]);
+    await this.pool.query('DELETE FROM users WHERE id = ?', [userId]);
   }
 
   // ==================== CRUD DE ROLES ====================
@@ -367,7 +434,7 @@ export class DbService {
        FROM roles r
        LEFT JOIN users u ON u.role_id = r.id
        GROUP BY r.id, r.code, r.name, r.description, r.created_at
-       ORDER BY r.id ASC`
+       ORDER BY CASE WHEN r.code = 'superadmin' THEN 0 ELSE 1 END, r.id ASC`
     );
     return (rows || []).map((r: any) => ({
       id: r.id,
@@ -386,6 +453,9 @@ export class DbService {
 
     if (!cleanCode || cleanCode.length < 2) {
       throw new Error('El código del rol debe tener al menos 2 caracteres alfanuméricos (ej. soporte).');
+    }
+    if (cleanCode === 'superadmin') {
+      throw new Error("El rol 'superadmin' es único del sistema.");
     }
     if (!cleanName) {
       throw new Error('El nombre del rol es obligatorio.');
@@ -416,12 +486,23 @@ export class DbService {
     const roleId = Number(id);
     if (!roleId) throw new Error('ID de rol inválido.');
 
+    const [existingRole] = await this.pool.query<mysql.RowDataPacket[]>(
+      'SELECT code FROM roles WHERE id = ? LIMIT 1',
+      [roleId]
+    );
+    if (existingRole?.[0]?.code === 'superadmin') {
+      throw new Error("El rol 'Super Administrador' es único del sistema y no puede ser modificado.");
+    }
+
     const cleanCode = (payload.code || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     const cleanName = (payload.name || '').trim();
     const cleanDesc = (payload.description || '').trim();
 
     if (!cleanCode || cleanCode.length < 2) {
       throw new Error('El código del rol debe tener al menos 2 caracteres alfanuméricos.');
+    }
+    if (cleanCode === 'superadmin') {
+      throw new Error("No puedes usar el código reservado 'superadmin'.");
     }
     if (!cleanName) {
       throw new Error('El nombre del rol es obligatorio.');
@@ -448,6 +529,14 @@ export class DbService {
 
   async deleteRole(id: number): Promise<void> {
     const roleId = Number(id);
+    const [existingRole] = await this.pool.query<mysql.RowDataPacket[]>(
+      'SELECT code FROM roles WHERE id = ? LIMIT 1',
+      [roleId]
+    );
+    if (existingRole?.[0]?.code === 'superadmin') {
+      throw new Error("El rol 'Super Administrador' es único del sistema y no puede ser eliminado.");
+    }
+
     const [usedRows] = await this.pool.query<mysql.RowDataPacket[]>(
       'SELECT COUNT(*) as total FROM users WHERE role_id = ?',
       [roleId]

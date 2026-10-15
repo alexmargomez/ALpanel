@@ -66,7 +66,7 @@ cp .env.example .env
 Edita el archivo `.env` con tus propias credenciales seguras:
 ```ini
 PANEL_PORT=9000
-PANEL_USER=admin
+PANEL_USER=superadmin
 PANEL_PASSWORD=TuPasswordSuperSeguroAqui
 PANEL_JWT_SECRET=GeneraUnSecretoAleatorioLargoAqui
 DB_HOST=panel_db
