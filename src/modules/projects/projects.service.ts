@@ -914,6 +914,7 @@ export class ProjectsService {
    */
   async gitPullAndRestart(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
+    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
     const logs: string[] = [];
     let prevHead = '';
 
@@ -926,6 +927,23 @@ export class ProjectsService {
       const pullRes = await execAsync('git pull origin main', { cwd: projectDir, timeout: 60000 });
       logs.push(pullRes.stdout.trim() || 'Already up to date.');
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
+
+      if (isSelfPanel) {
+        logs.push(`\n==> [2/2] Sincronizando código y compilando ALpanel en caliente...`);
+        await execAsync(`cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/`, {
+          timeout: 30000,
+        });
+        const buildRes = await execAsync('npm run build', { cwd: '/app', timeout: 120000 });
+        if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+        logs.push(`\n✅ ALpanel actualizado exitosamente (rama main).`);
+        logs.push(`🔄 Reiniciando el proceso de ALpanel en segundo plano en 1.5s (sin afectar MariaDB ni Caddy SSL)...`);
+
+        setTimeout(() => {
+          exec('docker restart sm_server_panel', () => {});
+        }, 1500);
+
+        return { success: true, output: logs.join('\n') };
+      }
 
       logs.push(`\n==> [2/2] Reiniciando contenedores Docker de producción (${projectName})...`);
       const restartRes = await execAsync('docker compose restart', { cwd: projectDir, timeout: 120000 });
@@ -940,7 +958,9 @@ export class ProjectsService {
         try {
           logs.push(`⏪ Ejecutando Rollback automático al commit estable ${prevHead.slice(0, 7)}...`);
           await execAsync(`git reset --hard ${prevHead}`, { cwd: projectDir });
-          await execAsync('docker compose restart', { cwd: projectDir });
+          if (!isSelfPanel) {
+            await execAsync('docker compose restart', { cwd: projectDir });
+          }
           logs.push(`✅ Rollback completado. El proyecto sigue corriendo en la versión anterior estable.`);
         } catch {
           logs.push(`⚠️ No se pudo completar el rollback automático.`);
@@ -952,15 +972,36 @@ export class ProjectsService {
 
   async restartProject(projectName: string, containerName?: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
+    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
     try {
       if (containerName) {
         const cleanContainer = containerName.replace(/[^a-zA-Z0-9._-]/g, '');
+        if (cleanContainer === 'sm_server_panel' || cleanContainer === 'sm_panel_caddy') {
+          setTimeout(() => {
+            exec(`docker restart ${cleanContainer}`, () => {});
+          }, 1500);
+          return {
+            success: true,
+            output: `==> Reinicio programado para [${cleanContainer}]...\n✅ El contenedor se reiniciará en 1.5 segundos tras entregar esta respuesta para no cortar la conexión del navegador.`,
+          };
+        }
         const { stdout, stderr } = await execAsync(`docker restart ${cleanContainer}`, { timeout: 60000 });
         return {
           success: true,
           output: `Contenedor ${cleanContainer} reiniciado.\n${stdout}\n${stderr}`.trim(),
         };
       }
+
+      if (isSelfPanel) {
+        setTimeout(() => {
+          exec('docker restart sm_server_panel', () => {});
+        }, 1500);
+        return {
+          success: true,
+          output: `==> Reiniciando servicio principal de ALpanel (sm_server_panel)...\n✅ Se mantienen activos sm_panel_db (MariaDB) y sm_panel_caddy (SSL Proxy) sin interrupción.\n🔄 El panel se reconectará automáticamente en 2 segundos.`,
+        };
+      }
+
       const { stdout, stderr } = await execAsync('docker compose restart', { cwd: projectDir, timeout: 120000 });
       return {
         success: true,
@@ -994,7 +1035,7 @@ export class ProjectsService {
     if (projectName.toLowerCase() === 'serverpanel') {
       return {
         success: false,
-        output: 'Por seguridad no puedes detener ALpanel (ServerPanel) desde sí mismo porque perderías acceso al panel. Usa Restart Docker si deseas reiniciarlo.',
+        output: 'Por seguridad no puedes detener ALpanel (ServerPanel) porque es el servidor principal que administra el panel y el proxy SSL.',
       };
     }
     const projectDir = this.getProjectPath(projectName);
@@ -1014,7 +1055,29 @@ export class ProjectsService {
 
   async rebuildProject(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
+    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
     try {
+      if (isSelfPanel) {
+        const logs: string[] = [];
+        logs.push(`==> [1/2] Compilando imagen Docker de ALpanel (docker compose build panel)...`);
+        const { stdout, stderr } = await execAsync('docker compose build panel', {
+          cwd: projectDir,
+          timeout: 600000,
+        });
+        if (stdout) logs.push(stdout.trim());
+        if (stderr) logs.push(stderr.trim());
+        logs.push(`\n==> [2/2] Imagen compilada exitosamente. Recreando contenedor sm_server_panel en segundo plano en 1.5s...`);
+
+        setTimeout(() => {
+          exec('docker compose up -d --no-deps panel', { cwd: projectDir }, () => {});
+        }, 1500);
+
+        return {
+          success: true,
+          output: logs.join('\n'),
+        };
+      }
+
       const { stdout, stderr } = await execAsync('docker compose up -d --build --force-recreate', {
         cwd: projectDir,
         timeout: 600000,
@@ -1033,9 +1096,18 @@ export class ProjectsService {
 
   async clearProjectCache(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
+    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
     const logs: string[] = [];
     try {
       logs.push(`==> Limpiando caché de aplicación en ${projectName}...`);
+      if (isSelfPanel) {
+        await execAsync('npm cache clean --force 2>/dev/null || true');
+        await execAsync(`cp -rf "${projectDir}/public/"* /app/public/ 2>/dev/null || true`);
+        logs.push('==> Caché de npm y archivos estáticos de ALpanel refrescados en memoria.');
+        logs.push('✅ Limpieza de caché de ServerPanel completada sin interrumpir la conexión.');
+        return { success: true, output: logs.join('\n') };
+      }
+
       await execAsync(`find "${projectDir}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true`);
 
       const projects = await this.listProjects();
