@@ -184,6 +184,20 @@ async function bootstrap() {
     return res;
   });
 
+  app.post('/api/projects/:name/dev-activate', { preHandler: [authenticate] }, async (request) => {
+    const { name } = request.params as { name: string };
+    const res = await projectsService.activateDevMode(name, proxyService);
+    recordAudit('DEV_MODE_ACTIVATE', `${name} (develop)`, request.ip, res.success ? 'ok' : 'error');
+    return res;
+  });
+
+  app.post('/api/projects/:name/dev-deactivate', { preHandler: [authenticate] }, async (request) => {
+    const { name } = request.params as { name: string };
+    const res = await projectsService.deactivateDevMode(proxyService);
+    recordAudit('DEV_MODE_DEACTIVATE', name, request.ip, res.success ? 'ok' : 'error');
+    return res;
+  });
+
   app.get('/api/projects/:name/db-dump', { preHandler: [authenticate] }, async (request, reply) => {
     const { name } = request.params as { name: string };
     try {

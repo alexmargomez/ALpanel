@@ -747,6 +747,19 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                 </button>
 
                 ${
+                  p.devMode && p.devMode.isActive
+                    ? `<button onclick="runAction('${p.name}', 'dev-activate')" class="px-3 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 text-xs font-semibold transition flex items-center gap-1.5" title="Sincronizar últimos commits de origin/develop en el entorno de pruebas">
+                        <i class="fa-solid fa-flask"></i> Actualizar Dev (develop)
+                      </button>
+                      <button onclick="runAction('${p.name}', 'dev-deactivate')" class="px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition flex items-center gap-1.5" title="Apagar Modo Desarrollador y liberar subdominio de pruebas">
+                        <i class="fa-solid fa-power-off"></i> Apagar Modo Dev
+                      </button>`
+                    : `<button onclick="runAction('${p.name}', 'dev-activate')" class="px-3 py-2 rounded-xl bg-fuchsia-950/60 hover:bg-fuchsia-900/60 text-fuchsia-300 border border-fuchsia-700/50 text-xs font-semibold transition flex items-center gap-1.5" title="Desplegar rama develop de este proyecto en el subdominio de pruebas (desactiva cualquier otro proyecto en Modo Dev)">
+                        <i class="fa-solid fa-flask"></i> Modo Desarrollador
+                      </button>`
+                }
+
+                ${
                   p.status === 'running'
                     ? `<button onclick="runAction('${p.name}', 'stop')" class="ml-auto px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5">
                         <i class="fa-solid fa-stop"></i> Detener
@@ -756,6 +769,30 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                       </button>`
                 }
               </div>
+
+              ${
+                p.devMode && p.devMode.isActive
+                  ? `<div class="flex flex-wrap items-center justify-between gap-3 bg-fuchsia-950/30 border border-fuchsia-500/40 rounded-xl px-4 py-2.5 text-xs">
+                      <div class="flex flex-wrap items-center gap-2.5">
+                        <span class="px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 font-bold text-[11px]">
+                          <i class="fa-solid fa-flask mr-1"></i>MODO DESARROLLADOR ACTIVO
+                        </span>
+                        <span class="text-slate-300 font-mono">
+                          <i class="fa-brands fa-git-alt text-fuchsia-400 mr-1"></i>develop (${p.devMode.commitHash})
+                        </span>
+                        <span class="text-slate-400 truncate max-w-md">${p.devMode.commitMessage || ''}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <a href="https://${p.devMode.domain}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold transition shadow">
+                          <i class="fa-solid fa-lock text-[10px]"></i> https://${p.devMode.domain} <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                        <button onclick="openLogsModal('${p.name}', 'alpanel_dev_app')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-fuchsia-200 border border-slate-700">
+                          <i class="fa-solid fa-terminal mr-1"></i>Logs Dev
+                        </button>
+                      </div>
+                    </div>`
+                  : ''
+              }
 
               <!-- Containers Breakdown -->
               <div class="space-y-1.5 pt-1">
@@ -886,12 +923,14 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
 
     async function runAction(projectName, action, body = {}) {
       const titleMap = {
-        pull: `Git Pull & Restart (Con Rollback Automático) — ${projectName}`,
+        pull: `Git Pull & Restart (Rama main con Rollback Automático) — ${projectName}`,
         restart: `Reiniciando Docker — ${projectName}`,
         'clear-cache': `Limpiando Caché — ${projectName}`,
         rebuild: `Reconstruyendo Imágenes (Rebuild) — ${projectName}`,
         start: `Iniciando Proyecto — ${projectName}`,
         stop: `Deteniendo Proyecto — ${projectName}`,
+        'dev-activate': `Modo Desarrollador (rama develop) — ${projectName}`,
+        'dev-deactivate': `Apagando Modo Desarrollador — ${projectName}`,
       };
       document.getElementById('console-modal-title').innerText = titleMap[action] || `Ejecutando ${action}`;
       document.getElementById('console-container-select').classList.add('hidden');
