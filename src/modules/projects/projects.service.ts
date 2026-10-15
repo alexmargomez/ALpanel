@@ -91,12 +91,14 @@ export interface ProjectInfo {
 export class ProjectsService {
   private docker: Docker;
   private projectsRoot: string;
+  private panelSelfDir: string;
   private systemService: SystemService;
   private devModeFile: string;
 
   constructor(systemService: SystemService) {
     this.docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' });
-    this.projectsRoot = process.env.PROJECTS_ROOT || '/projects';
+    this.projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects';
+    this.panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel';
     this.systemService = systemService;
     const dataDir = process.env.PANEL_DATA_DIR || path.join(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
@@ -109,6 +111,12 @@ export class ProjectsService {
     return this.projectsRoot;
   }
 
+  isSelfPanel(name: string): boolean {
+    const lower = name.trim().toLowerCase();
+    const selfBase = path.basename(this.panelSelfDir).toLowerCase();
+    return lower === 'serverpanel' || lower === 'alpanel' || lower === selfBase;
+  }
+
   private sanitizeProjectName(name: string): string {
     const clean = name.replace(/[^a-zA-Z0-9._-]/g, '');
     if (!clean || clean !== name) {
@@ -119,6 +127,9 @@ export class ProjectsService {
 
   private getProjectPath(name: string): string {
     const clean = this.sanitizeProjectName(name);
+    if (this.isSelfPanel(clean) && fs.existsSync(this.panelSelfDir)) {
+      return path.resolve(this.panelSelfDir);
+    }
     const resolved = path.resolve(this.projectsRoot, clean);
     if (!resolved.startsWith(path.resolve(this.projectsRoot))) {
       throw new Error('Acceso fuera de PROJECTS_ROOT denegado');
@@ -337,9 +348,11 @@ export class ProjectsService {
       if (fs.existsSync(domainsFile)) {
         const routes = JSON.parse(fs.readFileSync(domainsFile, 'utf-8'));
         const projBase = path.basename(projectDir).toLowerCase();
+        const isSelf = this.isSelfPanel(projBase);
         if (Array.isArray(routes)) {
           for (const r of routes) {
-            if (r?.domain && String(r?.projectName || '').toLowerCase() === projBase) {
+            const routeProj = String(r?.projectName || '').toLowerCase();
+            if (r?.domain && (routeProj === projBase || (isSelf && this.isSelfPanel(routeProj)))) {
               domains.add(String(r.domain).trim());
             }
           }
@@ -434,7 +447,7 @@ export class ProjectsService {
       ? dbContainer?.image || 'PostgreSQL'
       : isMaria
       ? dbContainer?.image || 'MariaDB'
-      : dbContainer?.image || 'MySQL 8.0';
+      : dbContainer?.image || 'MariaDB';
 
     const database =
       merged.MYSQL_DATABASE ||
@@ -492,7 +505,10 @@ export class ProjectsService {
 
   async dumpDatabaseSql(projectName: string): Promise<{ filename: string; sql: string }> {
     const projects = await this.listProjects();
-    const proj = projects.find((p) => p.name.toLowerCase() === projectName.toLowerCase());
+    const isSelf = this.isSelfPanel(projectName);
+    const proj = projects.find(
+      (p) => p.name.toLowerCase() === projectName.toLowerCase() || (isSelf && this.isSelfPanel(p.name))
+    );
     if (!proj || !proj.database.hasDatabase) {
       throw new Error('Este proyecto no tiene una base de datos activa configurada.');
     }
@@ -519,6 +535,12 @@ export class ProjectsService {
     const allContainers = await this.docker.listContainers({ all: true });
 
     const projectDirs = new Map<string, string>();
+    // Incluir siempre el directorio propio de ALpanel (ej. /opt/alpanel)
+    if (fs.existsSync(this.panelSelfDir)) {
+      const selfBase = path.basename(this.panelSelfDir).toLowerCase();
+      projectDirs.set(selfBase, path.resolve(this.panelSelfDir));
+    }
+
     if (fs.existsSync(this.projectsRoot)) {
       const entries = fs.readdirSync(this.projectsRoot, { withFileTypes: true });
       for (const entry of entries) {
@@ -634,7 +656,8 @@ export class ProjectsService {
       const isThisDevActive =
         devState.active &&
         Boolean(devState.projectName) &&
-        devState.projectName!.toLowerCase() === displayName.toLowerCase();
+        (devState.projectName!.toLowerCase() === displayName.toLowerCase() ||
+          (this.isSelfPanel(displayName) && this.isSelfPanel(devState.projectName!)));
 
       results.push({
         name: displayName,
@@ -666,7 +689,11 @@ export class ProjectsService {
       });
     }
 
-    return results.sort((a, b) => a.name.localeCompare(b.name));
+    return results.sort((a, b) => {
+      if (this.isSelfPanel(a.name) && !this.isSelfPanel(b.name)) return -1;
+      if (!this.isSelfPanel(a.name) && this.isSelfPanel(b.name)) return 1;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   getDevModeState(): DevModeState {
@@ -791,7 +818,7 @@ export class ProjectsService {
       let networkName = 'api_sm_default';
 
       if (fs.existsSync(path.join(devDir, 'package.json')) && !fs.existsSync(path.join(devDir, 'manage.py'))) {
-        internalPort = cleanName.toLowerCase() === 'serverpanel' ? '9000' : '3000';
+        internalPort = this.isSelfPanel(cleanName) ? '9000' : '3000';
       }
 
       const allContainers = await this.docker.listContainers({ all: true });
@@ -800,8 +827,9 @@ export class ProjectsService {
         const cName = (c.Names?.[0] || '').replace(/^\//, '');
         if (cName === 'alpanel_dev_app') return false;
         const role = this.detectRole(c.Labels?.['com.docker.compose.service'] || cName, c.Image);
+        const wDirBase = path.basename(wDir).toLowerCase();
         return (
-          path.basename(wDir).toLowerCase() === cleanName.toLowerCase() &&
+          (wDirBase === cleanName.toLowerCase() || (this.isSelfPanel(cleanName) && this.isSelfPanel(wDirBase))) &&
           (role === 'backend' || role === 'frontend')
         );
       });
@@ -823,7 +851,7 @@ export class ProjectsService {
       const isDjango = fs.existsSync(path.join(devDir, 'manage.py'));
       const runCmd = isDjango
         ? `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -e ALLOWED_HOSTS=* -v "${devDir}:/app" ${imageTag} sh -c "python manage.py migrate --noinput && gunicorn --bind 0.0.0.0:${internalPort} core.wsgi:application"`
-        : `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -v /var/run/docker.sock:/var/run/docker.sock -v "${this.projectsRoot}:${this.projectsRoot}" ${imageTag}`;
+        : `docker run -d --name alpanel_dev_app --restart unless-stopped --network ${networkName} --env-file "${devEnvPath}" -v /var/run/docker.sock:/var/run/docker.sock -v "${this.panelSelfDir}:${this.panelSelfDir}" -v "${this.projectsRoot}:${this.projectsRoot}" ${imageTag}`;
 
       await execAsync(runCmd, { timeout: 120000 });
       // Asegurar conexión con la red global del proxy Caddy de ALpanel (alpanel_proxy_net)
@@ -914,7 +942,7 @@ export class ProjectsService {
    */
   async gitPullAndRestart(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
-    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
+    const isSelfPanel = this.isSelfPanel(projectName);
     const logs: string[] = [];
     let prevHead = '';
 
@@ -972,7 +1000,7 @@ export class ProjectsService {
 
   async restartProject(projectName: string, containerName?: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
-    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
+    const isSelfPanel = this.isSelfPanel(projectName);
     try {
       if (containerName) {
         const cleanContainer = containerName.replace(/[^a-zA-Z0-9._-]/g, '');
@@ -1032,10 +1060,10 @@ export class ProjectsService {
   }
 
   async stopProject(projectName: string): Promise<{ success: boolean; output: string }> {
-    if (projectName.toLowerCase() === 'serverpanel') {
+    if (this.isSelfPanel(projectName)) {
       return {
         success: false,
-        output: 'Por seguridad no puedes detener ALpanel (ServerPanel) porque es el servidor principal que administra el panel y el proxy SSL.',
+        output: 'Por seguridad no puedes detener ALpanel porque es el servidor principal que administra el panel y el proxy SSL.',
       };
     }
     const projectDir = this.getProjectPath(projectName);
@@ -1055,7 +1083,7 @@ export class ProjectsService {
 
   async rebuildProject(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
-    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
+    const isSelfPanel = this.isSelfPanel(projectName);
     try {
       if (isSelfPanel) {
         const logs: string[] = [];
@@ -1096,7 +1124,7 @@ export class ProjectsService {
 
   async clearProjectCache(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
-    const isSelfPanel = projectName.toLowerCase() === 'serverpanel';
+    const isSelfPanel = this.isSelfPanel(projectName);
     const logs: string[] = [];
     try {
       logs.push(`==> Limpiando caché de aplicación en ${projectName}...`);
@@ -1104,7 +1132,7 @@ export class ProjectsService {
         await execAsync('npm cache clean --force 2>/dev/null || true');
         await execAsync(`cp -rf "${projectDir}/public/"* /app/public/ 2>/dev/null || true`);
         logs.push('==> Caché de npm y archivos estáticos de ALpanel refrescados en memoria.');
-        logs.push('✅ Limpieza de caché de ServerPanel completada sin interrumpir la conexión.');
+        logs.push('✅ Limpieza de caché de ALpanel completada sin interrumpir la conexión.');
         return { success: true, output: logs.join('\n') };
       }
 

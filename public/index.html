@@ -266,8 +266,8 @@
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
             <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-              <div class="text-indigo-400 font-bold mb-1">1. Una carpeta por Proyecto</div>
-              <p class="text-slate-400">Cada sistema vive en <code class="text-slate-200">/home/ubuntu/&lt;nombre_proyecto&gt;</code> con su propio <code class="text-slate-200">docker-compose.yml</code> y su archivo <code class="text-slate-200">.env</code>.</p>
+              <div class="text-indigo-400 font-bold mb-1">1. Estructura en /opt</div>
+              <p class="text-slate-400">El panel principal vive en <code class="text-slate-200">/opt/alpanel</code> y cada proyecto alojado vive en <code class="text-slate-200">/opt/projects/&lt;nombre_proyecto&gt;</code> con su propio <code class="text-slate-200">docker-compose.yml</code> y <code class="text-slate-200">.env</code>.</p>
             </div>
             <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
               <div class="text-emerald-400 font-bold mb-1">2. Frontend y Backend independientes</div>
@@ -289,7 +289,7 @@
             <p class="text-xs text-slate-400 mb-3">Ideal para React/Next/Vue + Backend en Node, Java (Spring Boot), Python o Laravel:</p>
             <pre id="tpl-fullstack" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-[11px] text-slate-200 font-mono overflow-x-auto">services:
   db:
-    image: mysql:8.0 # o postgres:15-alpine
+    image: mariadb:11 # o postgres:15-alpine
     container_name: miapp_db
     restart: unless-stopped
     env_file: .env
@@ -759,7 +759,7 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                 }
 
                 ${
-                  p.name.toLowerCase() === 'serverpanel'
+                  ['serverpanel', 'alpanel'].includes(p.name.toLowerCase())
                     ? `<span class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 text-xs font-semibold flex items-center gap-1.5" title="Servidor principal protegido: mantiene activos el panel y el proxy SSL global">
                         <i class="fa-solid fa-shield-halved"></i> Panel Principal
                       </span>`
@@ -947,7 +947,7 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
           body: JSON.stringify(body),
         });
         out.innerText = res.output || 'Comando finalizado.';
-        if (projectName.toLowerCase() === 'serverpanel' && ['pull', 'restart', 'rebuild'].includes(action)) {
+        if (['serverpanel', 'alpanel'].includes(projectName.toLowerCase()) && ['pull', 'restart', 'rebuild'].includes(action)) {
           setTimeout(() => {
             refreshAll().catch(() => {});
           }, 3500);

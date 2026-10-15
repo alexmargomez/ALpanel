@@ -42,17 +42,24 @@ A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limit
 
 ## 📦 Instalación en cualquier VPS (Ubuntu / Debian)
 
-### 1. Requisitos previos
-Tener instalado **Git**, **Docker** y **Docker Compose v2**:
+### 1. Requisitos previos y estructura en `/opt`
+Instala **Git**, **Docker** y **Docker Compose v2**, y crea los directorios estándar en `/opt`:
+- `/opt/alpanel`: Repositorio y servicios propios de **ALpanel** (`sm_server_panel`, `sm_panel_db`, `sm_panel_caddy`).
+- `/opt/projects`: Carpeta donde vivirán todos tus proyectos alojados (ej. `/opt/projects/mi_proyecto`).
+
 ```bash
 sudo apt-get update && sudo apt-get install -y git curl docker.io docker-compose-v2
 sudo usermod -aG docker $USER
+
+# Crear directorios estándar en /opt y asignar permisos a tu usuario
+sudo mkdir -p /opt/alpanel /opt/projects
+sudo chown -R $USER:$USER /opt/alpanel /opt/projects
 ```
 
 ### 2. Clonar y configurar `ALpanel`
 ```bash
-git clone https://github.com/alexmargomez/ALpanel.git ~/ServerPanel
-cd ~/ServerPanel
+git clone https://github.com/alexmargomez/ALpanel.git /opt/alpanel
+cd /opt/alpanel
 cp .env.example .env
 ```
 
@@ -62,41 +69,45 @@ PANEL_PORT=9000
 PANEL_USER=admin
 PANEL_PASSWORD=TuPasswordSuperSeguroAqui
 PANEL_JWT_SECRET=GeneraUnSecretoAleatorioLargoAqui
-HOST_PROJECTS_PATH=/home/ubuntu
-PROJECTS_ROOT=/home/ubuntu
+DB_HOST=panel_db
+PANEL_SELF_PATH=/opt/alpanel
+HOST_PROJECTS_PATH=/opt/projects
+PROJECTS_ROOT=/opt/projects
 ```
 
 ### 3. Levantar el panel
 ```bash
 docker compose up -d --build
 ```
-Ingresa desde tu navegador a: **`http://TU_IP_DEL_SERVIDOR:9000`**
+Ingresa desde tu navegador a: **`http://TU_IP_DEL_SERVIDOR:9000`** (o a tu dominio SSL configurado en la pestaña **Dominios & SSL**).
 
 ---
 
 ## 📐 Cómo estructurar tus proyectos para que ALpanel los administre
 
-ALpanel escanea automáticamente todas las carpetas dentro de `PROJECTS_ROOT` (por defecto `/home/ubuntu`). Para que un proyecto sea detectado con todas sus funciones (métricas, Git Pull, Caché y Base de Datos):
+ALpanel escanea automáticamente todas las carpetas dentro de `PROJECTS_ROOT` (`/opt/projects`) **y además incluye siempre su propio directorio `PANEL_SELF_PATH` (`/opt/alpanel`)** como tarjeta protegida (`🛡️ Panel Principal`) para que puedas ejecutar `Git Pull & Restart`, `Restart Docker`, `Limpiar Caché`, `Base de Datos`, `.env` y `Modo Desarrollador` del propio panel desde la interfaz web.
 
-1. **Ubica cada proyecto en su propia carpeta:** ej. `/home/ubuntu/mi_proyecto`.
+Para que cualquier proyecto alojado sea detectado con todas sus funciones:
+
+1. **Ubica cada proyecto en su propia carpeta dentro de `/opt/projects`:** ej. `/opt/projects/mi_proyecto` (o clónalo en 1 clic desde el botón **`+ Nuevo Proyecto (Git)`** del panel).
 2. **Incluye un `docker-compose.yml` y un `.env`:**
    - Para que el botón **Base de Datos** detecte las credenciales automáticamente, usa nombres de variables estándar en tu `.env`:
      - `MYSQL_DATABASE` / `POSTGRES_DB` / `DB_NAME`
      - `MYSQL_USER` / `POSTGRES_USER` / `DB_USER`
      - `MYSQL_PASSWORD` / `POSTGRES_PASSWORD` / `DB_PASSWORD`
      - `MYSQL_ROOT_PASSWORD`
-   - Si quieres conectarte a la base de datos desde un cliente externo (DBeaver/TablePlus), mapea un puerto único en el servicio `db` de tu `docker-compose.yml` (ej. `"3307:3306"` en el Proyecto 1, `"3308:3306"` en el Proyecto 2).
+   - Si quieres conectarte a la base de datos desde un cliente externo (DBeaver/TablePlus), mapea un puerto único en el servicio `db` de tu `docker-compose.yml` (ej. `"3307:3306"` en el Proyecto 1, `"3309:3306"` en el Proyecto 2).
 
-### Ejemplo de `docker-compose.yml` con Frontend + Backend + DB independientes
+### Ejemplo de `docker-compose.yml` con Frontend + Backend + MariaDB 11 independientes
 ```yaml
 services:
   db:
-    image: mysql:8.0
+    image: mariadb:11
     container_name: miapp_db
     restart: unless-stopped
     env_file: .env
     ports:
-      - "3308:3306"
+      - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
 
