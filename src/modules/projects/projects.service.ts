@@ -303,6 +303,21 @@ export class ProjectsService {
         }
       });
     }
+    try {
+      const dataDir = process.env.PANEL_DATA_DIR || path.join(process.cwd(), 'data');
+      const domainsFile = path.join(dataDir, 'domains.json');
+      if (fs.existsSync(domainsFile)) {
+        const routes = JSON.parse(fs.readFileSync(domainsFile, 'utf-8'));
+        const projBase = path.basename(projectDir).toLowerCase();
+        if (Array.isArray(routes)) {
+          for (const r of routes) {
+            if (r?.domain && String(r?.projectName || '').toLowerCase() === projBase) {
+              domains.add(String(r.domain).trim());
+            }
+          }
+        }
+      }
+    } catch {}
     return Array.from(domains);
   }
 
@@ -502,8 +517,6 @@ export class ProjectsService {
       const composeWorkingDir = c.Labels?.['com.docker.compose.project.working_dir'] || '';
       const rawName = (c.Names?.[0] || '').replace(/^\//, '');
 
-      if (rawName === 'sm_server_panel') continue;
-
       let matchedKey = composeProject;
       if (composeWorkingDir) {
         const dirBase = path.basename(composeWorkingDir).toLowerCase();
@@ -685,6 +698,12 @@ export class ProjectsService {
   }
 
   async stopProject(projectName: string): Promise<{ success: boolean; output: string }> {
+    if (projectName.toLowerCase() === 'serverpanel') {
+      return {
+        success: false,
+        output: 'Por seguridad no puedes detener ALpanel (ServerPanel) desde sí mismo porque perderías acceso al panel. Usa Restart Docker si deseas reiniciarlo.',
+      };
+    }
     const projectDir = this.getProjectPath(projectName);
     try {
       const { stdout, stderr } = await execAsync('docker compose stop', { cwd: projectDir, timeout: 120000 });
