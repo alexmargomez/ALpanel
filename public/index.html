@@ -759,7 +759,11 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
                 }
 
                 ${
-                  p.status === 'running'
+                  p.name.toLowerCase() === 'serverpanel'
+                    ? `<span class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 text-xs font-semibold flex items-center gap-1.5" title="Servidor principal protegido: mantiene activos el panel y el proxy SSL global">
+                        <i class="fa-solid fa-shield-halved"></i> Panel Principal
+                      </span>`
+                    : p.status === 'running'
                     ? `<button onclick="runAction('${p.name}', 'stop')" class="ml-auto px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5">
                         <i class="fa-solid fa-stop"></i> Detener
                       </button>`
@@ -943,7 +947,13 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]</pre>
           body: JSON.stringify(body),
         });
         out.innerText = res.output || 'Comando finalizado.';
-        await refreshAll();
+        if (projectName.toLowerCase() === 'serverpanel' && ['pull', 'restart', 'rebuild'].includes(action)) {
+          setTimeout(() => {
+            refreshAll().catch(() => {});
+          }, 3500);
+        } else {
+          await refreshAll();
+        }
       } catch (e) {
         out.innerText = `❌ Error: ${e.message}`;
       }
