@@ -80,7 +80,7 @@ export class PermissionsService {
       : [];
 
     for (const mod of modules) {
-      const found = perms.find((p) => p.moduleId === mod.id);
+      const found = perms.find((p: any) => p.moduleId === mod.id);
       result[mod.code] = {
         canView: Boolean(found?.canView),
         canCreate: Boolean(found?.canCreate),

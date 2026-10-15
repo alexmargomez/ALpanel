@@ -25,7 +25,7 @@ export class DomainsService {
       const rows = await prisma.domainRoute.findMany({
         orderBy: { createdAt: 'asc' },
       });
-      const mapped: DomainRouteDto[] = rows.map((r) => ({
+      const mapped: DomainRouteDto[] = rows.map((r: any) => ({
         id: r.id,
         domain: r.domain,
         projectName: r.projectName,

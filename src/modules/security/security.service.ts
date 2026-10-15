@@ -44,7 +44,7 @@ export class SecurityService {
         take: limit,
       });
       if (rows.length > 0) {
-        return rows.map((r) => ({
+        return rows.map((r: any) => ({
           id: r.id,
           timestamp: r.createdAt.toISOString(),
           action: r.action,

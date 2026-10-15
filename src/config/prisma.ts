@@ -1,7 +1,7 @@
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 export function buildDatabaseUrl(): string {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim()) {
@@ -19,7 +19,36 @@ export function buildDatabaseUrl(): string {
 
 buildDatabaseUrl();
 
-export const prisma = new PrismaClient();
+function ensurePrismaClientInstalled(): any {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient } = require('@prisma/client');
+    return new PrismaClient();
+  } catch {
+    console.log('⚙️ Inicializando motor Prisma ORM por primera vez en el contenedor...');
+    const selfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel';
+    const appDir = process.cwd();
+    try {
+      if (fs.existsSync(path.join(selfDir, 'prisma')) && !fs.existsSync(path.join(appDir, 'prisma'))) {
+        execSync(`cp -rf "${selfDir}/prisma" "${appDir}/" && cp -f "${selfDir}/package.json" "${appDir}/package.json"`, {
+          stdio: 'inherit',
+        });
+      }
+      execSync('apk add --no-cache openssl 2>/dev/null || true', { stdio: 'inherit' });
+      execSync('npm install --no-audit --no-fund && npx prisma generate', {
+        cwd: appDir,
+        stdio: 'inherit',
+      });
+    } catch (e) {
+      console.error('Error auto-instalando Prisma Client:', e);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient } = require('@prisma/client');
+    return new PrismaClient();
+  }
+}
+
+export const prisma: any = ensurePrismaClientInstalled();
 
 export function hashPassword(password: string, salt?: string): string {
   const useSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -90,7 +119,6 @@ export async function initDatabase(): Promise<void> {
     }
   }
 
-  // Asegurar tablas compatibles con bases existentes sin requerir intervención manual
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS roles (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -365,7 +393,6 @@ export async function initDatabase(): Promise<void> {
       });
     }
 
-    // Reasignar cualquier otro usuario que tuviera 'superadmin' al rol 'admin'
     const adminRole = await prisma.role.findUnique({ where: { code: 'admin' } });
     if (firstUser && adminRole) {
       await prisma.user.updateMany({

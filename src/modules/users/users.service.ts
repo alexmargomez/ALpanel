@@ -9,7 +9,7 @@ export class UsersService {
       orderBy: { id: 'asc' },
     });
 
-    return rows.map((r) => ({
+    return rows.map((r: any) => ({
       id: r.id,
       username: r.username,
       fullName: r.fullName || '',
