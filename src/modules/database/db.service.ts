@@ -23,7 +23,7 @@ export class DbService {
 
   constructor() {
     this.pool = mysql.createPool({
-      host: process.env.DB_HOST || 'db',
+      host: process.env.DB_HOST || 'panel_db',
       port: Number(process.env.DB_PORT || 3306),
       user: process.env.MYSQL_USER || process.env.DB_USER || 'alpanel_user',
       password: process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || 'alpanel_pass',

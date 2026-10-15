@@ -1,5 +1,5 @@
 services:
-  db:
+  panel_db:
     image: mysql:8.0
     container_name: sm_panel_db
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      - panel_db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PROJECTS_PATH:-/home/ubuntu}:${PROJECTS_ROOT:-/home/ubuntu}
