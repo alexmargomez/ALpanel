@@ -62,6 +62,17 @@
       </div>
       <button onclick="closeModal('env-modal')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
     </div>
+    <div class="flex flex-wrap items-center gap-1.5 mb-2">
+      <button type="button" onclick="injectGeneratedSecret('env-modal-textarea', 'JWT_SECRET', 32)" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1">
+        <i class="fa-solid fa-key"></i> Generar JWT_SECRET
+      </button>
+      <button type="button" onclick="injectGeneratedSecret('env-modal-textarea', 'SECRET_KEY', 32)" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold flex items-center gap-1">
+        <i class="fa-solid fa-shield-halved"></i> Generar SECRET_KEY
+      </button>
+      <button type="button" onclick="injectGeneratedDbPassword('env-modal-textarea')" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1">
+        <i class="fa-solid fa-dice"></i> Generar Password DB
+      </button>
+    </div>
     <textarea id="env-modal-textarea" rows="14" spellcheck="false"
       class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-300 focus:outline-none focus:border-indigo-500"></textarea>
     <div class="mt-4 flex justify-end gap-2">
@@ -84,24 +95,42 @@
     </div>
     <form id="clone-form" onsubmit="submitCloneForm(event)" class="space-y-3 text-xs">
       <div>
-        <label class="block text-slate-400 mb-1">Nombre de la Carpeta del Proyecto</label>
-        <input type="text" id="clone-name" placeholder="ej. mi_sistema_laravel" required
-          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
-      </div>
-      <div>
         <label class="block text-slate-400 mb-1">URL del Repositorio Git (HTTPS o SSH)</label>
-        <input type="text" id="clone-url" placeholder="https://github.com/usuario/proyecto.git" required
+        <input type="text" id="clone-url" oninput="onCloneRepoUrlInput(this.value)" placeholder="https://github.com/usuario/proyecto.git" required
           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
       </div>
-      <div>
-        <label class="block text-slate-400 mb-1">Rama (Opcional)</label>
-        <input type="text" id="clone-branch" placeholder="main"
-          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div class="sm:col-span-2">
+          <label class="block text-slate-400 mb-1">Nombre de la Carpeta del Proyecto</label>
+          <input type="text" id="clone-name" placeholder="ej. Servidor_Zapatoqueando" required
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Rama (Opcional)</label>
+          <input type="text" id="clone-branch" placeholder="main"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white" />
+        </div>
       </div>
       <div>
-        <label class="block text-slate-400 mb-1">Variables .env iniciales (Opcional)</label>
-        <textarea id="clone-env" rows="4" placeholder="DB_NAME=mi_db&#10;DB_USER=app_user&#10;DB_PASSWORD=poner_password"
+        <div class="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+          <label class="text-slate-400">Variables .env iniciales (Opcional)</label>
+          <div class="flex flex-wrap items-center gap-1">
+            <button type="button" onclick="autoFetchRepoEnvExample()" class="px-2 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold flex items-center gap-1" title="Carga el .env.example del repositorio de GitHub y genera JWT_SECRET automáticamente">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Cargar .env.example
+            </button>
+            <button type="button" onclick="injectGeneratedSecret('clone-env', 'JWT_SECRET', 32)" class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-semibold flex items-center gap-1" title="Genera un JWT_SECRET criptográfico de 256 bits">
+              <i class="fa-solid fa-key"></i> + JWT_SECRET
+            </button>
+            <button type="button" onclick="injectGeneratedDbPassword('clone-env')" class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold flex items-center gap-1" title="Genera una contraseña aleatoria segura para la base de datos">
+              <i class="fa-solid fa-dice"></i> + Password DB
+            </button>
+          </div>
+        </div>
+        <textarea id="clone-env" rows="6" placeholder="Si lo dejas vacío y el repositorio tiene .env.example, ALpanel lo copiará y generará JWT_SECRET automáticamente."
           class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-emerald-300"></textarea>
+        <p class="text-[10px] text-slate-500 mt-1">
+          <i class="fa-solid fa-circle-info text-indigo-400 mr-1"></i>Si no escribes un <code class="text-slate-300">JWT_SECRET</code>, ALpanel generará uno criptográfico de 256 bits automáticamente al clonar.
+        </p>
       </div>
       <label class="flex items-center gap-2 text-slate-300 pt-1">
         <input type="checkbox" id="clone-autostart" checked class="rounded bg-slate-950 border-slate-700 text-indigo-600" />
