@@ -68,4 +68,23 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requirePermission('project_env', 'edit')] },
     (req, reply) => projectsController.saveEnv(req, reply)
   );
+
+  // Servicio Usuarios Internos de cada Proyecto (projects.app_users)
+  app.get(
+    '/api/projects/:name/app-users',
+    { preHandler: [authenticate, requirePermission('projects.app_users', 'view')] },
+    (req, reply) => projectsController.getAppUsers(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/app-users',
+    { preHandler: [authenticate, requirePermission('projects.app_users', 'edit')] },
+    (req, reply) => projectsController.saveAppUser(req, reply)
+  );
+
+  app.delete(
+    '/api/projects/:name/app-users/:userId',
+    { preHandler: [authenticate, requirePermission('projects.app_users', 'delete')] },
+    (req, reply) => projectsController.deleteAppUser(req, reply)
+  );
 }
