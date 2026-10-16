@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import { cryptoService } from '../services/crypto.service';
 
 dotenv.config();
+if (fs.existsSync('/opt/alpanel/.env')) {
+  dotenv.config({ path: '/opt/alpanel/.env' });
+}
 
 export function buildDatabaseUrl(): string {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim()) {
@@ -26,13 +29,13 @@ export function buildDatabaseUrl(): string {
   return url;
 }
 
-buildDatabaseUrl();
+const dbUrl = buildDatabaseUrl();
 
 function ensurePrismaClientInstalled(): any {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { PrismaClient } = require('@prisma/client');
-    return new PrismaClient();
+    return new PrismaClient({ datasources: { db: { url: dbUrl } } });
   } catch {
     console.log('⚙️ Inicializando motor Prisma ORM por primera vez en el contenedor...');
     const selfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel';
@@ -53,7 +56,7 @@ function ensurePrismaClientInstalled(): any {
     }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { PrismaClient } = require('@prisma/client');
-    return new PrismaClient();
+    return new PrismaClient({ datasources: { db: { url: dbUrl } } });
   }
 }
 
