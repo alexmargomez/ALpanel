@@ -991,14 +991,15 @@ export class ProjectsService {
             timeout: 30000,
           }
         );
+        await this.ensureAlpanelContainerNames();
         await execAsync('npm install --no-audit --no-fund', { cwd: '/app', timeout: 120000 }).catch(() => null);
         const buildRes = await execAsync('npm run build', { cwd: '/app', timeout: 120000 });
         if (buildRes.stdout) logs.push(buildRes.stdout.trim());
         logs.push(`\n✅ ALpanel actualizado exitosamente (rama main).`);
-        logs.push(`🔄 Reiniciando el proceso de ALpanel en segundo plano en 1.5s (sin afectar MariaDB ni Caddy SSL)...`);
+        logs.push(`🔄 Reiniciando el proceso de ALpanel (alpanel_server) en segundo plano en 1.5s (sin afectar MariaDB ni Caddy SSL)...`);
 
         setTimeout(() => {
-          exec('docker restart sm_server_panel', () => {});
+          exec('docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel', () => {});
         }, 1500);
 
         return { success: true, output: logs.join('\n') };
@@ -1029,13 +1030,37 @@ export class ProjectsService {
     }
   }
 
+  /**
+   * Renombra automáticamente en caliente (sin downtime) los contenedores propios de ALpanel
+   * si aún conservaban el prefijo antiguo sm_* (sm_server_panel, sm_panel_db, sm_panel_caddy).
+   */
+  async ensureAlpanelContainerNames(): Promise<void> {
+    const renames: Array<[string, string]> = [
+      ['sm_panel_db', 'alpanel_db'],
+      ['sm_panel_caddy', 'alpanel_caddy'],
+      ['sm_server_panel', 'alpanel_server'],
+    ];
+    for (const [oldName, newName] of renames) {
+      try {
+        await execAsync(`docker rename ${oldName} ${newName} 2>/dev/null || true`);
+      } catch {
+        // Ignorar si ya tiene el nombre nuevo
+      }
+    }
+  }
+
   async restartProject(projectName: string, containerName?: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
     const isSelfPanel = this.isSelfPanel(projectName);
     try {
       if (containerName) {
         const cleanContainer = containerName.replace(/[^a-zA-Z0-9._-]/g, '');
-        if (cleanContainer === 'sm_server_panel' || cleanContainer === 'sm_panel_caddy') {
+        if (
+          cleanContainer === 'alpanel_server' ||
+          cleanContainer === 'alpanel_caddy' ||
+          cleanContainer === 'sm_server_panel' ||
+          cleanContainer === 'sm_panel_caddy'
+        ) {
           setTimeout(() => {
             exec(`docker restart ${cleanContainer}`, () => {});
           }, 1500);
@@ -1052,12 +1077,13 @@ export class ProjectsService {
       }
 
       if (isSelfPanel) {
+        await this.ensureAlpanelContainerNames();
         setTimeout(() => {
-          exec('docker restart sm_server_panel', () => {});
+          exec('docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel', () => {});
         }, 1500);
         return {
           success: true,
-          output: `==> Reiniciando servicio principal de ALpanel (sm_server_panel)...\n✅ Se mantienen activos sm_panel_db (MariaDB) y sm_panel_caddy (SSL Proxy) sin interrupción.\n🔄 El panel se reconectará automáticamente en 2 segundos.`,
+          output: `==> Reiniciando servicio principal de ALpanel (alpanel_server)...\n✅ Se mantienen activos alpanel_db (MariaDB) y alpanel_caddy (SSL Proxy) sin interrupción.\n🔄 El panel se reconectará automáticamente en 2 segundos.`,
         };
       }
 
@@ -1125,7 +1151,7 @@ export class ProjectsService {
         });
         if (stdout) logs.push(stdout.trim());
         if (stderr) logs.push(stderr.trim());
-        logs.push(`\n==> [2/2] Imagen compilada exitosamente. Recreando contenedor sm_server_panel en segundo plano en 1.5s...`);
+        logs.push(`\n==> [2/2] Imagen compilada exitosamente. Recreando contenedor alpanel_server en segundo plano en 1.5s...`);
 
         setTimeout(() => {
           exec('docker compose up -d --no-deps panel', { cwd: projectDir }, () => {});

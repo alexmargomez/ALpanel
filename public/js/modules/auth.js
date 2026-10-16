@@ -14,7 +14,8 @@ async function submitLoginForm(e) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error de autenticación');
     authToken = data.token;
-    localStorage.setItem('sm_panel_token', authToken);
+    localStorage.setItem('alpanel_token', authToken);
+    localStorage.removeItem('sm_panel_token');
     await initApp();
   } catch (err) {
     if (errBox) {
@@ -27,6 +28,7 @@ async function submitLoginForm(e) {
 function logout() {
   authToken = '';
   currentUser = null;
+  localStorage.removeItem('alpanel_token');
   localStorage.removeItem('sm_panel_token');
   if (socket) socket.disconnect();
   const appView = document.getElementById('app-view');

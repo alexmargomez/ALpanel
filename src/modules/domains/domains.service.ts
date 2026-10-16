@@ -25,16 +25,33 @@ export class DomainsService {
       const rows = await prisma.domainRoute.findMany({
         orderBy: { createdAt: 'asc' },
       });
-      const mapped: DomainRouteDto[] = rows.map((r: any) => ({
-        id: r.id,
-        domain: r.domain,
-        projectName: r.projectName,
-        frontendTarget: r.frontendTarget,
-        apiPathPrefix: r.apiPathPrefix || '',
-        backendTarget: r.backendTarget || '',
-        sslEnabled: r.sslEnabled,
-        createdAt: r.createdAt.toISOString(),
-      }));
+      const mapped: DomainRouteDto[] = [];
+      for (const r of rows) {
+        let frontendTarget = String(r.frontendTarget || '');
+        let backendTarget = String(r.backendTarget || '');
+        if (frontendTarget.includes('sm_server_panel')) {
+          frontendTarget = frontendTarget.replace(/sm_server_panel/g, 'alpanel_server');
+          await prisma.domainRoute
+            .update({ where: { id: r.id }, data: { frontendTarget } })
+            .catch(() => null);
+        }
+        if (backendTarget.includes('sm_server_panel')) {
+          backendTarget = backendTarget.replace(/sm_server_panel/g, 'alpanel_server');
+          await prisma.domainRoute
+            .update({ where: { id: r.id }, data: { backendTarget } })
+            .catch(() => null);
+        }
+        mapped.push({
+          id: r.id,
+          domain: r.domain,
+          projectName: r.projectName,
+          frontendTarget,
+          apiPathPrefix: r.apiPathPrefix || '',
+          backendTarget,
+          sslEnabled: r.sslEnabled,
+          createdAt: r.createdAt.toISOString(),
+        });
+      }
       this.syncMirrorFile(mapped);
       return mapped;
     } catch {

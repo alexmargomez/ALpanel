@@ -1,4 +1,4 @@
-let authToken = localStorage.getItem('sm_panel_token') || '';
+let authToken = localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token') || '';
 let currentUser = null;
 let allProjects = [];
 let allUsers = [];

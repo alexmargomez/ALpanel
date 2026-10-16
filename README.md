@@ -44,7 +44,7 @@ A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limit
 
 ### 1. Requisitos previos y estructura en `/opt`
 Instala **Git**, **Docker** y **Docker Compose v2**, y crea los directorios estándar en `/opt`:
-- `/opt/alpanel`: Repositorio y servicios propios de **ALpanel** (`sm_server_panel`, `sm_panel_db`, `sm_panel_caddy`).
+- `/opt/alpanel`: Repositorio y servicios propios de **ALpanel** (`alpanel_server`, `alpanel_db`, `alpanel_caddy`).
 - `/opt/projects`: Carpeta donde vivirán todos tus proyectos alojados (ej. `/opt/projects/mi_proyecto`).
 
 ```bash
