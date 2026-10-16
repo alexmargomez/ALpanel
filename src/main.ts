@@ -88,11 +88,19 @@ async function bootstrap() {
   });
 
   let metricsInterval: NodeJS.Timeout | null = null;
+  let isBroadcasting = false;
 
   io.on('connection', (socket) => {
+    Promise.all([hostService.getHostMetrics(), projectsService.listProjects()])
+      .then(([host, projects]) => {
+        socket.emit('dashboard:update', { host, projects });
+      })
+      .catch(() => null);
+
     if (!metricsInterval) {
       metricsInterval = setInterval(async () => {
-        if (io.engine.clientsCount === 0) return;
+        if (io.engine.clientsCount === 0 || isBroadcasting) return;
+        isBroadcasting = true;
         try {
           const [host, projects] = await Promise.all([
             hostService.getHostMetrics(),
@@ -101,8 +109,10 @@ async function bootstrap() {
           io.emit('dashboard:update', { host, projects });
         } catch {
           // Ignorar errores transitorios de Docker
+        } finally {
+          isBroadcasting = false;
         }
-      }, 4000);
+      }, 1500);
     }
 
     socket.on('disconnect', () => {

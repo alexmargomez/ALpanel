@@ -10,26 +10,45 @@ import {
 } from './permissions.model';
 
 export class PermissionsService {
-  async listModules(): Promise<ModuleDto[]> {
-    return prisma.module.findMany({
-      orderBy: { sortOrder: 'asc' },
-    });
+  private modulesCache: { data: ModuleDto[]; expiresAt: number } | null = null;
+  private roleMapCache = new Map<string, { data: UserPermissionsMap; expiresAt: number }>();
+  private userRoleCache = new Map<
+    number,
+    { username: string; roleCode: string; roleId: number | null; expiresAt: number }
+  >();
+
+  invalidateCache(): void {
+    this.modulesCache = null;
+    this.roleMapCache.clear();
+    this.userRoleCache.clear();
   }
 
-  getDiscoveredCatalog() {
-    return discoverModulesAndServices();
+  async listModules(): Promise<ModuleDto[]> {
+    const now = Date.now();
+    if (this.modulesCache && this.modulesCache.expiresAt > now) {
+      return this.modulesCache.data;
+    }
+    const data = await prisma.module.findMany({
+      orderBy: { sortOrder: 'asc' },
+    });
+    this.modulesCache = { data, expiresAt: now + 30_000 };
+    return data;
+  }
+
+  getDiscoveredCatalog(forceRescan = false) {
+    return discoverModulesAndServices(forceRescan);
   }
 
   async getRolePermissions(roleId: number): Promise<RolePermissionItemDto[]> {
-    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    const [role, modules, rolePerms] = await Promise.all([
+      prisma.role.findUnique({ where: { id: roleId } }),
+      this.listModules(),
+      prisma.rolePermission.findMany({ where: { roleId } }),
+    ]);
+
     if (!role) {
       throw new Error('El rol especificado no existe.');
     }
-
-    const modules = await this.listModules();
-    const rolePerms = await prisma.rolePermission.findMany({
-      where: { roleId },
-    });
 
     const mapByModId = new Map<number, (typeof rolePerms)[number]>();
     for (const rp of rolePerms) {
@@ -60,6 +79,13 @@ export class PermissionsService {
     roleCode: string,
     roleId?: number | null
   ): Promise<UserPermissionsMap> {
+    const cacheKey = `${roleCode}:${roleId || 0}`;
+    const now = Date.now();
+    const cached = this.roleMapCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
     const modules = await this.listModules();
     const result: UserPermissionsMap = {};
 
@@ -73,6 +99,7 @@ export class PermissionsService {
           canDeploy: true,
         };
       }
+      this.roleMapCache.set(cacheKey, { data: result, expiresAt: now + 30_000 });
       return result;
     }
 
@@ -85,13 +112,16 @@ export class PermissionsService {
     const perms = targetRoleId
       ? await prisma.rolePermission.findMany({
           where: { roleId: targetRoleId },
-          include: { module: true },
         })
       : [];
 
+    const permByModId = new Map<number, boolean>();
+    for (const p of perms) {
+      permByModId.set(p.moduleId, Boolean(p.canView));
+    }
+
     for (const mod of modules) {
-      const found = perms.find((p: any) => p.moduleId === mod.id);
-      const enabled = Boolean(found?.canView);
+      const enabled = Boolean(permByModId.get(mod.id));
       result[mod.code] = {
         canView: enabled,
         canCreate: enabled,
@@ -101,6 +131,7 @@ export class PermissionsService {
       };
     }
 
+    this.roleMapCache.set(cacheKey, { data: result, expiresAt: now + 30_000 });
     return result;
   }
 
@@ -115,7 +146,12 @@ export class PermissionsService {
       canDeploy?: boolean;
     }>
   ): Promise<RolePermissionItemDto[]> {
-    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    const [role, modules, existingPerms] = await Promise.all([
+      prisma.role.findUnique({ where: { id: roleId } }),
+      this.listModules(),
+      prisma.rolePermission.findMany({ where: { roleId } }),
+    ]);
+
     if (!role) {
       throw new Error('El rol especificado no existe.');
     }
@@ -125,50 +161,77 @@ export class PermissionsService {
       );
     }
 
-    const modules = await this.listModules();
+    const existingByModId = new Map<number, boolean>();
+    for (const ep of existingPerms) {
+      existingByModId.set(ep.moduleId, Boolean(ep.canView));
+    }
+
     const incomingMap = new Map<string, boolean>();
     for (const item of items) {
       if (!item?.moduleCode) continue;
       incomingMap.set(item.moduleCode, Boolean(item.canView));
     }
 
+    const rowsToCreate: Array<{
+      roleId: number;
+      moduleId: number;
+      canView: boolean;
+      canCreate: boolean;
+      canEdit: boolean;
+      canDelete: boolean;
+      canDeploy: boolean;
+    }> = [];
+
+    const responseItems: RolePermissionItemDto[] = [];
+
     for (const mod of modules) {
-      if (!incomingMap.has(mod.code)) continue;
-      let enabled = Boolean(incomingMap.get(mod.code));
+      let enabled = incomingMap.has(mod.code)
+        ? Boolean(incomingMap.get(mod.code))
+        : Boolean(existingByModId.get(mod.id));
 
       // Si es un sub-servicio de un módulo (`<modulo>.<servicio>`) y el módulo padre fue deshabilitado,
       // el sub-servicio queda deshabilitado también.
       if (mod.code.includes('.') && !mod.code.startsWith('services.')) {
         const parentCode = mod.code.split('.')[0];
-        if (incomingMap.has(parentCode) && !incomingMap.get(parentCode)) {
+        const parentEnabled = incomingMap.has(parentCode)
+          ? Boolean(incomingMap.get(parentCode))
+          : true;
+        if (!parentEnabled) {
           enabled = false;
         }
       }
 
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_moduleId: { roleId: role.id, moduleId: mod.id },
-        },
-        update: {
-          canView: enabled,
-          canCreate: enabled,
-          canEdit: enabled,
-          canDelete: enabled,
-          canDeploy: enabled,
-        },
-        create: {
-          roleId: role.id,
-          moduleId: mod.id,
-          canView: enabled,
-          canCreate: enabled,
-          canEdit: enabled,
-          canDelete: enabled,
-          canDeploy: enabled,
-        },
+      rowsToCreate.push({
+        roleId: role.id,
+        moduleId: mod.id,
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canDeploy: enabled,
+      });
+
+      responseItems.push({
+        moduleId: mod.id,
+        moduleCode: mod.code,
+        moduleName: mod.name,
+        moduleDescription: mod.description,
+        moduleIcon: mod.icon,
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canDeploy: enabled,
       });
     }
 
-    return this.getRolePermissions(roleId);
+    await prisma.$transaction([
+      prisma.rolePermission.deleteMany({ where: { roleId: role.id } }),
+      prisma.rolePermission.createMany({ data: rowsToCreate }),
+    ]);
+
+    this.invalidateCache();
+    return responseItems;
   }
 
   private resolveServiceCode(moduleCode: string, actionOrService?: string): string | null {
@@ -201,14 +264,25 @@ export class PermissionsService {
     moduleCode: string,
     actionOrService = 'view'
   ): Promise<boolean> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { roleRel: true },
-    });
-    if (!user) return false;
+    const now = Date.now();
+    let userInfo = this.userRoleCache.get(userId);
+    if (!userInfo || userInfo.expiresAt <= now) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { roleRel: true },
+      });
+      if (!user) return false;
+      userInfo = {
+        username: user.username,
+        roleCode: user.roleRel?.code || user.role,
+        roleId: user.roleId,
+        expiresAt: now + 15_000,
+      };
+      this.userRoleCache.set(userId, userInfo);
+    }
 
-    const effectiveRoleCode = user.roleRel?.code || user.role;
-    if (effectiveRoleCode === 'superadmin' || user.username === 'superadmin') {
+    const effectiveRoleCode = userInfo.roleCode;
+    if (effectiveRoleCode === 'superadmin' || userInfo.username === 'superadmin') {
       return true;
     }
 
@@ -220,7 +294,7 @@ export class PermissionsService {
       return true;
     }
 
-    const map = await this.getPermissionsMapForRole(effectiveRoleCode, user.roleId);
+    const map = await this.getPermissionsMapForRole(effectiveRoleCode, userInfo.roleId);
 
     // 1. Si se consulta directamente un servicio independiente (`services.*`)
     if (moduleCode.startsWith('services.')) {

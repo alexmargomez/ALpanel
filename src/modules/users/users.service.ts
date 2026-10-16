@@ -89,6 +89,8 @@ export class UsersService {
 
     if (roleRow && Array.isArray(data.rolePermissions) && data.rolePermissions.length > 0) {
       await permissionsService.updateRolePermissions(roleRow.id, data.rolePermissions);
+    } else {
+      permissionsService.invalidateCache();
     }
 
     return {
@@ -212,6 +214,8 @@ export class UsersService {
       data.rolePermissions.length > 0
     ) {
       await permissionsService.updateRolePermissions(roleId, data.rolePermissions);
+    } else {
+      permissionsService.invalidateCache();
     }
 
     return {
@@ -247,6 +251,7 @@ export class UsersService {
     }
 
     await prisma.user.delete({ where: { id } });
+    permissionsService.invalidateCache();
     return true;
   }
 

@@ -51,11 +51,23 @@ interface AppUsersModalState {
   projectName: string;
 }
 
+function loadCachedUser(): UserItem | null {
+  try {
+    const token = localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token');
+    if (!token) return null;
+    const raw = localStorage.getItem('alpanel_cached_user');
+    return raw ? (JSON.parse(raw) as UserItem) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const panelStore = reactive({
   authToken: localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token') || '',
-  currentUser: null as UserItem | null,
+  currentUser: loadCachedUser() as UserItem | null,
   activeTab: 'projects' as PanelTab,
   projectsRoot: '/opt/projects',
+  loadingProjects: true,
   host: {
     hostname: 'vps',
     platform: 'linux',
@@ -277,15 +289,25 @@ export async function apiFetch<T = any>(url: string, options: RequestInit = {}):
 }
 
 export async function refreshAll(): Promise<void> {
-  if (!hasPerm('projects', 'view')) return;
-  const data = await apiFetch<{
-    host: HostMetrics;
-    projectsRoot: string;
-    projects: ProjectInfo[];
-  }>('/api/projects');
-  if (data.host) panelStore.host = data.host;
-  if (data.projectsRoot) panelStore.projectsRoot = data.projectsRoot;
-  panelStore.projects = data.projects || [];
+  if (!hasPerm('projects', 'view')) {
+    panelStore.loadingProjects = false;
+    return;
+  }
+  if (panelStore.projects.length === 0) {
+    panelStore.loadingProjects = true;
+  }
+  try {
+    const data = await apiFetch<{
+      host: HostMetrics;
+      projectsRoot: string;
+      projects: ProjectInfo[];
+    }>('/api/projects');
+    if (data.host) panelStore.host = data.host;
+    if (data.projectsRoot) panelStore.projectsRoot = data.projectsRoot;
+    panelStore.projects = data.projects || [];
+  } finally {
+    panelStore.loadingProjects = false;
+  }
 }
 
 export async function loadDomains(): Promise<void> {
