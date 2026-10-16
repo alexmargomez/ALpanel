@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { projectsService } from './projects.service';
 import { hostService } from '../../services/host.service';
 import { securityService } from '../security/security.service';
+import { projectUsersService } from '../../services/projects/project-users.service';
 
 export class ProjectsController {
   async list(_request: FastifyRequest, _reply: FastifyReply) {
@@ -88,6 +89,40 @@ export class ProjectsController {
     const res = await projectsService.saveEnvFileContent(name, body.content || '', body.restart !== false);
     await securityService.recordAudit('ENV_UPDATE', name, request.ip, res.success ? 'ok' : 'error');
     return res;
+  }
+
+  async getAppUsers(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    try {
+      return await projectUsersService.getProjectUsers(name);
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error consultando usuarios del proyecto' });
+    }
+  }
+
+  async saveAppUser(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as any;
+    try {
+      const res = await projectUsersService.saveProjectUser(name, body);
+      await securityService.recordAudit('APP_USER_SAVE', `${name}/${body.username || ''}`, request.ip, 'ok');
+      return res;
+    } catch (error: any) {
+      await securityService.recordAudit('APP_USER_SAVE', name, request.ip, 'error');
+      return reply.code(400).send({ error: error?.message || 'Error guardando usuario del proyecto' });
+    }
+  }
+
+  async deleteAppUser(request: FastifyRequest, reply: FastifyReply) {
+    const { name, userId } = request.params as { name: string; userId: string };
+    try {
+      const res = await projectUsersService.deleteProjectUser(name, userId);
+      await securityService.recordAudit('APP_USER_DELETE', `${name}/#${userId}`, request.ip, 'ok');
+      return res;
+    } catch (error: any) {
+      await securityService.recordAudit('APP_USER_DELETE', `${name}/#${userId}`, request.ip, 'error');
+      return reply.code(400).send({ error: error?.message || 'Error eliminando usuario del proyecto' });
+    }
   }
 }
 

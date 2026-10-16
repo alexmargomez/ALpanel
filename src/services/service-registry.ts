@@ -154,6 +154,14 @@ const BASE_MODULES_CATALOG: ModuleDefinition[] = [
         serviceFile: 'src/services/projects/git-deploy.service.ts',
         defaultRoles: ['admin', 'developer'],
       },
+      {
+        code: 'projects.app_users',
+        name: 'Usuarios Internos de cada Sistema',
+        description: 'Ver, crear, cambiar contraseña/rol y eliminar usuarios dentro de la BD de cada proyecto alojado',
+        icon: 'fa-users-rectangle',
+        serviceFile: 'src/services/projects/project-users.service.ts',
+        defaultRoles: ['admin'],
+      },
     ],
   },
   {

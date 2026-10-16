@@ -1232,12 +1232,12 @@ export class ProjectsService {
   async getContainerLogs(containerName: string, tail = 150): Promise<string> {
     const clean = containerName.replace(/[^a-zA-Z0-9._-]/g, '');
     try {
-      const { stdout, stderr } = await execAsync(`docker logs --tail ${Number(tail) || 150} ${clean}`, {
+      const { stdout } = await execAsync(`docker logs --tail ${Number(tail) || 150} ${clean} 2>&1`, {
         timeout: 15000,
       });
-      return [stdout, stderr].filter(Boolean).join('\n') || 'Sin logs recientes.';
+      return stdout.trim() || 'Sin logs recientes.';
     } catch (error: any) {
-      return error?.stderr || error?.message || 'No se pudieron obtener los logs.';
+      return error?.stdout || error?.stderr || error?.message || 'No se pudieron obtener los logs.';
     }
   }
 

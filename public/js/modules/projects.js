@@ -27,6 +27,7 @@ function renderProjects() {
   const canViewEnv = hasPerm('project_env', 'view'); // Ver .env
   const canDeployGitProd = hasPerm('git', 'deploy'); // Git Pull & Restart (main)
   const canUseDevMode = hasPerm('git', 'edit'); // Modo Desarrollador (develop)
+  const canManageAppUsers = hasPerm('projects.app_users', 'view'); // Usuarios propios de cada App
 
   grid.innerHTML = filtered
     .map((p) => {
@@ -172,6 +173,17 @@ function renderProjects() {
               canViewDb
                 ? `<button onclick="openDbModal('${p.name}')" class="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1.5">
                     <i class="fa-solid fa-database"></i> Base de Datos
+                  </button>`
+                : ''
+            }
+
+            ${
+              !['serverpanel', 'alpanel'].includes(p.name.toLowerCase()) &&
+              p.database &&
+              p.database.hasDatabase &&
+              canManageAppUsers
+                ? `<button onclick="openAppUsersModal('${p.name}')" class="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5" title="Ver, crear y cambiar contraseñas de usuarios internos de ${p.name}">
+                    <i class="fa-solid fa-users-rectangle"></i> Usuarios App
                   </button>`
                 : ''
             }
@@ -470,4 +482,170 @@ async function refreshAll() {
   if (rootLbl) rootLbl.innerText = data.projectsRoot || '/opt/projects';
   allProjects = data.projects || [];
   renderProjects();
+}
+
+let currentAppUsersProject = '';
+
+function resetAppUserForm() {
+  const idEl = document.getElementById('app-user-id');
+  const userEl = document.getElementById('app-user-username');
+  const emailEl = document.getElementById('app-user-email');
+  const roleEl = document.getElementById('app-user-role');
+  const passEl = document.getElementById('app-user-password');
+  const formTitle = document.getElementById('app-user-form-title');
+  const passLabel = document.getElementById('app-user-pass-label');
+  const submitText = document.getElementById('app-user-submit-text');
+  const cancelBtn = document.getElementById('app-user-cancel-edit');
+
+  if (idEl) idEl.value = '';
+  if (userEl) userEl.value = '';
+  if (emailEl) emailEl.value = '';
+  if (roleEl) roleEl.value = 'admin';
+  if (passEl) {
+    passEl.value = '';
+    passEl.required = true;
+  }
+  if (formTitle) {
+    formTitle.innerHTML = `<i class="fa-solid fa-user-plus"></i> Crear Nuevo Usuario en ${currentAppUsersProject}`;
+  }
+  if (passLabel) passLabel.innerText = 'Contraseña (obligatoria)';
+  if (submitText) submitText.innerText = 'Crear Usuario en la BD';
+  if (cancelBtn) cancelBtn.classList.add('hidden');
+}
+
+function prefillAppUserForm(id, username, email, role) {
+  const idEl = document.getElementById('app-user-id');
+  const userEl = document.getElementById('app-user-username');
+  const emailEl = document.getElementById('app-user-email');
+  const roleEl = document.getElementById('app-user-role');
+  const passEl = document.getElementById('app-user-password');
+  const formTitle = document.getElementById('app-user-form-title');
+  const passLabel = document.getElementById('app-user-pass-label');
+  const submitText = document.getElementById('app-user-submit-text');
+  const cancelBtn = document.getElementById('app-user-cancel-edit');
+
+  if (idEl) idEl.value = String(id);
+  if (userEl) userEl.value = username || '';
+  if (emailEl) emailEl.value = email || '';
+  if (roleEl) roleEl.value = role || 'admin';
+  if (passEl) {
+    passEl.value = '';
+    passEl.required = false;
+  }
+  if (formTitle) {
+    formTitle.innerHTML = `<i class="fa-solid fa-user-pen text-amber-400"></i> Editando Usuario #${id} (${username})`;
+  }
+  if (passLabel) passLabel.innerText = 'Nueva Contraseña (Opcional)';
+  if (submitText) submitText.innerText = 'Guardar Cambios';
+  if (cancelBtn) cancelBtn.classList.remove('hidden');
+}
+
+async function openAppUsersModal(projectName) {
+  currentAppUsersProject = projectName;
+  resetAppUserForm();
+  const titleEl = document.getElementById('app-users-modal-title');
+  const subEl = document.getElementById('app-users-modal-subtitle');
+  const listEl = document.getElementById('app-users-list');
+  const formEl = document.getElementById('app-user-form');
+
+  if (titleEl) titleEl.innerText = `Usuarios Internos — ${projectName}`;
+  if (subEl) subEl.innerText = 'Consultando base de datos del proyecto...';
+  if (listEl) listEl.innerHTML = '<div class="text-slate-400 py-4 text-center">⏳ Consultando usuarios en el contenedor de base de datos...</div>';
+
+  document.getElementById('app-users-modal').classList.remove('hidden');
+
+  try {
+    const data = await apiFetch(`/api/projects/${encodeURIComponent(projectName)}/app-users`);
+    if (subEl) {
+      subEl.innerHTML = `${data.engine} • Tabla: <code class="text-sky-300 font-mono">${data.tableName}</code> • Hash: <code class="text-emerald-300 font-mono">${data.hashAlgorithm}</code>`;
+    }
+
+    const emailWrap = document.getElementById('app-user-email-wrap');
+    if (emailWrap) {
+      emailWrap.classList.toggle('hidden', !data.hasEmail);
+    }
+
+    if (!data.supported) {
+      if (formEl) formEl.classList.add('hidden');
+      if (listEl) {
+        listEl.innerHTML = `
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-400">
+            <i class="fa-solid fa-circle-info text-amber-400 mr-1.5"></i>${data.message || 'Este proyecto no tiene tabla de usuarios estándar.'}
+          </div>`;
+      }
+      return;
+    }
+
+    if (formEl) formEl.classList.remove('hidden');
+    const users = data.users || [];
+    if (listEl) {
+      listEl.innerHTML =
+        users
+          .map(
+            (u) => `
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl p-3">
+            <div class="flex items-center gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 font-mono text-[10px]">#${u.id}</span>
+              <span class="font-bold text-white font-mono text-xs">${u.username}</span>
+              ${u.email ? `<span class="text-slate-400 text-[11px]">(${u.email})</span>` : ''}
+              <span class="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[10px] font-semibold">${u.role || 'admin'}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="prefillAppUserForm('${u.id}', '${u.username.replace(/'/g, "\\'")}', '${(u.email || '').replace(/'/g, "\\'")}', '${(u.role || 'admin').replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] font-semibold">
+                <i class="fa-solid fa-key mr-1"></i>Editar / Clave
+              </button>
+              <button type="button" onclick="deleteAppUserItem('${u.id}', '${u.username.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border border-rose-800/50 text-[11px] font-semibold">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>`
+          )
+          .join('') || '<div class="text-slate-500 italic py-2">No hay usuarios registrados en la tabla de este proyecto.</div>';
+    }
+  } catch (err) {
+    if (listEl) {
+      listEl.innerHTML = `<div class="text-rose-400 bg-rose-950/30 border border-rose-800/40 rounded-xl p-3">❌ ${err.message}</div>`;
+    }
+  }
+}
+
+async function submitAppUserForm(e) {
+  e.preventDefault();
+  if (!currentAppUsersProject) return;
+  const payload = {
+    id: document.getElementById('app-user-id').value.trim() || undefined,
+    username: document.getElementById('app-user-username').value.trim(),
+    email: document.getElementById('app-user-email').value.trim(),
+    role: document.getElementById('app-user-role').value,
+    password: document.getElementById('app-user-password').value,
+    isActive: true,
+  };
+
+  try {
+    const res = await apiFetch(`/api/projects/${encodeURIComponent(currentAppUsersProject)}/app-users`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    showToast(res.message || 'Usuario guardado');
+    await openAppUsersModal(currentAppUsersProject);
+  } catch (err) {
+    showToast(`Error: ${err.message}`);
+  }
+}
+
+async function deleteAppUserItem(userId, username) {
+  if (!currentAppUsersProject) return;
+  if (!confirm(`¿Seguro que deseas eliminar al usuario "${username}" (#${userId}) de la base de datos de ${currentAppUsersProject}?`)) {
+    return;
+  }
+  try {
+    const res = await apiFetch(
+      `/api/projects/${encodeURIComponent(currentAppUsersProject)}/app-users/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    );
+    showToast(res.message || 'Usuario eliminado');
+    await openAppUsersModal(currentAppUsersProject);
+  } catch (err) {
+    showToast(`Error: ${err.message}`);
+  }
 }
