@@ -1145,17 +1145,26 @@ export class ProjectsService {
     try {
       if (isSelfPanel) {
         const logs: string[] = [];
-        logs.push(`==> [1/2] Compilando imagen Docker de ALpanel (docker compose build panel)...`);
-        const { stdout, stderr } = await execAsync('docker compose build panel', {
-          cwd: projectDir,
-          timeout: 600000,
+        logs.push(`==> [1/3] Sincronizando código fuente (Frontend Vue 3 + Backend Fastify + Prisma) en /app...`);
+        await execAsync(
+          `rm -rf /app/public/js /app/public/views && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          { timeout: 30000 }
+        );
+
+        logs.push(`==> [2/3] Instalando dependencias y reconstruyendo (vite build && prisma generate && tsc)...`);
+        await this.ensureAlpanelContainerNames();
+        await execAsync('npm install --no-audit --no-fund', { cwd: '/app', timeout: 180000 }).catch(() => null);
+        const { stdout, stderr } = await execAsync('npm run build', {
+          cwd: '/app',
+          timeout: 180000,
         });
         if (stdout) logs.push(stdout.trim());
         if (stderr) logs.push(stderr.trim());
-        logs.push(`\n==> [2/2] Imagen compilada exitosamente. Recreando contenedor alpanel_server en segundo plano en 1.5s...`);
+
+        logs.push(`\n==> [3/3] Rebuild completado exitosamente. Reiniciando contenedor alpanel_server de forma atómica en 1.5s...`);
 
         setTimeout(() => {
-          exec('docker compose up -d --no-deps panel', { cwd: projectDir }, () => {});
+          exec('docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel', () => {});
         }, 1500);
 
         return {
