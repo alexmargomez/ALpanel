@@ -20,4 +20,16 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requirePermission('security', 'deploy')] },
     (req, reply) => dashboardController.prune(req, reply)
   );
+
+  app.get(
+    '/api/system/metrics',
+    { preHandler: [authenticate] },
+    (req, reply) => dashboardController.metrics(req, reply)
+  );
+
+  app.post(
+    '/api/system/prune',
+    { preHandler: [authenticate, requirePermission('security', 'deploy')] },
+    (req, reply) => dashboardController.prune(req, reply)
+  );
 }

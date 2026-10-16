@@ -1,12 +1,12 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { projectsService } from './projects.service';
-import { systemService } from '../system/system.service';
+import { hostService } from '../../services/host.service';
 import { securityService } from '../security/security.service';
 
 export class ProjectsController {
   async list(_request: FastifyRequest, _reply: FastifyReply) {
     const [host, projects] = await Promise.all([
-      systemService.getHostMetrics(),
+      hostService.getHostMetrics(),
       projectsService.listProjects(),
     ]);
     return {

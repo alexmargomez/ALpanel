@@ -4,6 +4,12 @@ import { authenticate, requirePermission } from '../../middlewares/auth.middlewa
 
 export async function registerPermissionsRoutes(app: FastifyInstance) {
   app.get(
+    '/api/permissions/overview',
+    { preHandler: [authenticate, requirePermission('users', 'view')] },
+    (req, reply) => permissionsController.overview(req, reply)
+  );
+
+  app.get(
     '/api/permissions/modules',
     { preHandler: [authenticate] },
     (req, reply) => permissionsController.listModules(req, reply)

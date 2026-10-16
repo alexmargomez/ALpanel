@@ -1,4 +1,4 @@
-import { systemService } from '../system/system.service';
+import { hostService } from '../../services/host.service';
 import { projectsService } from '../projects/projects.service';
 import { domainsService } from '../domains/domains.service';
 import { DashboardOverviewDto } from './dashboard.model';
@@ -6,7 +6,7 @@ import { DashboardOverviewDto } from './dashboard.model';
 export class DashboardService {
   async getOverview(): Promise<DashboardOverviewDto> {
     const [host, projects, routes] = await Promise.all([
-      systemService.getHostMetrics(),
+      hostService.getHostMetrics(),
       projectsService.listProjects(),
       domainsService.listRoutes(),
     ]);
@@ -27,8 +27,12 @@ export class DashboardService {
     };
   }
 
+  async getHostMetrics() {
+    return hostService.getHostMetrics();
+  }
+
   async pruneCache() {
-    return systemService.pruneDockerCache();
+    return hostService.pruneDockerCache();
   }
 }
 

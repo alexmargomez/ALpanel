@@ -20,9 +20,13 @@ function renderProjects() {
     return;
   }
 
-  const canDeployProjects = hasPerm('projects', 'deploy');
-  const canEditProjects = hasPerm('projects', 'edit');
-  const canDeployGit = hasPerm('git', 'deploy');
+  const canDeployProjects = hasPerm('projects', 'deploy'); // Restart y Limpiar Caché
+  const canStopRebuildServer = hasPerm('projects', 'delete'); // Detener, Iniciar y Rebuild
+  const canViewLogs = hasPerm('projects', 'edit'); // Ver Logs
+  const canViewDb = hasPerm('project_db', 'view'); // Ver Base de Datos
+  const canViewEnv = hasPerm('project_env', 'view'); // Ver .env
+  const canDeployGitProd = hasPerm('git', 'deploy'); // Git Pull & Restart (main)
+  const canUseDevMode = hasPerm('git', 'edit'); // Modo Desarrollador (develop)
 
   grid.innerHTML = filtered
     .map((p) => {
@@ -89,9 +93,13 @@ function renderProjects() {
                       </button>`
                     : ''
                 }
-                <button onclick="openLogsModal('${p.name}', '${c.name}')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]" title="Ver logs de este contenedor">
-                  <i class="fa-solid fa-terminal"></i> Logs
-                </button>
+                ${
+                  canViewLogs
+                    ? `<button onclick="openLogsModal('${p.name}', '${c.name}')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]" title="Ver logs de este contenedor">
+                        <i class="fa-solid fa-terminal"></i> Logs
+                      </button>`
+                    : ''
+                }
               </div>
             </div>`;
         })
@@ -142,7 +150,7 @@ function renderProjects() {
 
           <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
             ${
-              canDeployGit
+              canDeployGitProd
                 ? `<button onclick="runAction('${p.name}', 'pull')" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20" title="Ejecuta git pull + docker compose restart con Rollback automático si falla">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull & Restart
                   </button>`
@@ -156,27 +164,36 @@ function renderProjects() {
                   </button>
                   <button onclick="runAction('${p.name}', 'clear-cache')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
                     <i class="fa-solid fa-broom"></i> Limpiar Caché
-                  </button>
-                  <button onclick="openDbModal('${p.name}')" class="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1.5">
+                  </button>`
+                : ''
+            }
+
+            ${
+              canViewDb
+                ? `<button onclick="openDbModal('${p.name}')" class="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1.5">
                     <i class="fa-solid fa-database"></i> Base de Datos
                   </button>`
                 : ''
             }
 
             ${
-              canEditProjects
+              canViewEnv
                 ? `<button onclick="openEnvModal('${p.name}')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
                     <i class="fa-solid fa-key"></i> .env
                   </button>`
                 : ''
             }
 
-            <button onclick="openLogsModal('${p.name}')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
-              <i class="fa-solid fa-terminal"></i> Logs
-            </button>
+            ${
+              canViewLogs
+                ? `<button onclick="openLogsModal('${p.name}')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-terminal"></i> Logs
+                  </button>`
+                : ''
+            }
 
             ${
-              canDeployProjects
+              canStopRebuildServer
                 ? `<button onclick="runAction('${p.name}', 'rebuild')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5" title="Reconstruir imágenes Docker (docker compose up -d --build)">
                     <i class="fa-solid fa-hammer"></i> Rebuild
                   </button>`
@@ -184,7 +201,7 @@ function renderProjects() {
             }
 
             ${
-              canDeployGit
+              canUseDevMode
                 ? p.devMode && p.devMode.isActive
                   ? `<button onclick="runAction('${p.name}', 'dev-activate')" class="px-3 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 text-xs font-semibold transition flex items-center gap-1.5" title="Sincronizar últimos commits de origin/develop en el entorno de pruebas">
                       <i class="fa-solid fa-flask"></i> Actualizar Dev (develop)
@@ -203,7 +220,7 @@ function renderProjects() {
                 ? `<span class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 text-xs font-semibold flex items-center gap-1.5">
                     <i class="fa-solid fa-shield-halved"></i> Panel Principal
                   </span>`
-                : !canDeployProjects
+                : !canStopRebuildServer
                 ? ''
                 : p.status === 'running'
                 ? `<button onclick="runAction('${p.name}', 'stop')" class="ml-auto px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5">
@@ -262,7 +279,7 @@ function openDbModal(projectName) {
     dumpBtn.classList.add('hidden');
     body.innerHTML = `<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">Este proyecto no tiene un contenedor o configuración de Base de Datos detectada en su <code>.env</code> o <code>docker-compose.yml</code>.</div>`;
   } else {
-    dumpBtn.classList.remove('hidden');
+    dumpBtn.classList.toggle('hidden', !hasPerm('project_db', 'deploy'));
     dumpBtn.onclick = () => downloadSqlBackup(proj.name);
 
     const fields = [

@@ -1,4 +1,4 @@
-import { HostMetrics } from '../system/system.model';
+import { HostMetrics } from '../../services/host.service';
 import { ProjectInfo } from '../projects/projects.model';
 
 export interface DashboardSummary {

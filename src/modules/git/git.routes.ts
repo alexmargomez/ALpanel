@@ -9,24 +9,27 @@ export async function registerGitRoutes(app: FastifyInstance) {
     (req, reply) => gitController.checkUpdates(req, reply)
   );
 
+  // Git Pull & Restart en Producción (rama main) -> requiere git:deploy
   app.post(
     '/api/projects/:name/pull',
     { preHandler: [authenticate, requirePermission('git', 'deploy')] },
     (req, reply) => gitController.pull(req, reply)
   );
 
+  // Modo Desarrollador (rama develop) -> requiere git:edit
   app.post(
     '/api/projects/:name/dev-activate',
-    { preHandler: [authenticate, requirePermission('git', 'deploy')] },
+    { preHandler: [authenticate, requirePermission('git', 'edit')] },
     (req, reply) => gitController.activateDev(req, reply)
   );
 
   app.post(
     '/api/projects/:name/dev-deactivate',
-    { preHandler: [authenticate, requirePermission('git', 'deploy')] },
+    { preHandler: [authenticate, requirePermission('git', 'edit')] },
     (req, reply) => gitController.deactivateDev(req, reply)
   );
 
+  // Clonar nuevo proyecto -> requiere git:create
   app.post(
     '/api/projects/clone',
     { preHandler: [authenticate, requirePermission('git', 'create')] },

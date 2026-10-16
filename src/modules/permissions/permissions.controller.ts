@@ -1,8 +1,19 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { permissionsService } from './permissions.service';
+import { usersService } from '../users/users.service';
+import { rolesService } from '../roles/roles.service';
 import { securityService } from '../security/security.service';
 
 export class PermissionsController {
+  async overview(_request: FastifyRequest, _reply: FastifyReply) {
+    const [modules, roles, users] = await Promise.all([
+      permissionsService.listModules(),
+      rolesService.listRoles(),
+      usersService.listUsers(),
+    ]);
+    return { modules, roles, users };
+  }
+
   async listModules(_request: FastifyRequest, _reply: FastifyReply) {
     const modules = await permissionsService.listModules();
     return { modules };

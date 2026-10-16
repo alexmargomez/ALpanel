@@ -17,8 +17,7 @@ import { registerProjectsRoutes } from './modules/projects/projects.routes';
 import { registerGitRoutes } from './modules/git/git.routes';
 import { registerDomainsRoutes } from './modules/domains/domains.routes';
 import { registerSecurityRoutes } from './modules/security/security.routes';
-import { registerSystemRoutes } from './modules/system/system.routes';
-import { systemService } from './modules/system/system.service';
+import { hostService } from './services/host.service';
 import { projectsService } from './modules/projects/projects.service';
 import { domainsService } from './modules/domains/domains.service';
 
@@ -40,7 +39,7 @@ async function bootstrap() {
   await app.register(fastifyCookie);
   await app.register(fastifyJwt, { secret: JWT_SECRET });
 
-  // 3. Registrar todos los Módulos de la Arquitectura por Capas
+  // 3. Registrar todos los Módulos de Negocio de la Arquitectura por Capas
   await registerDashboardRoutes(app);
   await registerAuthRoutes(app);
   await registerUsersRoutes(app);
@@ -50,7 +49,6 @@ async function bootstrap() {
   await registerGitRoutes(app);
   await registerDomainsRoutes(app);
   await registerSecurityRoutes(app);
-  await registerSystemRoutes(app);
 
   // 4. Servir Vistas y Activos Modulares del Frontend
   const publicDir = path.join(__dirname, '..', 'public');
@@ -94,7 +92,7 @@ async function bootstrap() {
         if (io.engine.clientsCount === 0) return;
         try {
           const [host, projects] = await Promise.all([
-            systemService.getHostMetrics(),
+            hostService.getHostMetrics(),
             projectsService.listProjects(),
           ]);
           io.emit('dashboard:update', { host, projects });

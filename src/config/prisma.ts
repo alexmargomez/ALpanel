@@ -1,7 +1,7 @@
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { cryptoService } from '../services/crypto.service';
 
 export function buildDatabaseUrl(): string {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim()) {
@@ -50,56 +50,61 @@ function ensurePrismaClientInstalled(): any {
 
 export const prisma: any = ensurePrismaClientInstalled();
 
-export function hashPassword(password: string, salt?: string): string {
-  const useSalt = salt || crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(password, useSalt, 64).toString('hex');
-  return `${useSalt}:${derived}`;
-}
+export const hashPassword = (password: string, salt?: string) =>
+  cryptoService.hashPassword(password, salt);
 
-export function verifyPasswordHash(password: string, storedHash: string): boolean {
-  const [salt, key] = (storedHash || '').split(':');
-  if (!salt || !key) return false;
-  const derived = crypto.scryptSync(password, salt, 64);
-  const keyBuf = Buffer.from(key, 'hex');
-  if (derived.length !== keyBuf.length) return false;
-  return crypto.timingSafeEqual(derived, keyBuf);
-}
+export const verifyPasswordHash = (password: string, storedHash: string) =>
+  cryptoService.verifyPasswordHash(password, storedHash);
 
 export const SYSTEM_MODULES = [
   {
     code: 'projects',
-    name: 'Proyectos & Docker',
-    description: 'Tarjetas de proyectos, contenedores, variables .env, logs y respaldos SQL',
+    name: 'Proyectos & Contenedores Docker',
+    description: 'Ver proyectos (Ver) • Ver Logs (Editar) • Restart/Caché (Desplegar) • Detener/Iniciar/Rebuild Servidor (Eliminar)',
     icon: 'fa-cubes',
     sortOrder: 1,
   },
   {
-    code: 'git',
-    name: 'Despliegue Git & Modo Dev',
-    description: 'Clonar repositorios, Git Pull & Restart (main) y Modo Desarrollador (develop)',
-    icon: 'fa-code-branch',
+    code: 'project_db',
+    name: 'Servicio: Base de Datos de Proyectos',
+    description: 'Ver contraseñas y conexión DB del proyecto (Ver) • Descargar Backup .SQL (Desplegar)',
+    icon: 'fa-database',
     sortOrder: 2,
   },
   {
-    code: 'domains',
-    name: 'Dominios & Proxy SSL',
-    description: 'Rutas de dominios, subdominios y certificados HTTPS automáticos en Caddy',
-    icon: 'fa-globe',
+    code: 'project_env',
+    name: 'Servicio: Variables de Entorno (.env)',
+    description: 'Abrir y leer variables .env (Ver) • Modificar y guardar archivo .env (Editar)',
+    icon: 'fa-key',
     sortOrder: 3,
   },
   {
-    code: 'users',
-    name: 'Usuarios, Roles & Permisos',
-    description: 'Administración de cuentas de usuario, roles y matriz de permisos RBAC',
-    icon: 'fa-users-gear',
+    code: 'git',
+    name: 'Servicio: Despliegue Git & Modo Dev',
+    description: 'Ver Guía/Remoto (Ver) • Clonar Proyecto (Crear) • Modo Desarrollador develop (Editar) • Git Pull Producción main (Desplegar)',
+    icon: 'fa-code-branch',
     sortOrder: 4,
   },
   {
-    code: 'security',
-    name: 'Seguridad & Auditoría',
-    description: 'Bitácora de auditoría en MariaDB, estado del firewall y mantenimiento Docker',
-    icon: 'fa-shield-halved',
+    code: 'domains',
+    name: 'Dominios & Proxy SSL (Caddy)',
+    description: 'Ver dominios y Caddyfile (Ver) • Crear ruta SSL (Crear) • Eliminar ruta SSL (Eliminar)',
+    icon: 'fa-globe',
     sortOrder: 5,
+  },
+  {
+    code: 'users',
+    name: 'Usuarios, Roles & Matriz de Permisos',
+    description: 'Ver usuarios y permisos (Ver) • Crear usuario/rol (Crear) • Editar permisos y cuentas (Editar) • Eliminar (Eliminar)',
+    icon: 'fa-users-gear',
+    sortOrder: 6,
+  },
+  {
+    code: 'security',
+    name: 'Seguridad, Auditoría & Caché VPS',
+    description: 'Ver bitácora de Auditoría (Ver) • Ejecutar Limpiar Caché Docker del Servidor (Desplegar)',
+    icon: 'fa-shield-halved',
+    sortOrder: 7,
   },
 ];
 
@@ -207,7 +212,7 @@ export async function initDatabase(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
 
-  // 1. Semilla de Módulos del sistema con Prisma
+  // 1. Semilla de los 7 Módulos y Servicios granulares
   for (const mod of SYSTEM_MODULES) {
     await prisma.module.upsert({
       where: { code: mod.code },
@@ -250,7 +255,7 @@ export async function initDatabase(): Promise<void> {
         {
           code: 'developer',
           name: 'Desarrollador',
-          description: 'Gestión de despliegues, Modo Desarrollador (develop), logs y variables .env',
+          description: 'Modo Desarrollador (develop), reinicio de contenedores, logs y edición de .env (sin detener el servidor ni ver contraseñas DB)',
         },
         {
           code: 'viewer',
@@ -262,7 +267,7 @@ export async function initDatabase(): Promise<void> {
     });
   }
 
-  // 3. Semilla de Matriz de Permisos por Rol y Módulo (RBAC)
+  // 3. Semilla de Matriz de Permisos por Rol y Servicio (RBAC)
   const allModules = await prisma.module.findMany({ orderBy: { sortOrder: 'asc' } });
   const allRoles = await prisma.role.findMany();
 
@@ -313,13 +318,37 @@ export async function initDatabase(): Promise<void> {
           canDeploy: true,
         };
       } else if (role.code === 'developer') {
-        if (mod.code === 'projects' || mod.code === 'git') {
+        if (mod.code === 'projects') {
           defaults = {
             canView: true,
-            canCreate: true,
+            canCreate: false,
+            canEdit: true, // Ver Logs
+            canDelete: false, // NO puede Detener el servidor ni Rebuild
+            canDeploy: true, // Sí puede Restart y Limpiar Caché
+          };
+        } else if (mod.code === 'project_db') {
+          defaults = {
+            canView: false, // NO ve credenciales de Base de Datos por defecto
+            canCreate: false,
+            canEdit: false,
+            canDelete: false,
+            canDeploy: false,
+          };
+        } else if (mod.code === 'project_env') {
+          defaults = {
+            canView: true,
+            canCreate: false,
             canEdit: true,
             canDelete: false,
-            canDeploy: true,
+            canDeploy: false,
+          };
+        } else if (mod.code === 'git') {
+          defaults = {
+            canView: true,
+            canCreate: false,
+            canEdit: true, // Sí puede usar Modo Desarrollador (develop)
+            canDelete: false,
+            canDeploy: false, // Git Pull en producción (main) reservado salvo que se le autorice
           };
         } else if (mod.code === 'domains') {
           defaults = {
@@ -340,7 +369,7 @@ export async function initDatabase(): Promise<void> {
         }
       } else if (role.code === 'viewer') {
         defaults = {
-          canView: mod.code !== 'users',
+          canView: ['projects', 'domains', 'security'].includes(mod.code),
           canCreate: false,
           canEdit: false,
           canDelete: false,

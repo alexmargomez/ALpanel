@@ -4,8 +4,8 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import dotenv from 'dotenv';
-import { SystemService } from '../system/system.service';
-import { ProxyService } from '../proxy/proxy.service';
+import { HostService as SystemService, hostService } from '../../services/host.service';
+import { DomainsService as ProxyService } from '../domains/domains.service';
 
 const execAsync = promisify(exec);
 
@@ -1293,6 +1293,5 @@ export class ProjectsService {
   }
 }
 
-import { systemService } from '../system/system.service';
-export const projectsService = new ProjectsService(systemService);
+export const projectsService = new ProjectsService(hostService);
 

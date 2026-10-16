@@ -2,13 +2,37 @@ import si from 'systeminformation';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
-import { HostMetrics } from './system.model';
-
-export { HostMetrics } from './system.model';
 
 const execAsync = promisify(exec);
 
-export class SystemService {
+export interface HostMetrics {
+  hostname: string;
+  platform: string;
+  distro: string;
+  uptimeSeconds: number;
+  publicIp: string;
+  cpu: {
+    cores: number;
+    brand: string;
+    usagePercent: number;
+  };
+  memory: {
+    totalBytes: number;
+    usedBytes: number;
+    freeBytes: number;
+    usagePercent: number;
+  };
+  disk: {
+    totalBytes: number;
+    usedBytes: number;
+    freeBytes: number;
+    usagePercent: number;
+    mount: string;
+  };
+  timestamp: string;
+}
+
+export class HostService {
   private cachedPublicIp: string | null = null;
 
   async getPublicIp(): Promise<string> {
@@ -27,9 +51,7 @@ export class SystemService {
         this.cachedPublicIp = ip;
         return ip;
       }
-    } catch {
-      // Fallback to local interface
-    }
+    } catch {}
     return '127.0.0.1';
   }
 
@@ -104,4 +126,4 @@ export class SystemService {
   }
 }
 
-export const systemService = new SystemService();
+export const hostService = new HostService();

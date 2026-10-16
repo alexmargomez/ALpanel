@@ -111,6 +111,7 @@ async function loadViewPartials() {
     { id: 'tab-domains', url: '/views/domains.html' },
     { id: 'tab-guide', url: '/views/git.html' },
     { id: 'tab-users', url: '/views/users.html' },
+    { id: 'tab-permissions', url: '/views/permissions.html' },
     { id: 'tab-audit', url: '/views/security.html' },
   ];
 

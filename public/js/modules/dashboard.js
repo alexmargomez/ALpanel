@@ -17,6 +17,7 @@ function applyPermissionsToUI() {
     { tab: 'domains', mod: 'domains' },
     { tab: 'guide', mod: 'git' },
     { tab: 'users', mod: 'users' },
+    { tab: 'permissions', mod: 'users' },
     { tab: 'audit', mod: 'security' },
   ];
 
@@ -40,6 +41,7 @@ function switchTab(tab) {
     domains: 'domains',
     guide: 'git',
     users: 'users',
+    permissions: 'users',
     audit: 'security',
   };
   const reqMod = tabModMap[tab];
@@ -48,7 +50,7 @@ function switchTab(tab) {
     return;
   }
 
-  ['projects', 'domains', 'guide', 'users', 'audit'].forEach((t) => {
+  ['projects', 'domains', 'guide', 'users', 'permissions', 'audit'].forEach((t) => {
     const sec = document.getElementById(`tab-${t}`);
     if (sec) sec.classList.toggle('hidden', t !== tab);
     const btn = document.getElementById(`tab-btn-${t}`);
@@ -64,6 +66,7 @@ function switchTab(tab) {
 
   if (tab === 'domains' && typeof loadDomains === 'function') loadDomains();
   if (tab === 'users' && typeof loadUsersAndRoles === 'function') loadUsersAndRoles();
+  if (tab === 'permissions' && typeof loadPermissionsModule === 'function') loadPermissionsModule();
   if (tab === 'audit' && typeof loadAuditLogs === 'function') loadAuditLogs();
 }
 
