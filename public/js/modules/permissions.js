@@ -377,19 +377,67 @@ async function loadPermissionsModule() {
   }
 }
 
+const expandedPermRoleIds = new Set();
+
+function setPermRoleCardExpanded(roleId, expanded) {
+  if (expanded) {
+    expandedPermRoleIds.add(roleId);
+  } else {
+    expandedPermRoleIds.delete(roleId);
+  }
+  const body = document.getElementById(`perm-role-body-${roleId}`);
+  const chevron = document.getElementById(`perm-role-chevron-${roleId}`);
+  const toggleBtnText = document.getElementById(`perm-role-toggle-text-${roleId}`);
+  if (body) {
+    body.classList.toggle('hidden', !expanded);
+  }
+  if (chevron) {
+    chevron.className = `fa-solid ${
+      expanded ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-400'
+    } text-xs transition-transform`;
+  }
+  if (toggleBtnText) {
+    toggleBtnText.innerText = expanded ? 'Minimizar' : 'Abrir Permisos';
+  }
+  updateToggleAllPermRolesButton();
+}
+
+function togglePermRoleCard(roleId) {
+  const isCurrentlyExpanded = expandedPermRoleIds.has(roleId);
+  setPermRoleCardExpanded(roleId, !isCurrentlyExpanded);
+}
+
+function toggleAllPermRoleCards() {
+  const allExpanded = allRoles.length > 0 && allRoles.every((r) => expandedPermRoleIds.has(r.id));
+  allRoles.forEach((r) => {
+    setPermRoleCardExpanded(r.id, !allExpanded);
+  });
+}
+
+function updateToggleAllPermRolesButton() {
+  const btn = document.getElementById('btn-toggle-all-perm-roles');
+  if (!btn) return;
+  const allExpanded = allRoles.length > 0 && allRoles.every((r) => expandedPermRoleIds.has(r.id));
+  btn.innerHTML = allExpanded
+    ? '<i class="fa-solid fa-angles-up"></i> Minimizar Todos'
+    : '<i class="fa-solid fa-angles-down"></i> Expandir Todos';
+}
+
 function renderRolePermissionsCards() {
   const container = document.getElementById('role-permissions-cards');
   if (!container) return;
 
   const canEdit = hasPerm('users', 'edit');
+  const canDelete = hasPerm('users', 'delete');
 
   container.innerHTML =
     allRoles
       .map((r) => {
         const isSuper = r.code === 'superadmin';
-        const locked = isSuper || !canEdit;
+        const isExpanded = expandedPermRoleIds.has(r.id);
         const prefix = `role-card-${r.id}`;
         const assignedUsers = allUsers.filter((u) => u.roleId === r.id || u.role === r.code);
+        const activePermsCount = (r.permissions || []).filter((p) => p.canView).length;
 
         const usersBadges =
           assignedUsers.length > 0
@@ -401,59 +449,87 @@ function renderRolePermissionsCards() {
                     </span>`
                 )
                 .join(' ')
-            : '<span class="text-[11px] text-slate-500">Sin usuarios asignados</span>';
+            : '<span class="text-[11px] text-slate-500 italic">Sin usuarios asignados</span>';
 
         return `
           <div id="perm-role-card-${r.id}" class="bg-slate-900 border ${
-            isSuper ? 'border-fuchsia-500/30' : 'border-slate-800'
-          } rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl">
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
-              <div class="space-y-1">
+            isSuper ? 'border-fuchsia-500/30' : 'border-slate-800 hover:border-slate-700'
+          } rounded-2xl p-4 sm:p-5 shadow-xl transition">
+            <!-- Bloque Mini del Rol (Nombre, Texto, Usuarios y Botones) -->
+            <div class="flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none" onclick="togglePermRoleCard(${r.id})">
+              <div class="space-y-1.5 min-w-[240px] flex-1">
                 <div class="flex flex-wrap items-center gap-2.5">
-                  <span class="w-9 h-9 rounded-xl ${
+                  <button type="button" class="w-7 h-7 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0" title="Abrir / Minimizar Rol">
+                    <i id="perm-role-chevron-${r.id}" class="fa-solid ${
+                      isExpanded ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-400'
+                    } text-xs transition-transform"></i>
+                  </button>
+                  <span class="w-8 h-8 rounded-xl ${
                     isSuper
                       ? 'bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300'
                       : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
-                  } border flex items-center justify-center font-bold text-sm">
+                  } border flex items-center justify-center font-bold text-xs shrink-0">
                     <i class="fa-solid ${isSuper ? 'fa-crown' : 'fa-id-badge'}"></i>
                   </span>
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <h4 class="font-bold text-white text-base">${r.name}</h4>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h4 class="font-bold text-white text-sm sm:text-base">${r.name}</h4>
                       <code class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 ${
                         isSuper ? 'text-fuchsia-300' : 'text-amber-300'
-                      } text-xs font-mono">${r.code}</code>
+                      } text-[11px] font-mono">${r.code}</code>
+                      <span class="px-2 py-0.5 rounded-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-300 font-semibold">
+                        <i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i>${activePermsCount} permiso(s) activo(s)
+                      </span>
                     </div>
-                    <p class="text-xs text-slate-400">${r.description || ''}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">${r.description || 'Sin descripción'}</p>
                   </div>
                 </div>
-                <div class="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span class="text-[11px] text-slate-400 mr-1">Usuarios en este rol (${assignedUsers.length}):</span>
+
+                <!-- Usuarios asignados al Rol -->
+                <div class="flex flex-wrap items-center gap-1.5 pl-9">
+                  <span class="text-[11px] text-slate-400 mr-1">
+                    <i class="fa-solid fa-users text-indigo-400 mr-1"></i>Usuarios (${assignedUsers.length}):
+                  </span>
                   ${usersBadges}
                 </div>
               </div>
 
-              <div class="flex items-center gap-2">
+              <!-- Botones de Acción del Rol -->
+              <div class="flex flex-wrap items-center gap-2" onclick="event.stopPropagation()">
+                <button onclick="togglePermRoleCard(${r.id})" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold flex items-center gap-1.5">
+                  <i class="fa-solid fa-sliders text-indigo-400"></i>
+                  <span id="perm-role-toggle-text-${r.id}">${isExpanded ? 'Minimizar' : 'Abrir Permisos'}</span>
+                </button>
                 ${
                   isSuper
                     ? `<span class="px-3 py-1.5 rounded-xl bg-fuchsia-950/40 text-fuchsia-300 border border-fuchsia-800/40 text-xs font-semibold">
-                        <i class="fa-solid fa-shield-halved mr-1"></i>Rol Único (Acceso Total Blindado)
+                        <i class="fa-solid fa-shield-halved mr-1"></i>Rol Único (Acceso Total)
                       </span>`
                     : canEdit
                     ? `
-                      <button onclick="openRoleModal(${r.id})" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold">
-                        <i class="fa-solid fa-pen mr-1"></i>Editar Datos del Rol
+                      <button onclick="openRoleModal(${r.id})" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold">
+                        <i class="fa-solid fa-pen mr-1"></i>Editar Rol
                       </button>
-                      <button onclick="saveRoleCardPermissions(${r.id}, '${prefix}')" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
-                        <i class="fa-solid fa-floppy-disk"></i> Guardar Permisos de ${r.name}
+                      <button onclick="saveRoleCardPermissions(${r.id}, '${prefix}')" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
+                        <i class="fa-solid fa-floppy-disk"></i> Guardar Permisos
                       </button>
+                      ${
+                        canDelete
+                          ? `<button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1.5 rounded-xl bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 border border-rose-800/50 text-xs font-semibold" title="Eliminar Rol">
+                              <i class="fa-solid fa-trash"></i>
+                            </button>`
+                          : ''
+                      }
                     `
                     : ''
                 }
               </div>
             </div>
 
-            <div id="role-scope-container-${r.id}"></div>
+            <!-- Cuerpo Desplegable con Módulos, Sub-Servicios y Servicios Independientes (Minimizado por defecto) -->
+            <div id="perm-role-body-${r.id}" class="${isExpanded ? '' : 'hidden'} pt-4 mt-4 border-t border-slate-800">
+              <div id="role-scope-container-${r.id}"></div>
+            </div>
           </div>
         `;
       })
@@ -470,11 +546,14 @@ function renderRolePermissionsCards() {
       locked
     );
   });
+
+  updateToggleAllPermRolesButton();
 }
 
 async function saveRoleCardPermissions(roleId, prefix) {
   const permissions = readPermissionMatrixFromDOM(prefix);
   try {
+    expandedPermRoleIds.add(roleId);
     await apiFetch(`/api/permissions/roles/${encodeURIComponent(roleId)}`, {
       method: 'PUT',
       body: JSON.stringify({ permissions }),
@@ -519,11 +598,15 @@ function renderIgnoredSummary() {
 }
 
 function jumpToRolePermissionsCard(roleId) {
+  expandedPermRoleIds.add(roleId);
   switchTab('permissions');
   setTimeout(() => {
+    setPermRoleCardExpanded(roleId, true);
     const card = document.getElementById(`perm-role-card-${roleId}`);
     if (card) {
       card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      card.classList.add('ring-2', 'ring-indigo-500');
+      setTimeout(() => card.classList.remove('ring-2', 'ring-indigo-500'), 1800);
     }
-  }, 200);
+  }, 220);
 }

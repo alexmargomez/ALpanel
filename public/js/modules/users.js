@@ -1,3 +1,23 @@
+const expandedUserRoleIds = new Set();
+
+function toggleUserRoleMiniCard(roleId) {
+  if (expandedUserRoleIds.has(roleId)) {
+    expandedUserRoleIds.delete(roleId);
+  } else {
+    expandedUserRoleIds.add(roleId);
+  }
+  const body = document.getElementById(`user-role-body-${roleId}`);
+  const icon = document.getElementById(`user-role-chevron-${roleId}`);
+  if (body) {
+    body.classList.toggle('hidden', !expandedUserRoleIds.has(roleId));
+  }
+  if (icon) {
+    icon.className = `fa-solid ${
+      expandedUserRoleIds.has(roleId) ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-500'
+    } text-xs transition-transform`;
+  }
+}
+
 async function loadUsersAndRoles() {
   try {
     const data = await apiFetch('/api/users');
@@ -115,7 +135,19 @@ function renderUsersAndRoles() {
     allRoles
       .map((r) => {
         const isSuperRole = r.code === 'superadmin';
-        const usersInRole = allUsers.filter((u) => u.roleId === r.id || u.role === r.code).length;
+        const isExpanded = expandedUserRoleIds.has(r.id);
+        const assignedUsers = allUsers.filter((u) => u.roleId === r.id || u.role === r.code);
+        const usersInRole = assignedUsers.length;
+        const usersBadges =
+          assignedUsers.length > 0
+            ? assignedUsers
+                .map(
+                  (u) =>
+                    `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-mono">@${u.username}</span>`
+                )
+                .join(' ')
+            : '';
+
         const activePerms = (r.permissions || []).filter((p) => p.canView);
         const permSummary = activePerms
           .map(
@@ -130,53 +162,78 @@ function renderUsersAndRoles() {
 
         return `
           <div class="bg-slate-950 border ${
-            isSuperRole ? 'border-fuchsia-500/30' : 'border-slate-800'
-          } rounded-xl p-3.5 space-y-2.5">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white text-sm">${r.name}</span>
-                  <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 ${
-                    isSuperRole ? 'text-fuchsia-300' : 'text-amber-300'
-                  } text-[10px] font-mono">${r.code}</code>
+            isSuperRole ? 'border-fuchsia-500/30' : 'border-slate-800 hover:border-slate-700'
+          } rounded-xl p-3 transition">
+            <!-- Vista Mini (Datos básicos: Nombre, Texto, Usuarios y Botones) -->
+            <div class="space-y-2">
+              <div onclick="toggleUserRoleMiniCard(${r.id})" class="flex items-start justify-between gap-2 cursor-pointer select-none">
+                <div class="flex items-start gap-2.5 min-w-0">
+                  <button type="button" class="w-6 h-6 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 mt-0.5" title="Abrir / Cerrar detalle del rol">
+                    <i id="user-role-chevron-${r.id}" class="fa-solid ${
+                      isExpanded ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-500'
+                    } text-xs transition-transform"></i>
+                  </button>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="font-bold text-white text-sm">${r.name}</span>
+                      <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 ${
+                        isSuperRole ? 'text-fuchsia-300' : 'text-amber-300'
+                      } text-[10px] font-mono">${r.code}</code>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${r.description || 'Sin descripción'}</p>
+                  </div>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-1">${r.description || 'Sin descripción'}</p>
+                <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-[10px] shrink-0 font-semibold">
+                  <i class="fa-solid fa-users text-[9px] text-indigo-400 mr-1"></i>${usersInRole} usuario(s)
+                </span>
               </div>
-              <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-[10px] shrink-0">
-                ${usersInRole} usuario(s)
-              </span>
+
+              <!-- Usuarios y Botones en el bloque mini -->
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-900/90">
+                <div class="flex flex-wrap items-center gap-1">
+                  ${
+                    usersBadges ||
+                    '<span class="text-[10px] text-slate-500 italic">Sin usuarios</span>'
+                  }
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 ml-auto">
+                  ${
+                    isSuperRole
+                      ? `<button onclick="event.stopPropagation(); jumpToRolePermissionsCard(${r.id})" class="px-2.5 py-1 rounded-lg bg-fuchsia-950/40 hover:bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-semibold">
+                          <i class="fa-solid fa-lock mr-1"></i>Acceso Total
+                        </button>`
+                      : `
+                        ${
+                          canEdit
+                            ? `<button onclick="event.stopPropagation(); jumpToRolePermissionsCard(${r.id})" class="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold">
+                                <i class="fa-solid fa-sliders mr-1"></i>Configurar Servicios
+                              </button>
+                              <button onclick="event.stopPropagation(); openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
+                                <i class="fa-solid fa-pen mr-1"></i>Editar
+                              </button>`
+                            : ''
+                        }
+                        ${
+                          canDelete
+                            ? `<button onclick="event.stopPropagation(); deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold" title="Eliminar Rol">
+                                <i class="fa-solid fa-trash"></i>
+                              </button>`
+                            : ''
+                        }
+                      `
+                  }
+                </div>
+              </div>
             </div>
 
-            <div class="flex flex-wrap gap-1.5">
-              ${permSummary || '<span class="text-[10px] text-rose-400">Sin módulos ni servicios habilitados</span>'}
-            </div>
-
-            <div class="flex justify-end gap-1.5 pt-1 border-t border-slate-900">
-              ${
-                isSuperRole
-                  ? `<span class="px-2.5 py-1 rounded-lg bg-fuchsia-950/40 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-semibold">
-                      <i class="fa-solid fa-lock mr-1"></i>Rol Único (Acceso Total)
-                    </span>`
-                  : `
-                    ${
-                      canEdit
-                        ? `<button onclick="jumpToRolePermissionsCard(${r.id})" class="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold">
-                            <i class="fa-solid fa-sliders mr-1"></i>Configurar Servicios
-                          </button>
-                          <button onclick="openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
-                            <i class="fa-solid fa-pen mr-1"></i>Editar Rol
-                          </button>`
-                        : ''
-                    }
-                    ${
-                      canDelete
-                        ? `<button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold">
-                            <i class="fa-solid fa-trash"></i>
-                          </button>`
-                        : ''
-                    }
-                  `
-              }
+            <!-- Contenido Desplegable (Permisos y Servicios activos del rol) - Minimizado por defecto -->
+            <div id="user-role-body-${r.id}" class="${isExpanded ? '' : 'hidden'} pt-2.5 mt-2.5 border-t border-slate-800/80 space-y-1.5">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Módulos y Servicios Activos (${activePerms.length}):
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                ${permSummary || '<span class="text-[10px] text-rose-400">Sin módulos ni servicios habilitados</span>'}
+              </div>
             </div>
           </div>`;
       })

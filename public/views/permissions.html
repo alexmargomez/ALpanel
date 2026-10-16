@@ -9,7 +9,10 @@
         Los permisos en ALpanel se asignan <strong>por Rol</strong> al estilo de <em>GitHub Classic Tokens</em>: habilita un <strong>Módulo padre</strong> y marca o desmarca cada uno de sus <strong>Sub-Servicios</strong> (<code class="text-indigo-300">src/services/&lt;modulo&gt;/</code>). Si un módulo no tiene sub-servicios, el interruptor controla el módulo completo.
       </p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      <button onclick="toggleAllPermRoleCards()" id="btn-toggle-all-perm-roles" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
+        <i class="fa-solid fa-angles-down"></i> Expandir Todos
+      </button>
       <button onclick="openRoleModal()" id="btn-perm-new-role" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-amber-600/20">
         <i class="fa-solid fa-plus"></i> Nuevo Rol
       </button>
