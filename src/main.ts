@@ -8,6 +8,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 
 import { initDatabase } from './config/prisma';
+import { registerDashboardRoutes } from './modules/dashboard/dashboard.routes';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerUsersRoutes } from './modules/users/users.routes';
 import { registerRolesRoutes } from './modules/roles/roles.routes';
@@ -40,6 +41,7 @@ async function bootstrap() {
   await app.register(fastifyJwt, { secret: JWT_SECRET });
 
   // 3. Registrar todos los Módulos de la Arquitectura por Capas
+  await registerDashboardRoutes(app);
   await registerAuthRoutes(app);
   await registerUsersRoutes(app);
   await registerRolesRoutes(app);
