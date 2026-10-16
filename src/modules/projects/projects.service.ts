@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import dotenv from 'dotenv';
@@ -1296,9 +1297,38 @@ export class ProjectsService {
       if (cloneRes.stdout) logs.push(cloneRes.stdout.trim());
       if (cloneRes.stderr) logs.push(cloneRes.stderr.trim());
 
-      if (payload.envContent && payload.envContent.trim()) {
+      let finalEnvContent = (payload.envContent || '').trim();
+      const envExamplePath = path.join(targetDir, '.env.example');
+      const envSamplePath = path.join(targetDir, '.env.sample');
+
+      if (!finalEnvContent) {
+        if (fs.existsSync(envExamplePath)) {
+          finalEnvContent = fs.readFileSync(envExamplePath, 'utf-8').trim();
+          logs.push('==> 📋 Se detectó .env.example en el repositorio y se usó como base para .env.');
+        } else if (fs.existsSync(envSamplePath)) {
+          finalEnvContent = fs.readFileSync(envSamplePath, 'utf-8').trim();
+          logs.push('==> 📋 Se detectó .env.sample en el repositorio y se usó como base para .env.');
+        }
+      }
+
+      if (finalEnvContent) {
+        // Forzar NODE_ENV=production si venía en development desde .env.example
+        finalEnvContent = finalEnvContent.replace(/^NODE_ENV\s*=\s*development\s*$/m, 'NODE_ENV=production');
+
+        // Generar JWT_SECRET automáticamente si no viene o viene vacío / auto
+        const hasJwtSecret = /^JWT_SECRET\s*=\s*(.+)$/m.exec(finalEnvContent);
+        if (!hasJwtSecret || !hasJwtSecret[1].trim() || ['auto', 'secret', 'changeme', 'secret_key_123'].includes(hasJwtSecret[1].trim())) {
+          const generatedJwtSecret = crypto.randomBytes(32).toString('hex');
+          if (/^JWT_SECRET\s*=.*$/m.test(finalEnvContent)) {
+            finalEnvContent = finalEnvContent.replace(/^JWT_SECRET\s*=.*$/m, `JWT_SECRET=${generatedJwtSecret}`);
+          } else {
+            finalEnvContent += `\nJWT_SECRET=${generatedJwtSecret}`;
+          }
+          logs.push('==> 🔑 JWT_SECRET seguro (256-bit hex) generado automáticamente por ALpanel.');
+        }
+
         const envFile = path.join(targetDir, '.env');
-        fs.writeFileSync(envFile, payload.envContent, 'utf-8');
+        fs.writeFileSync(envFile, finalEnvContent + '\n', 'utf-8');
         fs.chmodSync(envFile, 0o600);
         logs.push('==> Archivo .env creado con permisos restringidos (0600).');
       }
