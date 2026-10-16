@@ -4,9 +4,12 @@
   "description": "Panel ligero y escalable de administración de servidor, contenedores Docker, bases de datos y despliegues Git",
   "main": "dist/main.js",
   "scripts": {
-    "build": "prisma generate && tsc",
+    "build:frontend": "vite build",
+    "build:backend": "prisma generate && tsc",
+    "build": "vite build && prisma generate && tsc",
     "start": "node dist/main.js",
-    "dev": "ts-node src/main.ts"
+    "dev": "ts-node src/main.ts",
+    "dev:frontend": "vite"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
@@ -19,13 +22,17 @@
     "fastify": "^4.28.1",
     "mysql2": "^3.11.0",
     "socket.io": "^4.7.5",
-    "systeminformation": "^5.23.5"
+    "socket.io-client": "^4.7.5",
+    "systeminformation": "^5.23.5",
+    "vue": "^3.4.38"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.31",
     "@types/node": "^20.14.10",
+    "@vitejs/plugin-vue": "^5.1.2",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2"
   }
 }

@@ -28,31 +28,10 @@
   </script>
 </head>
 <body class="min-h-screen flex flex-col">
+  <!-- Punto de montaje de la SPA Vue 3 + TypeScript -->
+  <div id="app" class="min-h-screen flex flex-col"></div>
 
-  <!-- Contenedor del Módulo Login (/views/login.html) -->
-  <div id="login-view" class="hidden min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950"></div>
-
-  <!-- Contenedor del Módulo Página Principal / Dashboard (/views/dashboard.html) -->
-  <div id="app-view" class="hidden flex-1 flex flex-col"></div>
-
-  <!-- Contenedor de Modales del Sistema (/views/modals.html) -->
-  <div id="modals-container"></div>
-
-  <!-- Toast Notification -->
-  <div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-semibold flex items-center gap-2">
-    <i class="fa-solid fa-circle-check"></i>
-    <span id="toast-msg">Listo</span>
-  </div>
-
-  <!-- Módulos Frontend por Capas -->
-  <script src="/js/modules/auth.js"></script>
-  <script src="/js/modules/dashboard.js"></script>
-  <script src="/js/modules/projects.js"></script>
-  <script src="/js/modules/git.js"></script>
-  <script src="/js/modules/domains.js"></script>
-  <script src="/js/modules/users.js"></script>
-  <script src="/js/modules/permissions.js"></script>
-  <script src="/js/modules/security.js"></script>
-  <script src="/js/core.js"></script>
+  <!-- Bundle compilado por Vite (Vue 3 + TypeScript) -->
+  <script type="module" src="/assets/app.js"></script>
 </body>
 </html>
