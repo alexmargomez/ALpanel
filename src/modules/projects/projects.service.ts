@@ -985,9 +985,9 @@ export class ProjectsService {
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
 
       if (isSelfPanel) {
-        logs.push(`\n==> [2/2] Sincronizando código, Prisma ORM y compilando ALpanel en caliente...`);
+        logs.push(`\n==> [2/2] Sincronizando código (Vue 3 + TS Frontend & Fastify Backend), Prisma ORM y compilando ALpanel en caliente...`);
         await execAsync(
-          `cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          `cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
           {
             timeout: 30000,
           }

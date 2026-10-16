@@ -3,6 +3,7 @@
 **ALpanel** es un panel de control autoalojado (self-hosted), ultraligero y escalable para servidores Linux VPS. Está diseñado para administrar múltiples proyectos en cualquier lenguaje (**Node.js, Python/Django, Java/Spring Boot, PHP/Laravel/Symfony, React/Vue/Next.js**) basados en `docker compose`, sin opciones de relleno y con control total en 1 clic.
 
 ![Node.js 20](https://img.shields.gl/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
+![Vue 3](https://img.shields.io/badge/Vue_3-Composition_API_%2B_TS-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
@@ -156,41 +157,79 @@ La interfaz de **Roles & Permisos** funciona igual que los **Personal Access Tok
 3. **Regla de Módulo sin Servicios (Permiso de Módulo Completo):** Si un módulo en `src/modules/<modulo>` **NO tiene carpeta o servicios** dentro de `src/services/<modulo>/` (como ocurre con `security` / Auditoría), el permiso aplica automáticamente al **módulo completo**.
 4. **Servicios Independientes (`src/services/*.service.ts`):** Los servicios que no pertenecen a un módulo específico se colocan directamente en la raíz de `src/services/` (ej. `src/services/docker-prune.service.ts` $\rightarrow$ `services.docker_prune`) y aparecen agrupados en una sección aparte llamada **Servicios Independientes**.
 
-### Estructura de Carpetas (`src/modules` y `src/services`)
+### Estructura de Carpetas: Backend (`src/`) y Frontend (`frontend/`)
 
 ```text
-src/
-├── config/
-│   └── permissions.ignore.json          # Módulos y archivos de servicios ignorados en la vista de permisos (habilitados para todos)
-├── modules/                             # Módulos principales del panel
-│   ├── auth/                            # (Ignorado en permisos — siempre activo)
-│   ├── dashboard/                       # (Ignorado en permisos — siempre activo)
-│   ├── projects/                        # Módulo Padre: Proyectos & Contenedores
-│   ├── domains/                         # Módulo Padre: Dominios & SSL (Caddy)
-│   ├── git/                             # Módulo Padre: Repositorios & Cuentas Git
-│   ├── users/                           # Módulo Padre: Usuarios & Accesos
-│   ├── security/                        # Módulo Padre sin sub-servicios (el permiso controla el módulo completo)
-│   ├── roles/                           # (Ignorado en permisos — administración interna)
-│   └── permissions/                     # (Ignorado en permisos — administración interna)
-└── services/                            # Servicios granulares divididos por carpeta de módulo o independientes
-    ├── service-registry.ts              # Escáner automático de módulos y servicios
-    ├── crypto.service.ts                # (Ignorado en permissions.ignore.json — uso interno global)
-    ├── host.service.ts                  # (Ignorado en permissions.ignore.json — uso interno global)
-    ├── docker-prune.service.ts          # ⚡ Servicio Independiente -> código: services.docker_prune
-    ├── projects/                        # 📦 Sub-servicios del módulo "projects"
-    │   ├── container-logs.service.ts    # -> projects.logs (Ver Logs y Métricas)
-    │   ├── container-restart.service.ts # -> projects.restart_cache (Reiniciar y Limpiar Caché)
-    │   ├── container-power.service.ts   # -> projects.stop_rebuild (Detener, Eliminar y Rebuild)
-    │   ├── project-db.service.ts        # -> projects.db_view y projects.db_backup (Inspector y Backup SQL)
-    │   ├── project-env.service.ts       # -> projects.env_view y projects.env_edit (Variables .env)
-    │   ├── git-devmode.service.ts       # -> projects.dev_mode (Modo Desarrollador Git)
-    │   └── git-deploy.service.ts        # -> projects.git_pull (Git Pull & Restart)
-    ├── domains/                         # 🌐 Sub-servicios del módulo "domains"
-    │   └── caddy-ssl.service.ts         # -> domains.manage (Gestionar Dominios y SSL)
-    ├── git/                             # 🔑 Sub-servicios del módulo "git"
-    │   └── git-clone.service.ts         # -> git.clone (Cuentas Git y Clonar Proyectos)
-    └── users/                           # 👥 Sub-servicios del módulo "users"
-        └── users-roles.service.ts       # -> users.manage (Gestionar Usuarios y Roles)
+ServerPanel/
+├── frontend/                                # 🎨 FRONTEND (Vue 3 <script setup lang="ts"> + TypeScript + Vite)
+│   └── src/
+│       ├── main.ts                          # Punto de entrada de la SPA Vue 3
+│       ├── App.vue                          # Layout raíz, sesión JWT y orquestación de pestañas/modales
+│       ├── types/
+│       │   └── panel.ts                     # Interfaces TypeScript compartidas con el Backend
+│       ├── services/
+│       │   └── api.ts                       # Helpers de formato, criptografía .env y catálogo base
+│       ├── composables/
+│       │   ├── usePanelStore.ts             # Store reactivo centralizado y guardas RBAC (hasPerm)
+│       │   └── useSocket.ts                 # Telemetría WebSocket en tiempo real (Socket.IO)
+│       ├── views/                           # Vistas principales de los 6 módulos
+│       │   ├── ProjectsView.vue
+│       │   ├── DomainsView.vue
+│       │   ├── GitGuideView.vue
+│       │   ├── UsersRolesView.vue
+│       │   ├── PermissionsView.vue
+│       │   └── SecurityAuditView.vue
+│       └── components/
+│           ├── common/
+│           │   └── PermissionMatrixSelector.vue
+│           ├── layout/
+│           │   ├── LoginView.vue
+│           │   ├── TopHeader.vue
+│           │   └── ToastNotification.vue
+│           └── modals/                      # Los 7 modales reactivos del sistema
+│               ├── DbCredentialsModal.vue
+│               ├── ConsoleLogsModal.vue
+│               ├── EnvEditorModal.vue
+│               ├── CloneProjectModal.vue
+│               ├── UserModal.vue
+│               ├── RoleModal.vue
+│               └── AppUsersModal.vue
+│
+├── src/                                     # ⚙️ BACKEND (Fastify + TypeScript + Prisma ORM + Dockerode)
+│   ├── config/
+│   │   └── permissions.ignore.json          # Módulos y archivos de servicios ignorados en RBAC (habilitados para todos)
+│   ├── modules/                             # Módulos principales del panel (Controladores REST)
+│   │   ├── auth/                            # (Ignorado en permisos — siempre activo)
+│   │   ├── dashboard/                       # (Ignorado en permisos — siempre activo)
+│   │   ├── projects/                        # Módulo Padre: Proyectos & Contenedores
+│   │   ├── domains/                         # Módulo Padre: Dominios & SSL (Caddy)
+│   │   ├── git/                             # Módulo Padre: Repositorios & Cuentas Git
+│   │   ├── users/                           # Módulo Padre: Usuarios & Accesos
+│   │   ├── security/                        # Módulo Padre sin sub-servicios (el permiso controla el módulo completo)
+│   │   ├── roles/                           # (Ignorado en permisos — administración interna)
+│   │   └── permissions/                     # (Ignorado en permisos — administración interna)
+│   └── services/                            # Servicios granulares divididos por carpeta de módulo o independientes
+│       ├── service-registry.ts              # Escáner automático de módulos y servicios
+│       ├── crypto.service.ts                # (Ignorado en permissions.ignore.json — uso interno global)
+│       ├── host.service.ts                  # (Ignorado en permissions.ignore.json — uso interno global)
+│       ├── docker-prune.service.ts          # ⚡ Servicio Independiente -> código: services.docker_prune
+│       ├── projects/                        # 📦 Sub-servicios del módulo "projects"
+│       │   ├── container-logs.service.ts    # -> projects.logs (Ver Logs y Métricas)
+│       │   ├── container-restart.service.ts # -> projects.restart_cache (Reiniciar y Limpiar Caché)
+│       │   ├── container-power.service.ts   # -> projects.stop_rebuild (Detener, Eliminar y Rebuild)
+│       │   ├── project-db.service.ts        # -> projects.db_view y projects.db_backup (Inspector y Backup SQL)
+│       │   ├── project-env.service.ts       # -> projects.env_view y projects.env_edit (Variables .env)
+│       │   ├── project-users.service.ts     # -> projects.app_users (Gestionar Usuarios Internos de cada App)
+│       │   ├── git-devmode.service.ts       # -> projects.dev_mode (Modo Desarrollador Git)
+│       │   └── git-deploy.service.ts        # -> projects.git_pull (Git Pull & Restart)
+│       ├── domains/                         # 🌐 Sub-servicios del módulo "domains"
+│       │   └── caddy-ssl.service.ts         # -> domains.manage (Gestionar Dominios y SSL)
+│       ├── git/                             # 🔑 Sub-servicios del módulo "git"
+│       │   └── git-clone.service.ts         # -> git.clone (Cuentas Git y Clonar Proyectos)
+│       └── users/                           # 👥 Sub-servicios del módulo "users"
+│           └── users-roles.service.ts       # -> users.manage (Gestionar Usuarios y Roles)
+│
+└── public/                                  # 📦 Activos estáticos servidos por Fastify (incluye /assets/app.js compilado por Vite)
 ```
 
 ---

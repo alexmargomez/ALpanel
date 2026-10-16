@@ -16,7 +16,8 @@ COPY package*.json ./
 COPY prisma ./prisma
 RUN npm install
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.frontend.json vite.config.ts ./
+COPY frontend ./frontend
 COPY src ./src
 COPY public ./public
 
