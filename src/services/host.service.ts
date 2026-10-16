@@ -32,7 +32,7 @@ export interface HostMetrics {
   timestamp: string;
 }
 
-export class SystemService {
+export class HostService {
   private cachedPublicIp: string | null = null;
 
   async getPublicIp(): Promise<string> {
@@ -43,15 +43,15 @@ export class SystemService {
       return this.cachedPublicIp;
     }
     try {
-      const { stdout } = await execAsync('curl -s --max-time 3 https://ifconfig.me || hostname -I | awk \'{print $1}\'');
+      const { stdout } = await execAsync(
+        "curl -s --max-time 3 https://ifconfig.me || hostname -I | awk '{print $1}'"
+      );
       const ip = stdout.trim();
       if (ip) {
         this.cachedPublicIp = ip;
         return ip;
       }
-    } catch {
-      // Fallback to local interface
-    }
+    } catch {}
     return '127.0.0.1';
   }
 
@@ -65,7 +65,6 @@ export class SystemService {
       this.getPublicIp(),
     ]);
 
-    // Select primary root filesystem (or largest mounted disk)
     const rootDisk =
       fsSize.find((d) => d.mount === '/' || d.mount === '/host') ||
       fsSize.sort((a, b) => b.size - a.size)[0] || {
@@ -109,13 +108,14 @@ export class SystemService {
 
   async pruneDockerCache(): Promise<{ success: boolean; output: string }> {
     try {
-      const { stdout, stderr } = await execAsync(
-        'docker system prune -f && docker builder prune -f',
-        { timeout: 120000 }
-      );
+      const { stdout, stderr } = await execAsync('docker system prune -f && docker builder prune -f', {
+        timeout: 120000,
+      });
       return {
         success: true,
-        output: [stdout, stderr].filter(Boolean).join('\n').trim() || 'Caché de Docker limpiada correctamente.',
+        output:
+          [stdout, stderr].filter(Boolean).join('\n').trim() ||
+          'Caché de Docker limpiada correctamente.',
       };
     } catch (error: any) {
       return {
@@ -125,3 +125,5 @@ export class SystemService {
     }
   }
 }
+
+export const hostService = new HostService();

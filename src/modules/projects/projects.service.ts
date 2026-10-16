@@ -4,8 +4,8 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import dotenv from 'dotenv';
-import { SystemService } from '../system/system.service';
-import { ProxyService } from '../proxy/proxy.service';
+import { HostService as SystemService, hostService } from '../../services/host.service';
+import { DomainsService as ProxyService } from '../domains/domains.service';
 
 const execAsync = promisify(exec);
 
@@ -879,7 +879,7 @@ export class ProjectsService {
 
       const internalTarget = `alpanel_dev_app:${internalPort}`;
       logs.push(`==> Enrutando https://${devDomain} -> ${internalTarget} en Caddy SSL...`);
-      proxyService.saveRoute({
+      await proxyService.saveRoute({
         id: 'route-dev-mode',
         domain: devDomain,
         projectName: `${cleanName} (develop)`,
@@ -937,7 +937,7 @@ export class ProjectsService {
       }
 
       logs.push(`==> Desvinculando subdominio ${prev.domain} en Caddy...`);
-      proxyService.deleteRoute('route-dev-mode');
+      await proxyService.deleteRoute('route-dev-mode');
       await proxyService.reloadCaddy();
 
       const newState: DevModeState = {
@@ -984,10 +984,14 @@ export class ProjectsService {
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
 
       if (isSelfPanel) {
-        logs.push(`\n==> [2/2] Sincronizando código y compilando ALpanel en caliente...`);
-        await execAsync(`cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/`, {
-          timeout: 30000,
-        });
+        logs.push(`\n==> [2/2] Sincronizando código, Prisma ORM y compilando ALpanel en caliente...`);
+        await execAsync(
+          `cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          {
+            timeout: 30000,
+          }
+        );
+        await execAsync('npm install --no-audit --no-fund', { cwd: '/app', timeout: 120000 }).catch(() => null);
         const buildRes = await execAsync('npm run build', { cwd: '/app', timeout: 120000 });
         if (buildRes.stdout) logs.push(buildRes.stdout.trim());
         logs.push(`\n✅ ALpanel actualizado exitosamente (rama main).`);
@@ -1288,3 +1292,6 @@ export class ProjectsService {
     }
   }
 }
+
+export const projectsService = new ProjectsService(hostService);
+

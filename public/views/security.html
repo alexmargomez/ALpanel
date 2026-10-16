@@ -1,0 +1,14 @@
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h3 class="text-base font-bold text-white">
+        <i class="fa-solid fa-shield-halved text-indigo-400 mr-2"></i>Registro de Auditoría y Seguridad (Prisma ORM)
+      </h3>
+      <p class="text-xs text-slate-400">Historial de acciones ejecutadas en el servidor (sin almacenar contraseñas ni secretos).</p>
+    </div>
+    <button onclick="loadAuditLogs()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200">
+      <i class="fa-solid fa-rotate mr-1"></i>Actualizar
+    </button>
+  </div>
+  <div id="audit-list" class="space-y-2 text-xs"></div>
+</div>
