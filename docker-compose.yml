@@ -1,7 +1,7 @@
 services:
   panel_db:
     image: mariadb:11
-    container_name: sm_panel_db
+    container_name: alpanel_db
     restart: unless-stopped
     command: >
       --performance-schema=OFF
@@ -21,7 +21,7 @@ services:
 
   panel:
     build: .
-    container_name: sm_server_panel
+    container_name: alpanel_server
     restart: unless-stopped
     ports:
       - "${PANEL_PORT:-9000}:9000"
@@ -35,11 +35,14 @@ services:
       - ${HOST_PROJECTS_PATH:-/opt/projects}:${PROJECTS_ROOT:-/opt/projects}
       - ./data:/app/data
     networks:
-      - alpanel_net
+      alpanel_net:
+        aliases:
+          - alpanel_server
+          - sm_server_panel
 
   caddy:
     image: caddy:2
-    container_name: sm_panel_caddy
+    container_name: alpanel_caddy
     restart: unless-stopped
     ports:
       - "80:80"

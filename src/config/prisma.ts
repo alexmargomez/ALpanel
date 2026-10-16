@@ -1,17 +1,26 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import dotenv from 'dotenv';
 import { cryptoService } from '../services/crypto.service';
+
+dotenv.config();
 
 export function buildDatabaseUrl(): string {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim()) {
     return process.env.DATABASE_URL.trim();
   }
-  const host = process.env.PANEL_DB_HOST || 'panel_db';
-  const port = Number(process.env.PANEL_DB_PORT || 3306);
-  const user = encodeURIComponent(process.env.PANEL_DB_USER || 'alpanel');
-  const password = encodeURIComponent(process.env.PANEL_DB_PASSWORD || 'alpanel_secret_2026');
-  const database = encodeURIComponent(process.env.PANEL_DB_NAME || 'alpanel_db');
+  const host = process.env.DB_HOST || process.env.PANEL_DB_HOST || 'panel_db';
+  const port = Number(process.env.DB_PORT || 3306);
+  const user = encodeURIComponent(
+    process.env.MYSQL_USER || process.env.DB_USER || process.env.PANEL_DB_USER || 'alpanel_user'
+  );
+  const password = encodeURIComponent(
+    process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || process.env.PANEL_DB_PASSWORD || 'alpanel_pass'
+  );
+  const database = encodeURIComponent(
+    process.env.MYSQL_DATABASE || process.env.DB_NAME || process.env.PANEL_DB_NAME || 'alpanel_db'
+  );
   const url = `mysql://${user}:${password}@${host}:${port}/${database}`;
   process.env.DATABASE_URL = url;
   return url;

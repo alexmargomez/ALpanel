@@ -24,9 +24,12 @@ import { domainsService } from './modules/domains/domains.service';
 dotenv.config();
 
 const PORT = Number(process.env.PANEL_PORT || 9000);
-const JWT_SECRET = process.env.PANEL_JWT_SECRET || 'sm_super_secret_jwt_key_change_in_prod_2026';
+const JWT_SECRET = process.env.PANEL_JWT_SECRET || 'alpanel_super_secret_jwt_key_change_in_prod_2026';
 
 async function bootstrap() {
+  // 0. Asegurar nombres limpios de contenedores propios (alpanel_server, alpanel_db, alpanel_caddy)
+  await projectsService.ensureAlpanelContainerNames().catch(() => null);
+
   // 1. Inicializar Prisma ORM + MariaDB 11 (Esquema, Módulos, Roles, Matriz RBAC y superadmin)
   await initDatabase();
 

@@ -1,5 +1,5 @@
 {
-  "name": "sm-server-panel",
+  "name": "alpanel",
   "version": "1.0.0",
   "description": "Panel ligero y escalable de administración de servidor, contenedores Docker, bases de datos y despliegues Git",
   "main": "dist/main.js",
