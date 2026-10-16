@@ -1,0 +1,14 @@
+{
+  "_comment": "Configuración de Módulos y Servicios que están HABILITADOS PARA TODOS los usuarios autenticados y se ignoran automáticamente en la vista de Permisos por Rol.",
+  "ignoredModules": [
+    "auth",
+    "dashboard",
+    "roles",
+    "permissions"
+  ],
+  "ignoredServices": [
+    "service-registry.ts",
+    "crypto.service.ts",
+    "host.service.ts"
+  ]
+}

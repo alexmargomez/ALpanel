@@ -17,7 +17,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-export function requirePermission(moduleCode: string, action: PermissionAction) {
+export function requirePermission(moduleCode: string, actionOrService = 'view') {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user as JwtUserPayload | undefined;
     if (!user || !user.id) {
@@ -28,17 +28,10 @@ export function requirePermission(moduleCode: string, action: PermissionAction) 
       return;
     }
 
-    const allowed = await permissionsService.checkUserPermission(user.id, moduleCode, action);
+    const allowed = await permissionsService.checkUserPermission(user.id, moduleCode, actionOrService);
     if (!allowed) {
-      const actionLabels: Record<PermissionAction, string> = {
-        view: 'ver',
-        create: 'crear',
-        edit: 'editar',
-        delete: 'eliminar',
-        deploy: 'desplegar/ejecutar',
-      };
       return reply.code(403).send({
-        error: `Acceso denegado (403): Tu rol (${user.role}) no tiene permiso para [${actionLabels[action]}] en el módulo [${moduleCode}].`,
+        error: `Acceso denegado (403): Tu rol (${user.role}) no tiene habilitado el servicio o módulo [${actionOrService !== 'view' ? actionOrService : moduleCode}].`,
       });
     }
   };

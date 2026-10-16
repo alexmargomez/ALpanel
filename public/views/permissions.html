@@ -3,48 +3,43 @@
   <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
     <div>
       <h3 class="text-base font-bold text-white flex items-center gap-2">
-        <i class="fa-solid fa-user-lock text-amber-400"></i> Mapa de Permisos y Servicios por Usuario
+        <i class="fa-solid fa-user-shield text-indigo-400"></i> Módulos y Servicios por Rol (Auto-Discovery)
       </h3>
-      <p class="text-xs text-slate-400 mt-0.5">
-        Consulta qué servicios técnicos (Base de Datos, Variables <code class="text-emerald-400">.env</code>, Detener Servidor, Modo Desarrollador, Git Pull, Dominios SSL) puede utilizar cada usuario según su rol.
+      <p class="text-xs text-slate-400 mt-1">
+        Los permisos en ALpanel se asignan <strong>por Rol</strong> al estilo de <em>GitHub Classic Tokens</em>: habilita un <strong>Módulo padre</strong> y marca o desmarca cada uno de sus <strong>Sub-Servicios</strong> (<code class="text-indigo-300">src/services/&lt;modulo&gt;/</code>). Si un módulo no tiene sub-servicios, el interruptor controla el módulo completo.
       </p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      <button onclick="toggleAllPermRoleCards()" id="btn-toggle-all-perm-roles" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
+        <i class="fa-solid fa-angles-down"></i> Expandir Todos
+      </button>
+      <button onclick="openRoleModal()" id="btn-perm-new-role" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-amber-600/20">
+        <i class="fa-solid fa-plus"></i> Nuevo Rol
+      </button>
       <button onclick="loadPermissionsModule()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
-        <i class="fa-solid fa-rotate"></i> Actualizar Mapa
+        <i class="fa-solid fa-rotate"></i> Re-escanear Módulos y Servicios
       </button>
     </div>
   </div>
 
-  <!-- 1. Tarjetas de Permisos Efectivos por Usuario -->
-  <div class="space-y-3">
-    <h4 class="text-sm font-bold text-slate-200 flex items-center gap-2">
-      <i class="fa-solid fa-id-card-clip text-indigo-400"></i> 1. Servicios Habilitados por Usuario
-    </h4>
-    <div id="user-permissions-cards" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
-  </div>
+  <!-- Tarjetas Interactivas de Permisos por Rol (Estilo GitHub Classic Token + Píldoras) -->
+  <div id="role-permissions-cards" class="space-y-5"></div>
 
-  <!-- 2. Editor en Vivo de Permisos y Servicios por Rol -->
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+  <!-- Panel Informativo de Archivos Ignorados (Siempre Activos para Todos) -->
+  <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <div>
-        <h4 class="text-sm font-bold text-white flex items-center gap-2">
-          <i class="fa-solid fa-sliders text-emerald-400"></i> 2. Configurador de Servicios y Permisos por Rol (Prisma ORM)
+        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+          <i class="fa-solid fa-circle-check text-emerald-400"></i> Módulos y Servicios Ignorados en RBAC (Habilitados para Todos)
         </h4>
-        <p class="text-xs text-slate-400">
-          Selecciona un rol para activar o restringir en caliente qué servicios y botones puede usar.
+        <p class="text-[11px] text-slate-400 mt-0.5">
+          Configurados en <code class="text-amber-300">src/config/permissions.ignore.json</code>. Cualquier servicio listado aquí queda activo para todos los usuarios autenticados y no requiere interruptor.
         </p>
       </div>
-      <div class="flex items-center gap-2">
-        <select id="perm-editor-role-select" onchange="renderLiveRolePermissionsEditor()"
-          class="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-semibold focus:outline-none focus:border-indigo-500"></select>
-        <button id="perm-editor-save-btn" onclick="saveLiveRolePermissions()"
-          class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
-          <i class="fa-solid fa-floppy-disk"></i> Guardar Permisos del Rol
-        </button>
-      </div>
+      <span class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-400">
+        src/config/permissions.ignore.json
+      </span>
     </div>
-
-    <div id="live-role-permissions-table" class="overflow-x-auto"></div>
+    <div id="ignored-permissions-summary" class="flex flex-wrap gap-2 pt-1"></div>
   </div>
 </div>

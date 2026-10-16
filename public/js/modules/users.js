@@ -1,105 +1,36 @@
+const expandedUserRoleIds = new Set();
+
+function toggleUserRoleMiniCard(roleId) {
+  if (expandedUserRoleIds.has(roleId)) {
+    expandedUserRoleIds.delete(roleId);
+  } else {
+    expandedUserRoleIds.add(roleId);
+  }
+  const body = document.getElementById(`user-role-body-${roleId}`);
+  const icon = document.getElementById(`user-role-chevron-${roleId}`);
+  if (body) {
+    body.classList.toggle('hidden', !expandedUserRoleIds.has(roleId));
+  }
+  if (icon) {
+    icon.className = `fa-solid ${
+      expandedUserRoleIds.has(roleId) ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-500'
+    } text-xs transition-transform`;
+  }
+}
+
 async function loadUsersAndRoles() {
   try {
     const data = await apiFetch('/api/users');
     allUsers = data.users || [];
     allRoles = data.roles || [];
     allModules = data.modules || [];
+    if (data.catalog) {
+      discoveredCatalog = data.catalog;
+    }
     renderUsersAndRoles();
   } catch (e) {
     showToast(`Error cargando usuarios y roles: ${e.message}`);
   }
-}
-
-function renderPermissionMatrixTable(containerId, prefix, permsList, isLocked = false) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const modulesToRender =
-    permsList && permsList.length > 0
-      ? permsList
-      : (allModules || []).map((m) => ({
-          moduleCode: m.code,
-          moduleName: m.name,
-          moduleIcon: m.icon,
-          canView: m.code !== 'users',
-          canCreate: false,
-          canEdit: false,
-          canDelete: false,
-          canDeploy: false,
-        }));
-
-  container.innerHTML = `
-    <table class="w-full text-left border-collapse text-[11px]">
-      <thead>
-        <tr class="border-b border-slate-800 text-slate-400">
-          <th class="py-2 pr-3 font-semibold">Módulo del Panel</th>
-          <th class="py-2 px-2 text-center font-semibold">Ver</th>
-          <th class="py-2 px-2 text-center font-semibold">Crear</th>
-          <th class="py-2 px-2 text-center font-semibold">Editar</th>
-          <th class="py-2 px-2 text-center font-semibold">Eliminar</th>
-          <th class="py-2 px-2 text-center font-semibold">Desplegar</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-900">
-        ${modulesToRender
-          .map((p) => {
-            const disabledAttr = isLocked ? 'disabled' : '';
-            return `
-              <tr class="hover:bg-slate-900/60" data-perm-row="${prefix}" data-mod-code="${p.moduleCode}">
-                <td class="py-2 pr-3 font-medium text-white">
-                  <i class="fa-solid ${p.moduleIcon || 'fa-cube'} text-indigo-400 mr-1.5 w-4 text-center"></i>
-                  ${p.moduleName}
-                  <code class="text-[10px] text-slate-500 ml-1">(${p.moduleCode})</code>
-                </td>
-                <td class="py-2 px-2 text-center">
-                  <input type="checkbox" data-field="canView" ${p.canView ? 'checked' : ''} ${disabledAttr}
-                    class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer" />
-                </td>
-                <td class="py-2 px-2 text-center">
-                  <input type="checkbox" data-field="canCreate" ${p.canCreate ? 'checked' : ''} ${disabledAttr}
-                    class="rounded bg-slate-900 border-slate-700 text-emerald-600 focus:ring-0 cursor-pointer" />
-                </td>
-                <td class="py-2 px-2 text-center">
-                  <input type="checkbox" data-field="canEdit" ${p.canEdit ? 'checked' : ''} ${disabledAttr}
-                    class="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer" />
-                </td>
-                <td class="py-2 px-2 text-center">
-                  <input type="checkbox" data-field="canDelete" ${p.canDelete ? 'checked' : ''} ${disabledAttr}
-                    class="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 cursor-pointer" />
-                </td>
-                <td class="py-2 px-2 text-center">
-                  <input type="checkbox" data-field="canDeploy" ${p.canDeploy ? 'checked' : ''} ${disabledAttr}
-                    class="rounded bg-slate-900 border-slate-700 text-fuchsia-500 focus:ring-0 cursor-pointer" />
-                </td>
-              </tr>
-            `;
-          })
-          .join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-function readPermissionMatrixFromDOM(prefix) {
-  const rows = document.querySelectorAll(`tr[data-perm-row="${prefix}"]`);
-  const result = [];
-  rows.forEach((tr) => {
-    const moduleCode = tr.getAttribute('data-mod-code');
-    if (!moduleCode) return;
-    const getVal = (field) => {
-      const cb = tr.querySelector(`input[data-field="${field}"]`);
-      return Boolean(cb && cb.checked);
-    };
-    result.push({
-      moduleCode,
-      canView: getVal('canView'),
-      canCreate: getVal('canCreate'),
-      canEdit: getVal('canEdit'),
-      canDelete: getVal('canDelete'),
-      canDeploy: getVal('canDeploy'),
-    });
-  });
-  return result;
 }
 
 function renderUsersAndRoles() {
@@ -130,12 +61,12 @@ function renderUsersAndRoles() {
           : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
 
         const roleObj = allRoles.find((r) => r.id === u.roleId || r.code === u.role);
-        const activeModules = (roleObj?.permissions || [])
-          .filter((p) => p.canView)
+        const activeParentModules = (roleObj?.permissions || [])
+          .filter((p) => p.canView && !p.moduleCode.includes('.'))
           .map(
             (p) =>
-              `<span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 text-[10px]">
-                <i class="fa-solid ${p.moduleIcon || 'fa-cube'} text-indigo-400 mr-1"></i>${p.moduleName.split(' ')[0]}
+              `<span class="px-2 py-0.5 rounded-md bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-[10px] inline-flex items-center gap-1">
+                <i class="fa-solid ${p.moduleIcon || 'fa-cube'} text-emerald-400"></i>${p.moduleName}
               </span>`
           )
           .join(' ');
@@ -165,7 +96,7 @@ function renderUsersAndRoles() {
                   </span>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  ${activeModules}
+                  ${activeParentModules}
                 </div>
                 <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
                   <span class="text-emerald-400"><i class="fa-solid fa-lock mr-1"></i>Hash scrypt</span>
@@ -180,7 +111,7 @@ function renderUsersAndRoles() {
               ${
                 canEdit
                   ? `<button onclick="openUserModal(${u.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-[11px] font-semibold">
-                      <i class="fa-solid fa-pen-to-square mr-1"></i>Editar / Permisos
+                      <i class="fa-solid fa-pen-to-square mr-1"></i>Editar Usuario
                     </button>`
                   : ''
               }
@@ -204,71 +135,105 @@ function renderUsersAndRoles() {
     allRoles
       .map((r) => {
         const isSuperRole = r.code === 'superadmin';
-        const usersInRole = allUsers.filter((u) => u.roleId === r.id || u.role === r.code).length;
-        const permSummary = (r.permissions || [])
-          .filter((p) => p.canView)
-          .map((p) => {
-            const flags = [
-              p.canView ? 'V' : '',
-              p.canCreate ? 'C' : '',
-              p.canEdit ? 'E' : '',
-              p.canDelete ? 'B' : '',
-              p.canDeploy ? 'D' : '',
-            ]
-              .filter(Boolean)
-              .join('·');
-            return `<span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-              <strong class="text-indigo-300">${p.moduleCode}</strong>: ${flags}
-            </span>`;
-          })
+        const isExpanded = expandedUserRoleIds.has(r.id);
+        const assignedUsers = allUsers.filter((u) => u.roleId === r.id || u.role === r.code);
+        const usersInRole = assignedUsers.length;
+        const usersBadges =
+          assignedUsers.length > 0
+            ? assignedUsers
+                .map(
+                  (u) =>
+                    `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-mono">@${u.username}</span>`
+                )
+                .join(' ')
+            : '';
+
+        const activePerms = (r.permissions || []).filter((p) => p.canView);
+        const permSummary = activePerms
+          .map(
+            (p) => `
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/30 border border-emerald-500/30 text-[10px] text-emerald-300">
+                <i class="fa-solid ${p.moduleIcon || 'fa-circle-check'} text-emerald-400"></i>
+                <span>${p.moduleName}</span>
+              </span>
+            `
+          )
           .join(' ');
 
         return `
           <div class="bg-slate-950 border ${
-            isSuperRole ? 'border-fuchsia-500/30' : 'border-slate-800'
-          } rounded-xl p-3.5 space-y-2.5">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white text-sm">${r.name}</span>
-                  <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 ${
-                    isSuperRole ? 'text-fuchsia-300' : 'text-amber-300'
-                  } text-[10px] font-mono">${r.code}</code>
+            isSuperRole ? 'border-fuchsia-500/30' : 'border-slate-800 hover:border-slate-700'
+          } rounded-xl p-3 transition">
+            <!-- Vista Mini (Datos básicos: Nombre, Texto, Usuarios y Botones) -->
+            <div class="space-y-2">
+              <div onclick="toggleUserRoleMiniCard(${r.id})" class="flex items-start justify-between gap-2 cursor-pointer select-none">
+                <div class="flex items-start gap-2.5 min-w-0">
+                  <button type="button" class="w-6 h-6 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 mt-0.5" title="Abrir / Cerrar detalle del rol">
+                    <i id="user-role-chevron-${r.id}" class="fa-solid ${
+                      isExpanded ? 'fa-chevron-down text-indigo-400' : 'fa-chevron-right text-slate-500'
+                    } text-xs transition-transform"></i>
+                  </button>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="font-bold text-white text-sm">${r.name}</span>
+                      <code class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 ${
+                        isSuperRole ? 'text-fuchsia-300' : 'text-amber-300'
+                      } text-[10px] font-mono">${r.code}</code>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">${r.description || 'Sin descripción'}</p>
+                  </div>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-1">${r.description || 'Sin descripción'}</p>
+                <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-[10px] shrink-0 font-semibold">
+                  <i class="fa-solid fa-users text-[9px] text-indigo-400 mr-1"></i>${usersInRole} usuario(s)
+                </span>
               </div>
-              <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-[10px] shrink-0">
-                ${usersInRole} usuario(s)
-              </span>
+
+              <!-- Usuarios y Botones en el bloque mini -->
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-900/90">
+                <div class="flex flex-wrap items-center gap-1">
+                  ${
+                    usersBadges ||
+                    '<span class="text-[10px] text-slate-500 italic">Sin usuarios</span>'
+                  }
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 ml-auto">
+                  ${
+                    isSuperRole
+                      ? `<button onclick="event.stopPropagation(); jumpToRolePermissionsCard(${r.id})" class="px-2.5 py-1 rounded-lg bg-fuchsia-950/40 hover:bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-semibold">
+                          <i class="fa-solid fa-lock mr-1"></i>Acceso Total
+                        </button>`
+                      : `
+                        ${
+                          canEdit
+                            ? `<button onclick="event.stopPropagation(); jumpToRolePermissionsCard(${r.id})" class="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold">
+                                <i class="fa-solid fa-sliders mr-1"></i>Configurar Servicios
+                              </button>
+                              <button onclick="event.stopPropagation(); openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
+                                <i class="fa-solid fa-pen mr-1"></i>Editar
+                              </button>`
+                            : ''
+                        }
+                        ${
+                          canDelete
+                            ? `<button onclick="event.stopPropagation(); deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold" title="Eliminar Rol">
+                                <i class="fa-solid fa-trash"></i>
+                              </button>`
+                            : ''
+                        }
+                      `
+                  }
+                </div>
+              </div>
             </div>
 
-            <div class="flex flex-wrap gap-1">
-              ${permSummary || '<span class="text-[10px] text-rose-400">Sin acceso a módulos</span>'}
-            </div>
-
-            <div class="flex justify-end gap-1.5 pt-1 border-t border-slate-900">
-              ${
-                isSuperRole
-                  ? `<span class="px-2.5 py-1 rounded-lg bg-fuchsia-950/40 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-semibold">
-                      <i class="fa-solid fa-lock mr-1"></i>Rol Único (Acceso Total)
-                    </span>`
-                  : `
-                    ${
-                      canEdit
-                        ? `<button onclick="openRoleModal(${r.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold">
-                            <i class="fa-solid fa-Sliders mr-1"></i>Editar Rol & Permisos
-                          </button>`
-                        : ''
-                    }
-                    ${
-                      canDelete
-                        ? `<button onclick="deleteRoleItem(${r.id}, '${r.name.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 text-rose-300 text-[11px] font-semibold">
-                            <i class="fa-solid fa-trash"></i>
-                          </button>`
-                        : ''
-                    }
-                  `
-              }
+            <!-- Contenido Desplegable (Permisos y Servicios activos del rol) - Minimizado por defecto -->
+            <div id="user-role-body-${r.id}" class="${isExpanded ? '' : 'hidden'} pt-2.5 mt-2.5 border-t border-slate-800/80 space-y-1.5">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Módulos y Servicios Activos (${activePerms.length}):
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                ${permSummary || '<span class="text-[10px] text-rose-400">Sin módulos ni servicios habilitados</span>'}
+              </div>
             </div>
           </div>`;
       })
@@ -379,6 +344,7 @@ async function submitUserForm(e) {
     }
     closeModal('user-modal');
     await loadUsersAndRoles();
+    if (typeof renderRolePermissionsCards === 'function') renderRolePermissionsCards();
   } catch (err) {
     showToast(`Error: ${err.message}`);
   }
@@ -390,6 +356,7 @@ async function deleteUserItem(id, username) {
     await apiFetch(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
     showToast(`Usuario @${username} eliminado`);
     await loadUsersAndRoles();
+    if (typeof renderRolePermissionsCards === 'function') renderRolePermissionsCards();
   } catch (err) {
     showToast(`Error: ${err.message}`);
   }
@@ -405,14 +372,14 @@ function openRoleModal(roleId = null) {
   if (roleId) {
     const r = allRoles.find((item) => item.id === roleId);
     if (!r) return;
-    title.innerHTML = `<i class="fa-solid fa-pen-to-square text-amber-400 mr-2"></i>Editar Rol y Matriz RBAC (${r.code})`;
+    title.innerHTML = `<i class="fa-solid fa-pen-to-square text-amber-400 mr-2"></i>Editar Rol y Servicios (${r.code})`;
     idInput.value = String(r.id);
     nameInput.value = r.name || '';
     codeInput.value = r.code || '';
     descInput.value = r.description || '';
     renderPermissionMatrixTable('role-permissions-matrix', 'role-modal-perm', r.permissions || [], false);
   } else {
-    title.innerHTML = `<i class="fa-solid fa-plus text-amber-400 mr-2"></i>Crear Nuevo Rol y Permisos RBAC`;
+    title.innerHTML = `<i class="fa-solid fa-plus text-amber-400 mr-2"></i>Crear Nuevo Rol y Servicios`;
     idInput.value = '';
     nameInput.value = '';
     codeInput.value = '';
@@ -438,16 +405,17 @@ async function submitRoleForm(e) {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
-      showToast('Rol y matriz de permisos actualizados');
+      showToast('Rol y servicios actualizados');
     } else {
       await apiFetch('/api/roles', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      showToast('Nuevo rol creado con sus permisos');
+      showToast('Nuevo rol creado con sus servicios');
     }
     closeModal('role-modal');
     await loadUsersAndRoles();
+    if (typeof renderRolePermissionsCards === 'function') renderRolePermissionsCards();
   } catch (err) {
     showToast(`Error: ${err.message}`);
   }
@@ -459,6 +427,7 @@ async function deleteRoleItem(id, name) {
     await apiFetch(`/api/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
     showToast(`Rol "${name}" eliminado`);
     await loadUsersAndRoles();
+    if (typeof renderRolePermissionsCards === 'function') renderRolePermissionsCards();
   } catch (err) {
     showToast(`Error: ${err.message}`);
   }

@@ -11,12 +11,14 @@ export class PermissionsController {
       rolesService.listRoles(),
       usersService.listUsers(),
     ]);
-    return { modules, roles, users };
+    const catalog = permissionsService.getDiscoveredCatalog();
+    return { modules, roles, users, catalog };
   }
 
   async listModules(_request: FastifyRequest, _reply: FastifyReply) {
     const modules = await permissionsService.listModules();
-    return { modules };
+    const catalog = permissionsService.getDiscoveredCatalog();
+    return { modules, catalog };
   }
 
   async getRolePermissions(request: FastifyRequest, reply: FastifyReply) {

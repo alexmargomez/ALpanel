@@ -68,56 +68,40 @@ export const hashPassword = (password: string, salt?: string) =>
 export const verifyPasswordHash = (password: string, storedHash: string) =>
   cryptoService.verifyPasswordHash(password, storedHash);
 
+import {
+  PANEL_MODULE_REGISTRY,
+  PANEL_STANDALONE_SERVICES,
+} from '../services/service-registry';
+
 export const SYSTEM_MODULES = [
-  {
-    code: 'projects',
-    name: 'Proyectos & Contenedores Docker',
-    description: 'Ver proyectos (Ver) • Ver Logs (Editar) • Restart/Caché (Desplegar) • Detener/Iniciar/Rebuild Servidor (Eliminar)',
-    icon: 'fa-cubes',
-    sortOrder: 1,
-  },
-  {
-    code: 'project_db',
-    name: 'Servicio: Base de Datos de Proyectos',
-    description: 'Ver contraseñas y conexión DB del proyecto (Ver) • Descargar Backup .SQL (Desplegar)',
-    icon: 'fa-database',
-    sortOrder: 2,
-  },
-  {
-    code: 'project_env',
-    name: 'Servicio: Variables de Entorno (.env)',
-    description: 'Abrir y leer variables .env (Ver) • Modificar y guardar archivo .env (Editar)',
-    icon: 'fa-key',
-    sortOrder: 3,
-  },
-  {
-    code: 'git',
-    name: 'Servicio: Despliegue Git & Modo Dev',
-    description: 'Ver Guía/Remoto (Ver) • Clonar Proyecto (Crear) • Modo Desarrollador develop (Editar) • Git Pull Producción main (Desplegar)',
-    icon: 'fa-code-branch',
-    sortOrder: 4,
-  },
-  {
-    code: 'domains',
-    name: 'Dominios & Proxy SSL (Caddy)',
-    description: 'Ver dominios y Caddyfile (Ver) • Crear ruta SSL (Crear) • Eliminar ruta SSL (Eliminar)',
-    icon: 'fa-globe',
-    sortOrder: 5,
-  },
-  {
-    code: 'users',
-    name: 'Usuarios, Roles & Matriz de Permisos',
-    description: 'Ver usuarios y permisos (Ver) • Crear usuario/rol (Crear) • Editar permisos y cuentas (Editar) • Eliminar (Eliminar)',
-    icon: 'fa-users-gear',
-    sortOrder: 6,
-  },
-  {
-    code: 'security',
-    name: 'Seguridad, Auditoría & Caché VPS',
-    description: 'Ver bitácora de Auditoría (Ver) • Ejecutar Limpiar Caché Docker del Servidor (Desplegar)',
-    icon: 'fa-shield-halved',
-    sortOrder: 7,
-  },
+  ...PANEL_MODULE_REGISTRY.flatMap((mod, modIdx) => {
+    const baseOrder = (modIdx + 1) * 100;
+    const parentEntry = {
+      code: mod.code,
+      name: mod.name,
+      description: mod.description,
+      icon: mod.icon,
+      sortOrder: baseOrder,
+      defaultRoles: mod.defaultRoles,
+    };
+    const serviceEntries = mod.services.map((svc, svcIdx) => ({
+      code: svc.code,
+      name: svc.name,
+      description: svc.description,
+      icon: svc.icon,
+      sortOrder: baseOrder + svcIdx + 1,
+      defaultRoles: svc.defaultRoles,
+    }));
+    return [parentEntry, ...serviceEntries];
+  }),
+  ...PANEL_STANDALONE_SERVICES.map((svc, idx) => ({
+    code: svc.code,
+    name: svc.name,
+    description: svc.description,
+    icon: svc.icon,
+    sortOrder: 900 + idx + 1,
+    defaultRoles: svc.defaultRoles,
+  })),
 ];
 
 export async function initDatabase(): Promise<void> {
@@ -224,7 +208,14 @@ export async function initDatabase(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
 
-  // 1. Semilla de los 7 Módulos y Servicios granulares
+  // Limpiar códigos antiguos reemplazados por el catálogo jerárquico `<modulo>.<servicio>`
+  await prisma.module
+    .deleteMany({
+      where: { code: { in: ['project_db', 'project_env'] } },
+    })
+    .catch(() => null);
+
+  // 1. Semilla de Módulos y Servicios del Catálogo Central (`PANEL_MODULE_REGISTRY`)
   for (const mod of SYSTEM_MODULES) {
     await prisma.module.upsert({
       where: { code: mod.code },
@@ -234,7 +225,13 @@ export async function initDatabase(): Promise<void> {
         icon: mod.icon,
         sortOrder: mod.sortOrder,
       },
-      create: mod,
+      create: {
+        code: mod.code,
+        name: mod.name,
+        description: mod.description,
+        icon: mod.icon,
+        sortOrder: mod.sortOrder,
+      },
     });
   }
 
@@ -267,19 +264,19 @@ export async function initDatabase(): Promise<void> {
         {
           code: 'developer',
           name: 'Desarrollador',
-          description: 'Modo Desarrollador (develop), reinicio de contenedores, logs y edición de .env (sin detener el servidor ni ver contraseñas DB)',
+          description: 'Modo Desarrollador (develop), reinicio de contenedores, logs y lectura/edición de proyectos',
         },
         {
           code: 'viewer',
           name: 'Auditor / Lectura',
-          description: 'Visualización de métricas, estado de contenedores y auditoría sin permisos de modificación',
+          description: 'Visualización de proyectos, dominios y auditoría sin servicios de modificación',
         },
       ],
       skipDuplicates: true,
     });
   }
 
-  // 3. Semilla de Matriz de Permisos por Rol y Servicio (RBAC)
+  // 3. Semilla de Permisos por Módulo y por Servicio para cada Rol
   const allModules = await prisma.module.findMany({ orderBy: { sortOrder: 'asc' } });
   const allRoles = await prisma.role.findMany();
 
@@ -313,87 +310,20 @@ export async function initDatabase(): Promise<void> {
       });
       if (existingPerm) continue;
 
-      let defaults = {
-        canView: true,
-        canCreate: false,
-        canEdit: false,
-        canDelete: false,
-        canDeploy: false,
-      };
-
-      if (role.code === 'admin') {
-        defaults = {
-          canView: true,
-          canCreate: true,
-          canEdit: true,
-          canDelete: true,
-          canDeploy: true,
-        };
-      } else if (role.code === 'developer') {
-        if (mod.code === 'projects') {
-          defaults = {
-            canView: true,
-            canCreate: false,
-            canEdit: true, // Ver Logs
-            canDelete: false, // NO puede Detener el servidor ni Rebuild
-            canDeploy: true, // Sí puede Restart y Limpiar Caché
-          };
-        } else if (mod.code === 'project_db') {
-          defaults = {
-            canView: false, // NO ve credenciales de Base de Datos por defecto
-            canCreate: false,
-            canEdit: false,
-            canDelete: false,
-            canDeploy: false,
-          };
-        } else if (mod.code === 'project_env') {
-          defaults = {
-            canView: true,
-            canCreate: false,
-            canEdit: true,
-            canDelete: false,
-            canDeploy: false,
-          };
-        } else if (mod.code === 'git') {
-          defaults = {
-            canView: true,
-            canCreate: false,
-            canEdit: true, // Sí puede usar Modo Desarrollador (develop)
-            canDelete: false,
-            canDeploy: false, // Git Pull en producción (main) reservado salvo que se le autorice
-          };
-        } else if (mod.code === 'domains') {
-          defaults = {
-            canView: true,
-            canCreate: false,
-            canEdit: false,
-            canDelete: false,
-            canDeploy: false,
-          };
-        } else {
-          defaults = {
-            canView: false,
-            canCreate: false,
-            canEdit: false,
-            canDelete: false,
-            canDeploy: false,
-          };
-        }
-      } else if (role.code === 'viewer') {
-        defaults = {
-          canView: ['projects', 'domains', 'security'].includes(mod.code),
-          canCreate: false,
-          canEdit: false,
-          canDelete: false,
-          canDeploy: false,
-        };
-      }
+      const regItem = SYSTEM_MODULES.find((item) => item.code === mod.code);
+      const isEnabledByDefault = regItem
+        ? regItem.defaultRoles.includes(role.code as any)
+        : role.code === 'admin';
 
       await prisma.rolePermission.create({
         data: {
           roleId: role.id,
           moduleId: mod.id,
-          ...defaults,
+          canView: isEnabledByDefault,
+          canCreate: isEnabledByDefault,
+          canEdit: isEnabledByDefault,
+          canDelete: isEnabledByDefault,
+          canDeploy: isEnabledByDefault,
         },
       });
     }

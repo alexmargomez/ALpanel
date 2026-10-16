@@ -1,8 +1,10 @@
 import { prisma } from '../../config/prisma';
 import {
+  discoverModulesAndServices,
+  PANEL_MODULE_REGISTRY,
+} from '../../services/service-registry';
+import {
   ModuleDto,
-  ModulePermissionFlags,
-  PermissionAction,
   RolePermissionItemDto,
   UserPermissionsMap,
 } from './permissions.model';
@@ -12,6 +14,10 @@ export class PermissionsService {
     return prisma.module.findMany({
       orderBy: { sortOrder: 'asc' },
     });
+  }
+
+  getDiscoveredCatalog() {
+    return discoverModulesAndServices();
   }
 
   async getRolePermissions(roleId: number): Promise<RolePermissionItemDto[]> {
@@ -34,22 +40,26 @@ export class PermissionsService {
 
     return modules.map((mod) => {
       const rp = mapByModId.get(mod.id);
+      const enabled = isSuper ? true : Boolean(rp?.canView);
       return {
         moduleId: mod.id,
         moduleCode: mod.code,
         moduleName: mod.name,
         moduleDescription: mod.description,
         moduleIcon: mod.icon,
-        canView: isSuper ? true : Boolean(rp?.canView),
-        canCreate: isSuper ? true : Boolean(rp?.canCreate),
-        canEdit: isSuper ? true : Boolean(rp?.canEdit),
-        canDelete: isSuper ? true : Boolean(rp?.canDelete),
-        canDeploy: isSuper ? true : Boolean(rp?.canDeploy),
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canDeploy: enabled,
       };
     });
   }
 
-  async getPermissionsMapForRole(roleCode: string, roleId?: number | null): Promise<UserPermissionsMap> {
+  async getPermissionsMapForRole(
+    roleCode: string,
+    roleId?: number | null
+  ): Promise<UserPermissionsMap> {
     const modules = await this.listModules();
     const result: UserPermissionsMap = {};
 
@@ -81,12 +91,13 @@ export class PermissionsService {
 
     for (const mod of modules) {
       const found = perms.find((p: any) => p.moduleId === mod.id);
+      const enabled = Boolean(found?.canView);
       result[mod.code] = {
-        canView: Boolean(found?.canView),
-        canCreate: Boolean(found?.canCreate),
-        canEdit: Boolean(found?.canEdit),
-        canDelete: Boolean(found?.canDelete),
-        canDeploy: Boolean(found?.canDeploy),
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canDeploy: enabled,
       };
     }
 
@@ -109,40 +120,50 @@ export class PermissionsService {
       throw new Error('El rol especificado no existe.');
     }
     if (role.code === 'superadmin') {
-      throw new Error('Los permisos del rol único Super Administrador están blindados y no pueden restringirse.');
+      throw new Error(
+        'Los permisos del rol único Super Administrador están blindados y no pueden restringirse.'
+      );
     }
 
     const modules = await this.listModules();
-    for (const mod of modules) {
-      const incoming = items.find((i) => i.moduleCode === mod.code);
-      if (!incoming) continue;
+    const incomingMap = new Map<string, boolean>();
+    for (const item of items) {
+      if (!item?.moduleCode) continue;
+      incomingMap.set(item.moduleCode, Boolean(item.canView));
+    }
 
-      const canCreate = Boolean(incoming.canCreate);
-      const canEdit = Boolean(incoming.canEdit);
-      const canDelete = Boolean(incoming.canDelete);
-      const canDeploy = Boolean(incoming.canDeploy);
-      // Si tiene algún permiso de acción en el módulo, automáticamente puede ver el módulo
-      const canView = Boolean(incoming.canView) || canCreate || canEdit || canDelete || canDeploy;
+    for (const mod of modules) {
+      if (!incomingMap.has(mod.code)) continue;
+      let enabled = Boolean(incomingMap.get(mod.code));
+
+      // Si es un sub-servicio de un módulo (`<modulo>.<servicio>`) y el módulo padre fue deshabilitado,
+      // el sub-servicio queda deshabilitado también.
+      if (mod.code.includes('.') && !mod.code.startsWith('services.')) {
+        const parentCode = mod.code.split('.')[0];
+        if (incomingMap.has(parentCode) && !incomingMap.get(parentCode)) {
+          enabled = false;
+        }
+      }
 
       await prisma.rolePermission.upsert({
         where: {
           roleId_moduleId: { roleId: role.id, moduleId: mod.id },
         },
         update: {
-          canView,
-          canCreate,
-          canEdit,
-          canDelete,
-          canDeploy,
+          canView: enabled,
+          canCreate: enabled,
+          canEdit: enabled,
+          canDelete: enabled,
+          canDeploy: enabled,
         },
         create: {
           roleId: role.id,
           moduleId: mod.id,
-          canView,
-          canCreate,
-          canEdit,
-          canDelete,
-          canDeploy,
+          canView: enabled,
+          canCreate: enabled,
+          canEdit: enabled,
+          canDelete: enabled,
+          canDeploy: enabled,
         },
       });
     }
@@ -150,10 +171,35 @@ export class PermissionsService {
     return this.getRolePermissions(roleId);
   }
 
+  private resolveServiceCode(moduleCode: string, actionOrService?: string): string | null {
+    if (!actionOrService || actionOrService === 'view') {
+      return null;
+    }
+    if (actionOrService.includes('.')) {
+      return actionOrService;
+    }
+    // Mapeo automático de acciones semánticas hacia códigos de servicio `<modulo>.<servicio>`
+    if (moduleCode === 'domains') return 'domains.manage';
+    if (moduleCode === 'users') return 'users.manage';
+    if (moduleCode === 'git' && actionOrService === 'create') return 'git.clone';
+    if (moduleCode === 'git' && actionOrService === 'edit') return 'projects.dev_mode';
+    if (moduleCode === 'git' && actionOrService === 'deploy') return 'projects.git_pull';
+    if (moduleCode === 'security' && actionOrService === 'deploy') return 'services.docker_prune';
+    if (moduleCode === 'projects' && actionOrService === 'edit') return 'projects.logs';
+    if (moduleCode === 'projects' && actionOrService === 'deploy') return 'projects.restart_cache';
+    if (moduleCode === 'projects' && actionOrService === 'delete') return 'projects.stop_rebuild';
+    if (moduleCode === 'project_db' && actionOrService === 'view') return 'projects.db_view';
+    if (moduleCode === 'project_db' && actionOrService === 'deploy') return 'projects.db_backup';
+    if (moduleCode === 'project_env' && actionOrService === 'view') return 'projects.env_view';
+    if (moduleCode === 'project_env' && actionOrService === 'edit') return 'projects.env_edit';
+
+    return `${moduleCode}.${actionOrService}`;
+  }
+
   async checkUserPermission(
     userId: number,
     moduleCode: string,
-    action: PermissionAction
+    actionOrService = 'view'
   ): Promise<boolean> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -166,24 +212,42 @@ export class PermissionsService {
       return true;
     }
 
-    const map = await this.getPermissionsMapForRole(effectiveRoleCode, user.roleId);
-    const modPerm: ModulePermissionFlags | undefined = map[moduleCode];
-    if (!modPerm) return false;
-
-    switch (action) {
-      case 'view':
-        return modPerm.canView;
-      case 'create':
-        return modPerm.canCreate;
-      case 'edit':
-        return modPerm.canEdit;
-      case 'delete':
-        return modPerm.canDelete;
-      case 'deploy':
-        return modPerm.canDeploy;
-      default:
-        return false;
+    const { ignoreConfig } = discoverModulesAndServices();
+    if (
+      ignoreConfig.ignoredModules.some((m) => m.toLowerCase() === moduleCode.toLowerCase()) ||
+      ignoreConfig.ignoredServices.some((s) => s.toLowerCase().includes(moduleCode.toLowerCase()))
+    ) {
+      return true;
     }
+
+    const map = await this.getPermissionsMapForRole(effectiveRoleCode, user.roleId);
+
+    // 1. Si se consulta directamente un servicio independiente (`services.*`)
+    if (moduleCode.startsWith('services.')) {
+      return Boolean(map[moduleCode]?.canView);
+    }
+
+    const serviceCode = this.resolveServiceCode(moduleCode, actionOrService);
+    if (serviceCode && serviceCode.startsWith('services.')) {
+      return Boolean(map[serviceCode]?.canView);
+    }
+
+    // 2. Determinar el módulo padre real
+    const parentModuleCode = serviceCode ? serviceCode.split('.')[0] : moduleCode.split('.')[0];
+    const parentAllowed = Boolean(map[parentModuleCode]?.canView);
+    if (!parentAllowed) {
+      return false;
+    }
+
+    // 3. Si solo se consulta acceso al módulo (`view`), o si el módulo NO tiene sub-servicios registrados,
+    // el permiso del módulo aplica al MÓDULO COMPLETO.
+    const modDef = PANEL_MODULE_REGISTRY.find((m) => m.code === parentModuleCode);
+    if (!serviceCode || !modDef || modDef.services.length === 0) {
+      return true;
+    }
+
+    // 4. Si el módulo tiene sub-servicios, verificar el permiso del sub-servicio específico
+    return Boolean(map[serviceCode]?.canView);
   }
 }
 
