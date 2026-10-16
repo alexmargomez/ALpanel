@@ -4,6 +4,7 @@ let allProjects = [];
 let allUsers = [];
 let allRoles = [];
 let allModules = [];
+let discoveredCatalog = null;
 let currentEnvProject = '';
 let currentLogsProject = '';
 let socket = null;
@@ -43,27 +44,59 @@ function closeModal(id) {
   if (el) el.classList.add('hidden');
 }
 
-function hasPerm(moduleCode, action = 'view') {
+function resolveFrontendServiceCode(moduleCode, actionOrService) {
+  if (!actionOrService || actionOrService === 'view') return null;
+  if (actionOrService.includes('.')) return actionOrService;
+  if (moduleCode === 'domains') return 'domains.manage';
+  if (moduleCode === 'users') return 'users.manage';
+  if (moduleCode === 'git' && actionOrService === 'create') return 'git.clone';
+  if (moduleCode === 'git' && actionOrService === 'edit') return 'projects.dev_mode';
+  if (moduleCode === 'git' && actionOrService === 'deploy') return 'projects.git_pull';
+  if (moduleCode === 'security' && actionOrService === 'deploy') return 'services.docker_prune';
+  if (moduleCode === 'projects' && actionOrService === 'edit') return 'projects.logs';
+  if (moduleCode === 'projects' && actionOrService === 'deploy') return 'projects.restart_cache';
+  if (moduleCode === 'projects' && actionOrService === 'delete') return 'projects.stop_rebuild';
+  if (moduleCode === 'project_db' && actionOrService === 'view') return 'projects.db_view';
+  if (moduleCode === 'project_db' && actionOrService === 'deploy') return 'projects.db_backup';
+  if (moduleCode === 'project_env' && actionOrService === 'view') return 'projects.env_view';
+  if (moduleCode === 'project_env' && actionOrService === 'edit') return 'projects.env_edit';
+  return `${moduleCode}.${actionOrService}`;
+}
+
+function hasPerm(moduleCode, actionOrService = 'view') {
   if (!currentUser) return false;
   if (currentUser.role === 'superadmin' || currentUser.username === 'superadmin') {
     return true;
   }
-  const mod = currentUser.permissions && currentUser.permissions[moduleCode];
-  if (!mod) return false;
-  switch (action) {
-    case 'view':
-      return Boolean(mod.canView);
-    case 'create':
-      return Boolean(mod.canCreate);
-    case 'edit':
-      return Boolean(mod.canEdit);
-    case 'delete':
-      return Boolean(mod.canDelete);
-    case 'deploy':
-      return Boolean(mod.canDeploy);
-    default:
-      return false;
+  const perms = currentUser.permissions || {};
+
+  if (moduleCode.startsWith('services.')) {
+    return Boolean(perms[moduleCode]?.canView);
   }
+
+  const serviceCode = resolveFrontendServiceCode(moduleCode, actionOrService);
+  if (serviceCode && serviceCode.startsWith('services.')) {
+    return Boolean(perms[serviceCode]?.canView);
+  }
+
+  const parentModuleCode = serviceCode ? serviceCode.split('.')[0] : moduleCode.split('.')[0];
+  const parentMod = perms[parentModuleCode];
+  if (!parentMod || !parentMod.canView) {
+    return false;
+  }
+
+  // Si solo se verifica acceso al módulo (`view`), o si el módulo NO tiene sub-servicios registrados,
+  // el permiso del módulo aplica al módulo completo.
+  if (!serviceCode) {
+    return true;
+  }
+
+  const hasAnySubServicesInMap = Object.keys(perms).some((k) => k.startsWith(`${parentModuleCode}.`));
+  if (!hasAnySubServicesInMap) {
+    return true;
+  }
+
+  return Boolean(perms[serviceCode]?.canView);
 }
 
 async function apiFetch(url, options = {}) {

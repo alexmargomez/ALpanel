@@ -12,7 +12,8 @@ export class UsersController {
       rolesService.listRoles(),
       permissionsService.listModules(),
     ]);
-    return { users, roles, modules };
+    const catalog = permissionsService.getDiscoveredCatalog();
+    return { users, roles, modules, catalog };
   }
 
   async create(request: FastifyRequest, reply: FastifyReply) {

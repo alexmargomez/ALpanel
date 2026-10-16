@@ -143,3 +143,114 @@ volumes:
 - **Sanitización contra Path Traversal e Inyección:** Todos los nombres de proyectos, contenedores, ramas y dominios se validan estrictamente y se confinan dentro de `PROJECTS_ROOT`.
 - **Permisos `.env` Restringidos (`0600`):** Al crear o editar variables de entorno desde el panel, el archivo se protege con permisos `0600`.
 - **Registro de Auditoría (`Audit Log`):** Registra cada acción crítica (`GIT_PULL_DEPLOY`, `DOCKER_RESTART`, `DB_EXPORT_SQL`, `ENV_UPDATE`, `AUTH_LOGIN`) con IP y fecha sin exponer secretos en los logs.
+
+---
+
+## 🔐 Arquitectura de Permisos por Rol, Módulos y Servicios (Estilo GitHub Classic Token)
+
+En **ALpanel**, los permisos se asignan **por Rol** (nunca por usuario individual; cada usuario hereda los permisos de su Rol asignado, y un proyecto puede sobreescribir el Rol de un usuario específico mediante `ProjectMember`).
+
+La interfaz de **Roles & Permisos** funciona igual que los **Personal Access Tokens (Classic) de GitHub**:
+1. **Nivel 1 — Módulo Padre (`src/modules/<modulo>`):** Controla si el Rol tiene acceso a la vista/módulo principal.
+2. **Nivel 2 — Sub-Servicios del Módulo (`src/services/<modulo>/*.service.ts`):** Permite habilitar el módulo padre para un Rol pero **restringir qué servicios específicos puede usar dentro de ese módulo** (por ejemplo, permitir ver logs y reiniciar contenedores en `projects`, pero prohibir detener contenedores, editar `.env` o descargar backups SQL).
+3. **Regla de Módulo sin Servicios (Permiso de Módulo Completo):** Si un módulo en `src/modules/<modulo>` **NO tiene carpeta o servicios** dentro de `src/services/<modulo>/` (como ocurre con `security` / Auditoría), el permiso aplica automáticamente al **módulo completo**.
+4. **Servicios Independientes (`src/services/*.service.ts`):** Los servicios que no pertenecen a un módulo específico se colocan directamente en la raíz de `src/services/` (ej. `src/services/docker-prune.service.ts` $\rightarrow$ `services.docker_prune`) y aparecen agrupados en una sección aparte llamada **Servicios Independientes**.
+
+### Estructura de Carpetas (`src/modules` y `src/services`)
+
+```text
+src/
+├── config/
+│   └── permissions.ignore.json          # Módulos y archivos de servicios ignorados en la vista de permisos (habilitados para todos)
+├── modules/                             # Módulos principales del panel
+│   ├── auth/                            # (Ignorado en permisos — siempre activo)
+│   ├── dashboard/                       # (Ignorado en permisos — siempre activo)
+│   ├── projects/                        # Módulo Padre: Proyectos & Contenedores
+│   ├── domains/                         # Módulo Padre: Dominios & SSL (Caddy)
+│   ├── git/                             # Módulo Padre: Repositorios & Cuentas Git
+│   ├── users/                           # Módulo Padre: Usuarios & Accesos
+│   ├── security/                        # Módulo Padre sin sub-servicios (el permiso controla el módulo completo)
+│   ├── roles/                           # (Ignorado en permisos — administración interna)
+│   └── permissions/                     # (Ignorado en permisos — administración interna)
+└── services/                            # Servicios granulares divididos por carpeta de módulo o independientes
+    ├── service-registry.ts              # Escáner automático de módulos y servicios
+    ├── crypto.service.ts                # (Ignorado en permissions.ignore.json — uso interno global)
+    ├── host.service.ts                  # (Ignorado en permissions.ignore.json — uso interno global)
+    ├── docker-prune.service.ts          # ⚡ Servicio Independiente -> código: services.docker_prune
+    ├── projects/                        # 📦 Sub-servicios del módulo "projects"
+    │   ├── container-logs.service.ts    # -> projects.logs (Ver Logs y Métricas)
+    │   ├── container-restart.service.ts # -> projects.restart_cache (Reiniciar y Limpiar Caché)
+    │   ├── container-power.service.ts   # -> projects.stop_rebuild (Detener, Eliminar y Rebuild)
+    │   ├── project-db.service.ts        # -> projects.db_view y projects.db_backup (Inspector y Backup SQL)
+    │   ├── project-env.service.ts       # -> projects.env_view y projects.env_edit (Variables .env)
+    │   ├── git-devmode.service.ts       # -> projects.dev_mode (Modo Desarrollador Git)
+    │   └── git-deploy.service.ts        # -> projects.git_pull (Git Pull & Restart)
+    ├── domains/                         # 🌐 Sub-servicios del módulo "domains"
+    │   └── caddy-ssl.service.ts         # -> domains.manage (Gestionar Dominios y SSL)
+    ├── git/                             # 🔑 Sub-servicios del módulo "git"
+    │   └── git-clone.service.ts         # -> git.clone (Cuentas Git y Clonar Proyectos)
+    └── users/                           # 👥 Sub-servicios del módulo "users"
+        └── users-roles.service.ts       # -> users.manage (Gestionar Usuarios y Roles)
+```
+
+---
+
+### ✨ Cómo agregar un Nuevo Módulo o Servicio (Auto-Descubrimiento)
+
+El archivo [`src/services/service-registry.ts`](src/services/service-registry.ts) escanea automáticamente las carpetas `src/modules/` y `src/services/` al iniciar el servidor y sincroniza los códigos en la tabla `permissions` de MySQL/MariaDB. **No necesitas escribir migraciones SQL manuales para registrar permisos nuevos.**
+
+#### Opción A: Crear un nuevo Sub-Servicio dentro de un Módulo existente
+1. Crea un archivo `.service.ts` dentro de `src/services/<nombre_del_modulo>/` (por ejemplo: `src/services/projects/container-shell.service.ts`).
+2. *(Opcional pero recomendado)* Agrega un bloque JSDoc al inicio del archivo para personalizar el código, nombre, descripción, ícono y roles por defecto que lo tendrán activo al crearse:
+   ```ts
+   /**
+    * @serviceCode projects.shell
+    * @serviceName Terminal Interactiva
+    * @serviceDescription Permite abrir una consola bash/sh dentro del contenedor.
+    * @serviceIcon 🐚
+    * @defaultRoles SUPERADMIN,ADMIN
+    */
+   ```
+   *(Si no agregas JSDoc, ALpanel generará automáticamente el código `projects.container_shell` a partir del nombre del archivo y de la carpeta).*
+3. Protege la ruta en tu controlador usando el middleware `requireService('projects.shell')`:
+   ```ts
+   app.post('/api/projects/:name/shell', {
+     preHandler: [app.authenticate, app.requireService('projects.shell')]
+   }, handler);
+   ```
+4. Al reiniciar el panel, el nuevo sub-servicio aparecerá automáticamente debajo del módulo **Proyectos & Contenedores** en la vista **Roles & Permisos**.
+
+#### Opción B: Crear un Servicio Independiente (que no pertenece a ningún módulo)
+1. Crea tu archivo `.service.ts` directamente en la raíz de `src/services/` (por ejemplo: `src/services/server-reboot.service.ts`).
+2. Añade opcionalmente la cabecera JSDoc (`@serviceCode services.server_reboot`, `@serviceName`, `@serviceDescription`, `@serviceIcon`, `@defaultRoles`).
+3. El servicio aparecerá automáticamente en el bloque **⚡ Servicios Independientes** de la vista **Roles & Permisos**.
+
+#### Opción C: Crear un Módulo Nuevo sin Sub-Servicios (Permiso de Módulo Completo)
+1. Crea la carpeta del módulo en `src/modules/<nuevo_modulo>/` y **no crees** carpeta en `src/services/<nuevo_modulo>/`.
+2. ALpanel detectará que el módulo no tiene sub-servicios divididos y mostrará un único switch de **Módulo Completo (`✔` / `✖`)** en **Roles & Permisos**.
+
+---
+
+### 🙈 Cómo ignorar Módulos o Archivos de Servicios (`src/config/permissions.ignore.json`)
+
+Si creas un módulo base o un archivo `.service.ts` de utilidad interna (como cifrado, métricas del host o autenticación) que **NO debe aparecer en la vista de permisos** porque debe estar **habilitado siempre para todos los usuarios**, agrégalo en [`src/config/permissions.ignore.json`](src/config/permissions.ignore.json):
+
+```json
+{
+  "$comment": "Módulos y archivos de servicios ignorados en la vista de Roles y Permisos. Todo lo listado aquí está habilitado por defecto para todos los usuarios autenticados.",
+  "ignoredModules": [
+    "auth",
+    "dashboard",
+    "roles",
+    "permissions"
+  ],
+  "ignoredServices": [
+    "service-registry.ts",
+    "crypto.service.ts",
+    "host.service.ts"
+  ]
+}
+```
+
+- Cualquier carpeta listada en `ignoredModules` o archivo listado en `ignoredServices` (admite tanto el nombre del archivo `"mi-helper.service.ts"` como rutas relativas `"projects/helper-interno.service.ts"`) será excluido automáticamente del árbol de **Roles & Permisos** y estará permitido para todos los roles sin restricción.
+
