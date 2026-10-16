@@ -86,10 +86,22 @@ function openAppUsersModal(projectName: string): void {
     </div>
 
     <div
-      v-if="filteredProjects.length === 0"
+      v-if="panelStore.loadingProjects && panelStore.projects.length === 0"
+      class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center text-slate-300 text-sm flex flex-col items-center justify-center gap-3"
+    >
+      <i class="fa-solid fa-circle-notch fa-spin text-2xl text-indigo-400"></i>
+      <span class="font-medium">Cargando proyectos alojados en el servidor...</span>
+    </div>
+
+    <div
+      v-else-if="filteredProjects.length === 0"
       class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-sm"
     >
-      No se encontraron proyectos con ese filtro.
+      {{
+        panelStore.projectSearchQuery
+          ? 'No se encontraron proyectos con ese filtro.'
+          : 'No hay proyectos alojados todavía en el servidor.'
+      }}
     </div>
 
     <div v-else class="grid grid-cols-1 gap-5">

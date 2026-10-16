@@ -297,17 +297,27 @@ function parseServiceFileMetadata(
   };
 }
 
+let cachedCatalog: {
+  modules: ModuleDefinition[];
+  standaloneServices: ServiceDefinition[];
+  ignoreConfig: PermissionsIgnoreConfig;
+} | null = null;
+
 /**
  * Escanea automáticamente `src/modules/` y `src/services/` respetando `src/config/permissions.ignore.json`.
  * - Cualquier carpeta nueva en `src/modules/<mod>` (que no esté en `ignoredModules`) se agrega como Módulo.
  * - Cualquier archivo nuevo en `src/services/<mod>/*.service.ts` (que no esté en `ignoredServices`) se agrega como Sub-Servicio del módulo `<mod>`.
  * - Cualquier archivo nuevo en `src/services/*.service.ts` fuera de carpetas de módulos (y que no esté en `ignoredServices`) se agrega como Servicio Independiente.
  */
-export function discoverModulesAndServices(): {
+export function discoverModulesAndServices(forceRescan = false): {
   modules: ModuleDefinition[];
   standaloneServices: ServiceDefinition[];
   ignoreConfig: PermissionsIgnoreConfig;
 } {
+  if (cachedCatalog && !forceRescan) {
+    return cachedCatalog;
+  }
+
   const ignoreConfig = loadPermissionsIgnoreConfig();
   const ignoredModsSet = new Set(ignoreConfig.ignoredModules.map((m) => m.toLowerCase()));
   const ignoredSvcsSet = new Set(
@@ -441,9 +451,10 @@ export function discoverModulesAndServices(): {
     }
   }
 
-  return { modules, standaloneServices, ignoreConfig };
+  cachedCatalog = { modules, standaloneServices, ignoreConfig };
+  return cachedCatalog;
 }
 
-export const PANEL_MODULE_REGISTRY: ModuleDefinition[] = discoverModulesAndServices().modules;
-export const PANEL_STANDALONE_SERVICES: ServiceDefinition[] =
-  discoverModulesAndServices().standaloneServices;
+const initialCatalog = discoverModulesAndServices();
+export const PANEL_MODULE_REGISTRY: ModuleDefinition[] = initialCatalog.modules;
+export const PANEL_STANDALONE_SERVICES: ServiceDefinition[] = initialCatalog.standaloneServices;

@@ -9,6 +9,7 @@ export function connectRealtime(): void {
   if (!panelStore.authToken) return;
 
   socketInstance = io({
+    transports: ['websocket', 'polling'],
     auth: {
       token: panelStore.authToken,
     },
@@ -20,8 +21,9 @@ export function connectRealtime(): void {
       if (payload.host) {
         panelStore.host = payload.host;
       }
-      if (payload.projects && hasPerm('projects', 'view')) {
+      if (payload.projects && (!panelStore.currentUser || hasPerm('projects', 'view'))) {
         panelStore.projects = payload.projects;
+        panelStore.loadingProjects = false;
       }
     }
   );

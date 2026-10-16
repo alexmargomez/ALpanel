@@ -4,23 +4,44 @@ import { RoleDto } from './roles.model';
 
 export class RolesService {
   async listRoles(): Promise<RoleDto[]> {
-    const roles = await prisma.role.findMany({
-      orderBy: { id: 'asc' },
-    });
+    const [roles, modules, allRolePerms] = await Promise.all([
+      prisma.role.findMany({ orderBy: { id: 'asc' } }),
+      permissionsService.listModules(),
+      prisma.rolePermission.findMany(),
+    ]);
 
-    const enriched: RoleDto[] = [];
-    for (const r of roles) {
-      const perms = await permissionsService.getRolePermissions(r.id);
-      enriched.push({
+    const permsByRoleAndMod = new Map<string, boolean>();
+    for (const rp of allRolePerms) {
+      permsByRoleAndMod.set(`${rp.roleId}:${rp.moduleId}`, Boolean(rp.canView));
+    }
+
+    return roles.map((r: any) => {
+      const isSuper = r.code === 'superadmin';
+      const permissions = modules.map((mod) => {
+        const enabled = isSuper ? true : Boolean(permsByRoleAndMod.get(`${r.id}:${mod.id}`));
+        return {
+          moduleId: mod.id,
+          moduleCode: mod.code,
+          moduleName: mod.name,
+          moduleDescription: mod.description,
+          moduleIcon: mod.icon,
+          canView: enabled,
+          canCreate: enabled,
+          canEdit: enabled,
+          canDelete: enabled,
+          canDeploy: enabled,
+        };
+      });
+
+      return {
         id: r.id,
         code: r.code,
         name: r.name,
         description: r.description,
         createdAt: r.createdAt.toISOString(),
-        permissions: perms,
-      });
-    }
-    return enriched;
+        permissions,
+      };
+    });
   }
 
   async createRole(data: {
@@ -58,11 +79,11 @@ export class RolesService {
       throw new Error(`El rol '${code}' ya existe.`);
     }
 
-    const created = await prisma.role.create({
-      data: { code, name, description },
-    });
+    const [created, modules] = await Promise.all([
+      prisma.role.create({ data: { code, name, description } }),
+      permissionsService.listModules(),
+    ]);
 
-    const modules = await permissionsService.listModules();
     const defaultPerms =
       Array.isArray(data.permissions) && data.permissions.length > 0
         ? data.permissions
@@ -134,20 +155,23 @@ export class RolesService {
       throw new Error(`Otro rol ya utiliza el código '${code}'.`);
     }
 
-    const updated = await prisma.role.update({
-      where: { id },
-      data: { code, name, description },
-    });
+    const [updated] = await Promise.all([
+      prisma.role.update({
+        where: { id },
+        data: { code, name, description },
+      }),
+      prisma.user.updateMany({
+        where: { roleId: id },
+        data: { role: code },
+      }),
+    ]);
 
-    await prisma.user.updateMany({
-      where: { roleId: id },
-      data: { role: code },
-    });
+    permissionsService.invalidateCache();
 
-    let perms = await permissionsService.getRolePermissions(id);
-    if (Array.isArray(data.permissions) && data.permissions.length > 0) {
-      perms = await permissionsService.updateRolePermissions(id, data.permissions);
-    }
+    const perms =
+      Array.isArray(data.permissions) && data.permissions.length > 0
+        ? await permissionsService.updateRolePermissions(id, data.permissions)
+        : await permissionsService.getRolePermissions(id);
 
     return {
       id: updated.id,
@@ -175,6 +199,7 @@ export class RolesService {
     }
 
     await prisma.role.delete({ where: { id } });
+    permissionsService.invalidateCache();
     return true;
   }
 }

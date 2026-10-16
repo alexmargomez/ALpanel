@@ -216,24 +216,26 @@ export async function initDatabase(): Promise<void> {
     .catch(() => null);
 
   // 1. Semilla de Módulos y Servicios del Catálogo Central (`PANEL_MODULE_REGISTRY`)
-  for (const mod of SYSTEM_MODULES) {
-    await prisma.module.upsert({
-      where: { code: mod.code },
-      update: {
-        name: mod.name,
-        description: mod.description,
-        icon: mod.icon,
-        sortOrder: mod.sortOrder,
-      },
-      create: {
-        code: mod.code,
-        name: mod.name,
-        description: mod.description,
-        icon: mod.icon,
-        sortOrder: mod.sortOrder,
-      },
-    });
-  }
+  await Promise.all(
+    SYSTEM_MODULES.map((mod) =>
+      prisma.module.upsert({
+        where: { code: mod.code },
+        update: {
+          name: mod.name,
+          description: mod.description,
+          icon: mod.icon,
+          sortOrder: mod.sortOrder,
+        },
+        create: {
+          code: mod.code,
+          name: mod.name,
+          description: mod.description,
+          icon: mod.icon,
+          sortOrder: mod.sortOrder,
+        },
+      })
+    )
+  );
 
   // 2. Semilla de Roles base con Prisma
   const superRole = await prisma.role.upsert({
@@ -276,57 +278,67 @@ export async function initDatabase(): Promise<void> {
     });
   }
 
-  // 3. Semilla de Permisos por Módulo y por Servicio para cada Rol
-  const allModules = await prisma.module.findMany({ orderBy: { sortOrder: 'asc' } });
-  const allRoles = await prisma.role.findMany();
+  // 3. Semilla de Permisos por Módulo y por Servicio para cada Rol (Batch)
+  const [allModules, allRoles, existingRolePerms] = await Promise.all([
+    prisma.module.findMany({ orderBy: { sortOrder: 'asc' } }),
+    prisma.role.findMany(),
+    prisma.rolePermission.findMany(),
+  ]);
+
+  const existingPermKeys = new Set<string>(
+    existingRolePerms.map((rp: any) => `${rp.roleId}:${rp.moduleId}`)
+  );
+
+  const permsToCreate: Array<{
+    roleId: number;
+    moduleId: number;
+    canView: boolean;
+    canCreate: boolean;
+    canEdit: boolean;
+    canDelete: boolean;
+    canDeploy: boolean;
+  }> = [];
 
   for (const role of allRoles) {
     for (const mod of allModules) {
+      const key = `${role.id}:${mod.id}`;
+      if (existingPermKeys.has(key)) continue;
+
       if (role.code === 'superadmin') {
-        await prisma.rolePermission.upsert({
-          where: { roleId_moduleId: { roleId: role.id, moduleId: mod.id } },
-          update: {
-            canView: true,
-            canCreate: true,
-            canEdit: true,
-            canDelete: true,
-            canDeploy: true,
-          },
-          create: {
-            roleId: role.id,
-            moduleId: mod.id,
-            canView: true,
-            canCreate: true,
-            canEdit: true,
-            canDelete: true,
-            canDeploy: true,
-          },
+        permsToCreate.push({
+          roleId: role.id,
+          moduleId: mod.id,
+          canView: true,
+          canCreate: true,
+          canEdit: true,
+          canDelete: true,
+          canDeploy: true,
         });
         continue;
       }
-
-      const existingPerm = await prisma.rolePermission.findUnique({
-        where: { roleId_moduleId: { roleId: role.id, moduleId: mod.id } },
-      });
-      if (existingPerm) continue;
 
       const regItem = SYSTEM_MODULES.find((item) => item.code === mod.code);
       const isEnabledByDefault = regItem
         ? regItem.defaultRoles.includes(role.code as any)
         : role.code === 'admin';
 
-      await prisma.rolePermission.create({
-        data: {
-          roleId: role.id,
-          moduleId: mod.id,
-          canView: isEnabledByDefault,
-          canCreate: isEnabledByDefault,
-          canEdit: isEnabledByDefault,
-          canDelete: isEnabledByDefault,
-          canDeploy: isEnabledByDefault,
-        },
+      permsToCreate.push({
+        roleId: role.id,
+        moduleId: mod.id,
+        canView: isEnabledByDefault,
+        canCreate: isEnabledByDefault,
+        canEdit: isEnabledByDefault,
+        canDelete: isEnabledByDefault,
+        canDeploy: isEnabledByDefault,
       });
     }
+  }
+
+  if (permsToCreate.length > 0) {
+    await prisma.rolePermission.createMany({
+      data: permsToCreate,
+      skipDuplicates: true,
+    });
   }
 
   // 4. Asegurar que el primer usuario sea 'superadmin' con rol único 'superadmin'

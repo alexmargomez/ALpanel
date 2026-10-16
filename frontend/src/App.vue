@@ -35,6 +35,7 @@ function logout(): void {
   panelStore.currentUser = null;
   localStorage.removeItem('alpanel_token');
   localStorage.removeItem('sm_panel_token');
+  localStorage.removeItem('alpanel_cached_user');
   disconnectRealtime();
 }
 
@@ -43,14 +44,37 @@ async function bootstrapSession(): Promise<void> {
     logout();
     return;
   }
+  panelStore.loadingProjects = true;
+  connectRealtime();
+
   try {
-    const meRes = await apiFetch<{ user: UserItem }>('/api/auth/me');
+    const mePromise = apiFetch<{ user: UserItem }>('/api/auth/me');
+    const projectsPromise = apiFetch<{
+      host: any;
+      projectsRoot: string;
+      projects: any[];
+    }>('/api/projects').catch(() => null);
+
+    const [meRes, projRes] = await Promise.all([mePromise, projectsPromise]);
     panelStore.currentUser = meRes.user;
+    try {
+      localStorage.setItem('alpanel_cached_user', JSON.stringify(meRes.user));
+    } catch {
+      // Ignore storage quota errors
+    }
 
     if (hasPerm('projects', 'view')) {
       panelStore.activeTab = 'projects';
-      await refreshAll();
+      if (projRes) {
+        if (projRes.host) panelStore.host = projRes.host;
+        if (projRes.projectsRoot) panelStore.projectsRoot = projRes.projectsRoot;
+        panelStore.projects = projRes.projects || [];
+        panelStore.loadingProjects = false;
+      } else {
+        await refreshAll();
+      }
     } else {
+      panelStore.loadingProjects = false;
       const fallbackOrder: Array<{ tab: PanelTab; mod: string }> = [
         { tab: 'domains', mod: 'domains' },
         { tab: 'guide', mod: 'git' },
@@ -62,7 +86,6 @@ async function bootstrapSession(): Promise<void> {
         await switchTab(firstAllowed.tab);
       }
     }
-    connectRealtime();
   } catch {
     logout();
   }

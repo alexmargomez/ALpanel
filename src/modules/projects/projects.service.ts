@@ -96,6 +96,19 @@ export class ProjectsService {
   private systemService: SystemService;
   private devModeFile: string;
 
+  private liveStatsCache = new Map<
+    string,
+    { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; memoryPercent: number }
+  >();
+  private isRefreshingStats = false;
+
+  private gitInfoCache = new Map<string, { data: ProjectInfo['git']; expiresAt: number }>();
+  private diskSizeCache = new Map<string, { size: number; expiresAt: number; refreshing?: boolean }>();
+  private dbInspectCache = new Map<
+    string,
+    { env: Record<string, string>; externalPort: string; internalPort: string; expiresAt: number }
+  >();
+
   constructor(systemService: SystemService) {
     this.docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' });
     this.projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects';
@@ -106,6 +119,56 @@ export class ProjectsService {
       fs.mkdirSync(dataDir, { recursive: true });
     }
     this.devModeFile = path.join(dataDir, 'dev-mode.json');
+
+    // Asegurar permisos de escritura compartidos en .git al iniciar para evitar bloqueos por SSH
+    if (fs.existsSync(path.join(this.panelSelfDir, '.git'))) {
+      exec(`chmod -R a+rwX "${path.join(this.panelSelfDir, '.git')}" 2>/dev/null || true`, () => {});
+    }
+
+    // Iniciar recolector no bloqueante de estadísticas de contenedores en segundo plano
+    setTimeout(() => {
+      this.triggerBackgroundStatsRefresh();
+    }, 200);
+    setInterval(() => {
+      this.triggerBackgroundStatsRefresh();
+    }, 2000);
+  }
+
+  invalidateProjectCache(projectDir?: string): void {
+    if (projectDir) {
+      this.gitInfoCache.delete(projectDir);
+      this.diskSizeCache.delete(projectDir);
+    } else {
+      this.gitInfoCache.clear();
+      this.diskSizeCache.clear();
+    }
+    this.dbInspectCache.clear();
+  }
+
+  private triggerBackgroundStatsRefresh(): void {
+    if (this.isRefreshingStats) return;
+    this.isRefreshingStats = true;
+    this.docker
+      .listContainers({ all: false })
+      .then(async (runningContainers) => {
+        const runningIds = new Set<string>();
+        await Promise.all(
+          runningContainers.map(async (c) => {
+            runningIds.add(c.Id);
+            const stats = await this.fetchContainerLiveStatsFromDocker(c.Id);
+            this.liveStatsCache.set(c.Id, stats);
+          })
+        );
+        for (const id of this.liveStatsCache.keys()) {
+          if (!runningIds.has(id)) {
+            this.liveStatsCache.delete(id);
+          }
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        this.isRefreshingStats = false;
+      });
   }
 
   getProjectsRoot(): string {
@@ -197,10 +260,12 @@ export class ProjectsService {
     return Array.from(stacks);
   }
 
-  private async getContainerLiveStats(containerId: string, isRunning: boolean): Promise<{ cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; memoryPercent: number }> {
-    if (!isRunning) {
-      return { cpuPercent: 0, memoryBytes: 0, memoryLimitBytes: 0, memoryPercent: 0 };
-    }
+  private async fetchContainerLiveStatsFromDocker(containerId: string): Promise<{
+    cpuPercent: number;
+    memoryBytes: number;
+    memoryLimitBytes: number;
+    memoryPercent: number;
+  }> {
     try {
       const container = this.docker.getContainer(containerId);
       const stats: any = await container.stats({ stream: false });
@@ -238,10 +303,31 @@ export class ProjectsService {
     }
   }
 
+  private getContainerLiveStats(
+    containerId: string,
+    isRunning: boolean
+  ): { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; memoryPercent: number } {
+    if (!isRunning) {
+      return { cpuPercent: 0, memoryBytes: 0, memoryLimitBytes: 0, memoryPercent: 0 };
+    }
+    const cached = this.liveStatsCache.get(containerId);
+    if (cached) {
+      return cached;
+    }
+    this.triggerBackgroundStatsRefresh();
+    return { cpuPercent: 0, memoryBytes: 0, memoryLimitBytes: 0, memoryPercent: 0 };
+  }
+
   private async getGitInfo(projectDir: string): Promise<ProjectInfo['git']> {
+    const now = Date.now();
+    const cached = this.gitInfoCache.get(projectDir);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
     const gitDir = path.join(projectDir, '.git');
     if (!fs.existsSync(gitDir)) {
-      return {
+      const noRepo: ProjectInfo['git'] = {
         isRepo: false,
         branch: '-',
         commitHash: '-',
@@ -249,6 +335,8 @@ export class ProjectsService {
         remoteUrl: '',
         behindCount: 0,
       };
+      this.gitInfoCache.set(projectDir, { data: noRepo, expiresAt: now + 30_000 });
+      return noRepo;
     }
     try {
       const [branchRes, logRes, remoteRes, behindRes] = await Promise.all([
@@ -258,7 +346,7 @@ export class ProjectsService {
         execAsync('git rev-list HEAD..@{u} --count', { cwd: projectDir }).catch(() => ({ stdout: '0' })),
       ]);
       const [hash, ...msgParts] = logRes.stdout.trim().split('|');
-      return {
+      const data: ProjectInfo['git'] = {
         isRepo: true,
         branch: branchRes.stdout.trim() || 'main',
         commitHash: hash || '-',
@@ -266,6 +354,8 @@ export class ProjectsService {
         remoteUrl: remoteRes.stdout.trim(),
         behindCount: parseInt(behindRes.stdout.trim(), 10) || 0,
       };
+      this.gitInfoCache.set(projectDir, { data, expiresAt: now + 15_000 });
+      return data;
     } catch {
       return {
         isRepo: true,
@@ -282,6 +372,8 @@ export class ProjectsService {
     const projectDir = this.getProjectPath(projectName);
     try {
       await execAsync('git fetch --quiet', { cwd: projectDir, timeout: 20000 });
+      await execAsync(`chmod -R a+rwX "${path.join(projectDir, '.git')}" 2>/dev/null || true`).catch(() => null);
+      this.invalidateProjectCache(projectDir);
       const { stdout } = await execAsync('git rev-list HEAD..@{u} --count', { cwd: projectDir });
       const behindCount = parseInt(stdout.trim(), 10) || 0;
       return {
@@ -299,9 +391,30 @@ export class ProjectsService {
   }
 
   private async getDirectoryDiskSize(projectDir: string): Promise<number> {
+    const now = Date.now();
+    const cached = this.diskSizeCache.get(projectDir);
+    if (cached && cached.expiresAt > now) {
+      return cached.size;
+    }
+    if (cached) {
+      if (!cached.refreshing) {
+        cached.refreshing = true;
+        execAsync(`du -sb "${projectDir}" | awk '{print $1}'`, { timeout: 4000 })
+          .then(({ stdout }) => {
+            const size = parseInt(stdout.trim(), 10) || 0;
+            this.diskSizeCache.set(projectDir, { size, expiresAt: Date.now() + 60_000 });
+          })
+          .catch(() => {
+            cached.refreshing = false;
+          });
+      }
+      return cached.size;
+    }
     try {
       const { stdout } = await execAsync(`du -sb "${projectDir}" | awk '{print $1}'`, { timeout: 4000 });
-      return parseInt(stdout.trim(), 10) || 0;
+      const size = parseInt(stdout.trim(), 10) || 0;
+      this.diskSizeCache.set(projectDir, { size, expiresAt: now + 60_000 });
+      return size;
     } catch {
       return 0;
     }
@@ -376,24 +489,38 @@ export class ProjectsService {
     let internalPort = '3306';
 
     if (dbContainer) {
-      try {
-        const inspectData = await this.docker.getContainer(dbContainer.id).inspect();
-        for (const e of inspectData.Config?.Env || []) {
-          const idx = e.indexOf('=');
-          if (idx > 0) {
-            containerEnv[e.slice(0, idx)] = e.slice(idx + 1);
+      const now = Date.now();
+      const cachedInspect = this.dbInspectCache.get(dbContainer.id);
+      if (cachedInspect && cachedInspect.expiresAt > now) {
+        containerEnv = cachedInspect.env;
+        externalPort = cachedInspect.externalPort;
+        internalPort = cachedInspect.internalPort;
+      } else {
+        try {
+          const inspectData = await this.docker.getContainer(dbContainer.id).inspect();
+          for (const e of inspectData.Config?.Env || []) {
+            const idx = e.indexOf('=');
+            if (idx > 0) {
+              containerEnv[e.slice(0, idx)] = e.slice(idx + 1);
+            }
           }
-        }
-        const ports = inspectData.NetworkSettings?.Ports || {};
-        for (const [internalKey, bindings] of Object.entries(ports)) {
-          const intP = internalKey.split('/')[0];
-          if (Array.isArray(bindings) && bindings.length > 0 && bindings[0].HostPort) {
-            externalPort = bindings[0].HostPort;
-            if (intP) internalPort = intP;
+          const ports = inspectData.NetworkSettings?.Ports || {};
+          for (const [internalKey, bindings] of Object.entries(ports)) {
+            const intP = internalKey.split('/')[0];
+            if (Array.isArray(bindings) && bindings.length > 0 && bindings[0].HostPort) {
+              externalPort = bindings[0].HostPort;
+              if (intP) internalPort = intP;
+            }
           }
+          this.dbInspectCache.set(dbContainer.id, {
+            env: containerEnv,
+            externalPort,
+            internalPort,
+            expiresAt: now + 30_000,
+          });
+        } catch {
+          // Fallback to envDict
         }
-      } catch {
-        // Fallback to envDict
       }
     }
 
@@ -532,8 +659,10 @@ export class ProjectsService {
   }
 
   async listProjects(): Promise<ProjectInfo[]> {
-    const publicIp = await this.systemService.getPublicIp();
-    const allContainers = await this.docker.listContainers({ all: true });
+    const [publicIp, allContainers] = await Promise.all([
+      this.systemService.getPublicIp(),
+      this.docker.listContainers({ all: true }),
+    ]);
 
     const projectDirs = new Map<string, string>();
     // Incluir siempre el directorio propio de ALpanel (ej. /opt/alpanel)
@@ -599,16 +728,14 @@ export class ProjectsService {
       }
     }
 
-    const results: ProjectInfo[] = [];
+    const results: ProjectInfo[] = await Promise.all(
+      Array.from(projectDirs.entries()).map(async ([key, projectDir]) => {
+        const displayName = path.basename(projectDir);
+        const rawContainers = containersByProject.get(key) || [];
 
-    for (const [key, projectDir] of projectDirs.entries()) {
-      const displayName = path.basename(projectDir);
-      const rawContainers = containersByProject.get(key) || [];
-
-      const containerStats: ContainerStatInfo[] = await Promise.all(
-        rawContainers.map(async (c) => {
+        const containerStats: ContainerStatInfo[] = rawContainers.map((c) => {
           const isRunning = c.State === 'running';
-          const live = await this.getContainerLiveStats(c.Id, isRunning);
+          const live = this.getContainerLiveStats(c.Id, isRunning);
           const name = (c.Names?.[0] || '').replace(/^\//, '');
           const serviceName = c.Labels?.['com.docker.compose.service'] || name;
           const ports = (c.Ports || [])
@@ -629,66 +756,66 @@ export class ProjectsService {
             ports: Array.from(new Set(ports)),
             role: this.detectRole(serviceName, c.Image),
           };
-        })
-      );
+        });
 
-      const runningCount = containerStats.filter((c) => c.state === 'running').length;
-      const status: ProjectInfo['status'] =
-        containerStats.length === 0 || runningCount === 0
-          ? 'stopped'
-          : runningCount === containerStats.length
-          ? 'running'
-          : 'partial';
+        const runningCount = containerStats.filter((c) => c.state === 'running').length;
+        const status: ProjectInfo['status'] =
+          containerStats.length === 0 || runningCount === 0
+            ? 'stopped'
+            : runningCount === containerStats.length
+            ? 'running'
+            : 'partial';
 
-      const totalCpu = Math.round(containerStats.reduce((acc, c) => acc + c.cpuPercent, 0) * 10) / 10;
-      const totalMem = containerStats.reduce((acc, c) => acc + c.memoryBytes, 0);
+        const totalCpu = Math.round(containerStats.reduce((acc, c) => acc + c.cpuPercent, 0) * 10) / 10;
+        const totalMem = containerStats.reduce((acc, c) => acc + c.memoryBytes, 0);
 
-      const [git, diskBytes] = await Promise.all([
-        this.getGitInfo(projectDir),
-        this.getDirectoryDiskSize(projectDir),
-      ]);
+        const envDict = this.parseEnvDictionary(projectDir);
+        const domains = this.extractDomains(projectDir, envDict).filter(
+          (d) => !d.startsWith('develop.')
+        );
 
-      const envDict = this.parseEnvDictionary(projectDir);
-      const domains = this.extractDomains(projectDir, envDict).filter(
-        (d) => !d.startsWith('develop.')
-      );
-      const database = await this.extractDatabaseInfo(projectDir, containerStats, envDict, publicIp);
+        const [git, diskBytes, database] = await Promise.all([
+          this.getGitInfo(projectDir),
+          this.getDirectoryDiskSize(projectDir),
+          this.extractDatabaseInfo(projectDir, containerStats, envDict, publicIp),
+        ]);
 
-      const isThisDevActive =
-        devState.active &&
-        Boolean(devState.projectName) &&
-        (devState.projectName!.toLowerCase() === displayName.toLowerCase() ||
-          (this.isSelfPanel(displayName) && this.isSelfPanel(devState.projectName!)));
+        const isThisDevActive =
+          devState.active &&
+          Boolean(devState.projectName) &&
+          (devState.projectName!.toLowerCase() === displayName.toLowerCase() ||
+            (this.isSelfPanel(displayName) && this.isSelfPanel(devState.projectName!)));
 
-      results.push({
-        name: displayName,
-        path: projectDir,
-        stack: this.detectStack(projectDir, containerStats),
-        status,
-        domains,
-        git,
-        devMode: {
-          isActive: isThisDevActive,
-          branch: 'develop',
-          domain: devState.domain || defaultDevDomain,
-          commitHash: isThisDevActive ? devState.commitHash : '-',
-          commitMessage: isThisDevActive ? devState.commitMessage : '-',
-          containerName: 'alpanel_dev_app',
-          status: isThisDevActive && devContainerRunning ? 'running' : 'stopped',
-        },
-        resources: {
-          cpuPercent: totalCpu,
-          memoryBytes: totalMem,
-          diskBytes,
-        },
-        containers: containerStats,
-        hasEnvFile: fs.existsSync(path.join(projectDir, '.env')) || fs.existsSync(path.join(projectDir, '.env.example')),
-        hasComposeFile:
-          fs.existsSync(path.join(projectDir, 'docker-compose.yml')) ||
-          fs.existsSync(path.join(projectDir, 'docker-compose.yaml')),
-        database,
-      });
-    }
+        return {
+          name: displayName,
+          path: projectDir,
+          stack: this.detectStack(projectDir, containerStats),
+          status,
+          domains,
+          git,
+          devMode: {
+            isActive: isThisDevActive,
+            branch: 'develop',
+            domain: devState.domain || defaultDevDomain,
+            commitHash: isThisDevActive ? devState.commitHash : '-',
+            commitMessage: isThisDevActive ? devState.commitMessage : '-',
+            containerName: 'alpanel_dev_app',
+            status: isThisDevActive && devContainerRunning ? 'running' : 'stopped',
+          },
+          resources: {
+            cpuPercent: totalCpu,
+            memoryBytes: totalMem,
+            diskBytes,
+          },
+          containers: containerStats,
+          hasEnvFile: fs.existsSync(path.join(projectDir, '.env')) || fs.existsSync(path.join(projectDir, '.env.example')),
+          hasComposeFile:
+            fs.existsSync(path.join(projectDir, 'docker-compose.yml')) ||
+            fs.existsSync(path.join(projectDir, 'docker-compose.yaml')),
+          database,
+        };
+      })
+    );
 
     return results.sort((a, b) => {
       if (this.isSelfPanel(a.name) && !this.isSelfPanel(b.name)) return -1;
@@ -981,6 +1108,8 @@ export class ProjectsService {
       logs.push(`==> [1/2] Ejecutando git pull origin main en ${projectName} (HEAD actual: ${prevHead.slice(0, 7) || 'N/A'})...`);
       await execAsync('git fetch origin && git checkout main', { cwd: projectDir, timeout: 30000 }).catch(() => null);
       const pullRes = await execAsync('git pull origin main', { cwd: projectDir, timeout: 60000 });
+      await execAsync(`chmod -R a+rwX "${path.join(projectDir, '.git')}" 2>/dev/null || true`).catch(() => null);
+      this.invalidateProjectCache(projectDir);
       logs.push(pullRes.stdout.trim() || 'Already up to date.');
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
 
@@ -1019,6 +1148,8 @@ export class ProjectsService {
         try {
           logs.push(`⏪ Ejecutando Rollback automático al commit estable ${prevHead.slice(0, 7)}...`);
           await execAsync(`git reset --hard ${prevHead}`, { cwd: projectDir });
+          await execAsync(`chmod -R a+rwX "${path.join(projectDir, '.git')}" 2>/dev/null || true`).catch(() => null);
+          this.invalidateProjectCache(projectDir);
           if (!isSelfPanel) {
             await execAsync('docker compose restart', { cwd: projectDir });
           }
@@ -1053,6 +1184,7 @@ export class ProjectsService {
   async restartProject(projectName: string, containerName?: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
     const isSelfPanel = this.isSelfPanel(projectName);
+    this.invalidateProjectCache(projectDir);
     try {
       if (containerName) {
         const cleanContainer = containerName.replace(/[^a-zA-Z0-9._-]/g, '');
@@ -1103,6 +1235,7 @@ export class ProjectsService {
 
   async startProject(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
+    this.invalidateProjectCache(projectDir);
     try {
       const { stdout, stderr } = await execAsync('docker compose up -d', { cwd: projectDir, timeout: 180000 });
       return {
@@ -1125,6 +1258,7 @@ export class ProjectsService {
       };
     }
     const projectDir = this.getProjectPath(projectName);
+    this.invalidateProjectCache(projectDir);
     try {
       const { stdout, stderr } = await execAsync('docker compose stop', { cwd: projectDir, timeout: 120000 });
       return {
@@ -1142,6 +1276,7 @@ export class ProjectsService {
   async rebuildProject(projectName: string): Promise<{ success: boolean; output: string }> {
     const projectDir = this.getProjectPath(projectName);
     const isSelfPanel = this.isSelfPanel(projectName);
+    this.invalidateProjectCache(projectDir);
     try {
       if (isSelfPanel) {
         const logs: string[] = [];
@@ -1272,6 +1407,7 @@ export class ProjectsService {
     const envPath = path.join(projectDir, '.env');
     fs.writeFileSync(envPath, content, 'utf-8', );
     fs.chmodSync(envPath, 0o600);
+    this.invalidateProjectCache(projectDir);
 
     if (restartAfter) {
       return this.restartProject(projectName);
@@ -1303,6 +1439,8 @@ export class ProjectsService {
       const cloneRes = await execAsync(`git clone ${branchArg} "${payload.repoUrl.replace(/"/g, '')}" "${targetDir}"`, {
         timeout: 180000,
       });
+      await execAsync(`chmod -R a+rwX "${path.join(targetDir, '.git')}" 2>/dev/null || true`).catch(() => null);
+      this.invalidateProjectCache();
       if (cloneRes.stdout) logs.push(cloneRes.stdout.trim());
       if (cloneRes.stderr) logs.push(cloneRes.stderr.trim());
 
@@ -1349,6 +1487,7 @@ export class ProjectsService {
         if (upRes.stderr) logs.push(upRes.stderr.trim());
       }
 
+      this.invalidateProjectCache(targetDir);
       logs.push(`✅ Proyecto ${cleanName} creado exitosamente.`);
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
