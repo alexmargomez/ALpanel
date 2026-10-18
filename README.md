@@ -7,6 +7,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
+![Architecture](https://img.shields.io/badge/Architecture-Hexagonal_(Ports_%26_Adapters)-8A2BE2)
+![Unit Tests](https://img.shields.io/badge/Tests-31_Passing_(node%3Atest)-2EA44F)
 
 ---
 
@@ -195,20 +197,37 @@ ServerPanel/
 │               ├── RoleModal.vue
 │               └── AppUsersModal.vue
 │
-├── src/                                     # ⚙️ BACKEND (Fastify + TypeScript + Prisma ORM + Dockerode)
+├── src/                                     # ⚙️ BACKEND HEXAGONAL (Puertos y Adaptadores — Fastify + TS + Prisma + Dockerode)
 │   ├── config/
 │   │   └── permissions.ignore.json          # Módulos y archivos de servicios ignorados en RBAC (habilitados para todos)
-│   ├── modules/                             # Módulos principales del panel (Controladores REST)
-│   │   ├── auth/                            # (Ignorado en permisos — siempre activo)
-│   │   ├── dashboard/                       # (Ignorado en permisos — siempre activo)
+│   ├── shared/                              # 🏛️ NÚCLEO COMPARTIDO (Cross-Cutting Concerns)
+│   │   ├── domain/
+│   │   │   └── exceptions/
+│   │   │       ├── domain.exception.ts      # Excepción base tipada con statusCode HTTP
+│   │   │       └── __tests__/domain.exception.spec.ts
+│   │   └── infrastructure/
+│   │       ├── database/prisma.service.ts   # Cliente Prisma Singleton
+│   │       ├── http/
+│   │       │   ├── middlewares/auth.middleware.ts # Guardias JWT y RBAC en memoria
+│   │       │   └── routes/api.routes.ts     # Enrutador maestro de módulos
+│   │       └── services/
+│   │           ├── crypto.service.ts        # Hashing scrypt y comparación timingSafeEqual
+│   │           ├── host-metrics.service.ts  # Telemetría de CPU/RAM/Disco/Red del VPS
+│   │           └── service-registry.ts      # Auto-descubrimiento RBAC
+│   ├── modules/                             # ⬢ MÓDULOS HEXAGONALES (Domain / Application / Infrastructure)
 │   │   ├── projects/                        # Módulo Padre: Proyectos & Contenedores
-│   │   ├── domains/                         # Módulo Padre: Dominios & SSL (Caddy)
-│   │   ├── git/                             # Módulo Padre: Repositorios & Cuentas Git
-│   │   ├── users/                           # Módulo Padre: Usuarios & Accesos
-│   │   ├── security/                        # Módulo Padre sin sub-servicios (el permiso controla el módulo completo)
-│   │   ├── roles/                           # (Ignorado en permisos — administración interna)
-│   │   └── permissions/                     # (Ignorado en permisos — administración interna)
-│   └── services/                            # Servicios granulares divididos por carpeta de módulo o independientes
+│   │   │   ├── domain/                      # Entidades, Value Objects (ProjectNameVO) y Excepciones
+│   │   │   ├── application/                 # Puertos (ContainerRuntimePort, GitRepositoryPort) y 7 Casos de Uso
+│   │   │   └── infrastructure/              # Adaptadores (Dockerode, Git CLI, Filesystem), Controlador y Rutas
+│   │   ├── domains/                         # Módulo Padre: Dominios & SSL (DomainNameVO, ReverseProxyPort, CaddyAdapter)
+│   │   ├── users/                           # Módulo Padre: Usuarios (UsernameVO, UserRepositoryPort, PrismaUserRepository)
+│   │   ├── roles/                           # Administración de Roles (RoleRepositoryPort, protección SuperAdmin)
+│   │   ├── permissions/                     # Matriz RBAC granular (PermissionRepositoryPort, caché en memoria)
+│   │   ├── security/                        # Auditoría (AuditLogRepositoryPort, ManageAuditLogsUseCase)
+│   │   ├── auth/                            # Autenticación JWT (LoginUserUseCase, GetUserProfileUseCase)
+│   │   ├── git/                             # Cuentas Git y Clonación de Repositorios
+│   │   └── dashboard/                       # Resumen de Métricas del Servidor
+│   └── services/                            # Servicios granulares auto-descubiertos para el árbol RBAC
 │       ├── service-registry.ts              # Escáner automático de módulos y servicios
 │       ├── crypto.service.ts                # (Ignorado en permissions.ignore.json — uso interno global)
 │       ├── host.service.ts                  # (Ignorado en permissions.ignore.json — uso interno global)
@@ -231,6 +250,30 @@ ServerPanel/
 │
 └── public/                                  # 📦 Activos estáticos servidos por Fastify (incluye /assets/app.js compilado por Vite)
 ```
+
+---
+
+## 🧪 Pruebas Unitarias (Arquitectura Hexagonal)
+
+Gracias a la separación en capas (**Dominio**, **Aplicación / Puertos** e **Infraestructura / Adaptadores**), toda la lógica de negocio y los casos de uso se prueban de forma **100% aislada en memoria** sin requerir contenedores Docker activos ni base de datos MariaDB conectada.
+
+Se utiliza el **Test Runner nativo de Node.js 20 (`node:test` + `node:assert/strict`)**, sin dependencias pesadas adicionales:
+
+```bash
+npm test
+```
+
+### Cobertura de las 10 Suites (31 Tests)
+- **Dominio y Excepciones (`domain/`):**
+  - `ProjectNameVO`: Sanitización de nombres, bloqueo de *Path Traversal* (`../etc/passwd`), inyección de comandos y resolución segura de rutas (`isSelfPanel`).
+  - `UsernameVO` y `DomainNameVO`: Normalización y validación estricta de nombres de usuario y dominios/subdominios SSL.
+  - `DomainException`: Verificación de códigos de estado HTTP (`400`, `401`, `403`, `404`) en todas las excepciones de dominio.
+- **Casos de Uso con Puertos Mockeados en Memoria (`application/`):**
+  - `projects`: `ListProjectsUseCase`, `ManageProjectEnvUseCase` (permisos `0600` y fallback `.env.example`), `ManageProjectDbUseCase` (extracción de credenciales MariaDB/PostgreSQL y armado de URLs/CLI), `ManageContainerPowerUseCase` (protección anti-apagado de ALpanel), `ToggleDevModeUseCase` y detección de roles en `DockerodeRuntimeAdapter`.
+  - `users`, `roles`, `permissions`, `domains`, `security`: Pruebas CRUD completas sobre *In-Memory Repository & Proxy Ports* y protección inmutable del rol `superadmin`.
+- **Seguridad e Infraestructura Compartida (`shared/`):**
+  - `CryptoService`: Hashing `scrypt` con salt aleatorio/fijo y verificación `timingSafeEqual`.
+  - `auth.middleware`: Pruebas unitarias de `authenticate` (JWT) y `requirePermission` (RBAC y bypass de `superadmin`).
 
 ---
 

@@ -26,10 +26,10 @@ export class DockerodeRuntimeAdapter implements ContainerRuntimePort {
 
     setTimeout(() => {
       this.triggerBackgroundStatsRefresh();
-    }, 200);
+    }, 200).unref();
     setInterval(() => {
       this.triggerBackgroundStatsRefresh();
-    }, 2000);
+    }, 2000).unref();
   }
 
   invalidateCache(): void {

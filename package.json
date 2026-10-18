@@ -9,7 +9,8 @@
     "build": "vite build && prisma generate && tsc",
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
-    "dev:frontend": "vite"
+    "dev:frontend": "vite",
+    "test": "tsc && node --test $(find dist -name '*.spec.js')"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
