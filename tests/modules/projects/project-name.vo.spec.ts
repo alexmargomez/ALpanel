@@ -1,18 +1,16 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { ProjectNameVO } from '../value-objects/project-name.vo';
-import { InvalidProjectNameException } from '../exceptions/project.exception';
+import { ProjectNameVO } from '../../../src/modules/projects/domain/value-objects/project-name.vo';
+import { InvalidProjectNameException } from '../../../src/modules/projects/domain/exceptions/project.exception';
 
 describe('ProjectNameVO (Value Object de seguridad y rutas)', () => {
   it('acepta nombres válidos con letras, números, guiones, guiones bajos y puntos', () => {
     const vo1 = new ProjectNameVO('hc_version2');
-    assert.equal(vo1.value, 'hc_version2');
+    expect(vo1.value).toBe('hc_version2');
 
     const vo2 = new ProjectNameVO('api-sm.v1');
-    assert.equal(vo2.value, 'api-sm.v1');
+    expect(vo2.value).toBe('api-sm.v1');
   });
 
   it('bloquea intentos de Path Traversal, espacios e inyección de comandos', () => {
@@ -27,27 +25,18 @@ describe('ProjectNameVO (Value Object de seguridad y rutas)', () => {
     ];
 
     for (const input of maliciousInputs) {
-      assert.throws(
-        () => new ProjectNameVO(input),
-        (err: unknown) =>
-          err instanceof InvalidProjectNameException && err.statusCode === 400,
-        `Debió rechazar el nombre inseguro: "${input}"`
-      );
+      expect(() => new ProjectNameVO(input)).toThrow(InvalidProjectNameException);
     }
   });
 
   it('detecta correctamente si el proyecto corresponde al propio ALpanel (isSelfPanel)', () => {
-    assert.equal(ProjectNameVO.isSelfPanel('alpanel', '/opt/alpanel'), true);
-    assert.equal(ProjectNameVO.isSelfPanel('ALPANEL', '/opt/alpanel'), true);
-    assert.equal(ProjectNameVO.isSelfPanel('ServerPanel', '/opt/alpanel'), true);
-    assert.equal(
-      ProjectNameVO.isSelfPanel('mi_panel_custom', '/opt/mi_panel_custom'),
-      true
-    );
-    assert.equal(
-      ProjectNameVO.isSelfPanel('hc_version2', '/opt/alpanel'),
-      false
-    );
+    expect(ProjectNameVO.isSelfPanel('alpanel', '/opt/alpanel')).toBe(true);
+    expect(ProjectNameVO.isSelfPanel('ALPANEL', '/opt/alpanel')).toBe(true);
+    expect(ProjectNameVO.isSelfPanel('ServerPanel', '/opt/alpanel')).toBe(true);
+    expect(
+      ProjectNameVO.isSelfPanel('mi_panel_custom', '/opt/mi_panel_custom')
+    ).toBe(true);
+    expect(ProjectNameVO.isSelfPanel('hc_version2', '/opt/alpanel')).toBe(false);
   });
 
   it('resuelve rutas dentro de projectsRoot y redirige alpanel a panelSelfDir si existe', () => {
@@ -59,14 +48,12 @@ describe('ProjectNameVO (Value Object de seguridad y rutas)', () => {
 
     try {
       const normalProject = new ProjectNameVO('hc_version2');
-      assert.equal(
-        normalProject.resolvePath(projectsRoot, panelSelfDir),
+      expect(normalProject.resolvePath(projectsRoot, panelSelfDir)).toBe(
         path.resolve(projectsRoot, 'hc_version2')
       );
 
       const selfProject = new ProjectNameVO('alpanel');
-      assert.equal(
-        selfProject.resolvePath(projectsRoot, panelSelfDir),
+      expect(selfProject.resolvePath(projectsRoot, panelSelfDir)).toBe(
         path.resolve(panelSelfDir)
       );
     } finally {

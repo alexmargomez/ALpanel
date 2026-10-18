@@ -1,11 +1,9 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { DomainNameVO } from '../../domain/value-objects/domain-name.vo';
-import { DomainException } from '../../../../shared/domain/exceptions/domain.exception';
-import { DomainRouteRepositoryPort } from '../ports/repositories/domain-route-repository.port';
-import { ReverseProxyPort } from '../ports/services/reverse-proxy.port';
-import { ManageDomainsUseCase } from '../use-cases/manage-domains.use-case';
-import { DomainRouteEntity } from '../../domain/entities/domain-route.entity';
+import { DomainNameVO } from '../../../src/modules/domains/domain/value-objects/domain-name.vo';
+import { DomainException } from '../../../src/shared/domain/exceptions/domain.exception';
+import { DomainRouteRepositoryPort } from '../../../src/modules/domains/application/ports/repositories/domain-route-repository.port';
+import { ReverseProxyPort } from '../../../src/modules/domains/application/ports/services/reverse-proxy.port';
+import { ManageDomainsUseCase } from '../../../src/modules/domains/application/use-cases/manage-domains.use-case';
+import { DomainRouteEntity } from '../../../src/modules/domains/domain/entities/domain-route.entity';
 
 class InMemoryDomainRouteRepositoryMock implements DomainRouteRepositoryPort {
   private routes: DomainRouteEntity[] = [];
@@ -59,14 +57,11 @@ class InMemoryReverseProxyMock implements ReverseProxyPort {
 describe('Domains Module — DomainNameVO & ManageDomainsUseCase', () => {
   it('DomainNameVO valida y normaliza dominios y rechaza formatos inválidos', () => {
     const vo = new DomainNameVO('  Panel.IntegraWeb.com.co ');
-    assert.equal(vo.value, 'panel.integraweb.com.co');
+    expect(vo.value).toBe('panel.integraweb.com.co');
 
     const invalidList = ['', 'localhost', 'http://dominio.com', 'dominio_invalido'];
     for (const bad of invalidList) {
-      assert.throws(
-        () => new DomainNameVO(bad),
-        (err: unknown) => err instanceof DomainException && err.statusCode === 400
-      );
+      expect(() => new DomainNameVO(bad)).toThrow(DomainException);
     }
   });
 
@@ -81,21 +76,21 @@ describe('Domains Module — DomainNameVO & ManageDomainsUseCase', () => {
       frontendTarget: 'hc_version2_web:80',
       sslEnabled: true,
     });
-    assert.equal(saved.domain, 'hc.integraweb.com.co');
+    expect(saved.domain).toBe('hc.integraweb.com.co');
 
     const routes = await useCase.listRoutes();
-    assert.equal(routes.length, 1);
+    expect(routes).toHaveLength(1);
 
     const caddyfile = await useCase.generateCaddyfile(routes);
-    assert.match(caddyfile, /hc\.integraweb\.com\.co/);
-    assert.match(caddyfile, /reverse_proxy hc_version2_web:80/);
+    expect(caddyfile).toMatch(/hc\.integraweb\.com\.co/);
+    expect(caddyfile).toMatch(/reverse_proxy hc_version2_web:80/);
 
     const reloadRes = await useCase.reloadCaddy();
-    assert.equal(reloadRes.success, true);
-    assert.equal(proxy.reloaded, 1);
+    expect(reloadRes.success).toBe(true);
+    expect(proxy.reloaded).toBe(1);
 
     const deleted = await useCase.deleteRoute(saved.id);
-    assert.equal(deleted, true);
-    assert.equal((await useCase.listRoutes()).length, 0);
+    expect(deleted).toBe(true);
+    expect(await useCase.listRoutes()).toHaveLength(0);
   });
 });

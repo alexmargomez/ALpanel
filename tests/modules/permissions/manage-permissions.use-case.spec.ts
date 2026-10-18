@@ -1,12 +1,10 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { PermissionRepositoryPort } from '../ports/repositories/permission-repository.port';
-import { ManagePermissionsUseCase } from '../use-cases/manage-permissions.use-case';
+import { PermissionRepositoryPort } from '../../../src/modules/permissions/application/ports/repositories/permission-repository.port';
+import { ManagePermissionsUseCase } from '../../../src/modules/permissions/application/use-cases/manage-permissions.use-case';
 import {
   ModuleDto,
   RolePermissionItemDto,
   UserPermissionsMap,
-} from '../../domain/entities/permission.entity';
+} from '../../../src/modules/permissions/domain/entities/permission.entity';
 
 class InMemoryPermissionRepositoryMock implements PermissionRepositoryPort {
   private permissionsByRole = new Map<number, RolePermissionItemDto[]>();
@@ -79,8 +77,8 @@ describe('Permissions Module — ManagePermissionsUseCase', () => {
     const useCase = new ManagePermissionsUseCase(repo);
 
     const modules = await useCase.listModules();
-    assert.equal(modules.length, 1);
-    assert.equal(modules[0].code, 'projects');
+    expect(modules).toHaveLength(1);
+    expect(modules[0].code).toBe('projects');
 
     await useCase.updateRolePermissions(5, [
       {
@@ -92,17 +90,15 @@ describe('Permissions Module — ManagePermissionsUseCase', () => {
     ]);
 
     const saved = await useCase.getRolePermissions(5);
-    assert.equal(saved.length, 1);
-    assert.equal(saved[0].canDeploy, true);
-    assert.equal(saved[0].canDelete, false);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].canDeploy).toBe(true);
+    expect(saved[0].canDelete).toBe(false);
 
-    assert.equal(await useCase.checkUserPermission(5, 'projects', 'view'), true);
-    assert.equal(
-      await useCase.checkUserPermission(5, 'projects', 'deploy'),
+    expect(await useCase.checkUserPermission(5, 'projects', 'view')).toBe(true);
+    expect(await useCase.checkUserPermission(5, 'projects', 'deploy')).toBe(
       true
     );
-    assert.equal(
-      await useCase.checkUserPermission(5, 'security', 'view'),
+    expect(await useCase.checkUserPermission(5, 'security', 'view')).toBe(
       false
     );
   });

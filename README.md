@@ -2,13 +2,13 @@
 
 **ALpanel** es un panel de control autoalojado (self-hosted), ultraligero y escalable para servidores Linux VPS. Está diseñado para administrar múltiples proyectos en cualquier lenguaje (**Node.js, Python/Django, Java/Spring Boot, PHP/Laravel/Symfony, React/Vue/Next.js**) basados en `docker compose`, sin opciones de relleno y con control total en 1 clic.
 
-![Node.js 20](https://img.shields.gl/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
+![Node.js 20](https://img.shields.io/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
 ![Vue 3](https://img.shields.io/badge/Vue_3-Composition_API_%2B_TS-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
 ![Architecture](https://img.shields.io/badge/Architecture-Hexagonal_(Ports_%26_Adapters)-8A2BE2)
-![Unit Tests](https://img.shields.io/badge/Tests-31_Passing_(node%3Atest)-2EA44F)
+![Unit Tests](https://img.shields.io/badge/Tests-31_Passing_(Jest_%2B_ts--jest)-C21325?logo=jest&logoColor=white)
 
 ---
 
@@ -22,7 +22,7 @@ A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limit
 2. **Monitoreo en Tiempo Real (WebSockets):**
    - Barra superior con métricas reales del VPS (**CPU %**, **RAM usada/total**, **Disco SSD** y **Uptime**).
    - Medición exacta de **CPU (%)**, **RAM (MB)** y **Disco (MB)** por cada proyecto y desglosado por cada contenedor individual.
-3. ** Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
+3. **🔄 Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
    - Botón **Verificar remoto** que te avisa con una insignia (`⬆️ X commit(s) por bajar`) si hay cambios nuevos en GitHub/GitLab.
    - Al ejecutar **Git Pull & Restart**, guarda el commit estable actual (`HEAD`); si el despliegue falla, revierte automáticamente a la versión anterior funcional.
 4. **🗄️ Inspector y Backup de Base de Datos en 1 Clic:**
@@ -202,9 +202,7 @@ ServerPanel/
 │   │   └── permissions.ignore.json          # Módulos y archivos de servicios ignorados en RBAC (habilitados para todos)
 │   ├── shared/                              # 🏛️ NÚCLEO COMPARTIDO (Cross-Cutting Concerns)
 │   │   ├── domain/
-│   │   │   └── exceptions/
-│   │   │       ├── domain.exception.ts      # Excepción base tipada con statusCode HTTP
-│   │   │       └── __tests__/domain.exception.spec.ts
+│   │   │   └── exceptions/domain.exception.ts # Excepción base tipada con statusCode HTTP
 │   │   └── infrastructure/
 │   │       ├── database/prisma.service.ts   # Cliente Prisma Singleton
 │   │       ├── http/
@@ -248,19 +246,43 @@ ServerPanel/
 │       └── users/                           # 👥 Sub-servicios del módulo "users"
 │           └── users-roles.service.ts       # -> users.manage (Gestionar Usuarios y Roles)
 │
+├── tests/                                   # 🧪 PRUEBAS UNITARIAS CENTRALIZADAS (Jest + ts-jest)
+│   ├── shared/
+│   │   ├── domain.exception.spec.ts
+│   │   ├── crypto.service.spec.ts
+│   │   └── auth.middleware.spec.ts
+│   └── modules/
+│       ├── projects/
+│       │   ├── project-name.vo.spec.ts
+│       │   └── projects-use-cases.spec.ts
+│       ├── domains/
+│       │   └── manage-domains.use-case.spec.ts
+│       ├── users/
+│       │   └── manage-users.use-case.spec.ts
+│       ├── roles/
+│       │   └── manage-roles.use-case.spec.ts
+│       ├── permissions/
+│       │   └── manage-permissions.use-case.spec.ts
+│       └── security/
+│           └── manage-audit-logs.use-case.spec.ts
+│
 └── public/                                  # 📦 Activos estáticos servidos por Fastify (incluye /assets/app.js compilado por Vite)
 ```
 
 ---
 
-## 🧪 Pruebas Unitarias (Arquitectura Hexagonal)
+## 🧪 Pruebas Unitarias Centralizadas (`tests/` + Jest)
 
-Gracias a la separación en capas (**Dominio**, **Aplicación / Puertos** e **Infraestructura / Adaptadores**), toda la lógica de negocio y los casos de uso se prueban de forma **100% aislada en memoria** sin requerir contenedores Docker activos ni base de datos MariaDB conectada.
+Todas las pruebas unitarias están centralizadas en la carpeta raíz [`tests/`](tests/) y se ejecutan con **Jest (`jest` + `ts-jest`)**, manteniendo `src/` y `dist/` exclusivamente para código de producción.
 
-Se utiliza el **Test Runner nativo de Node.js 20 (`node:test` + `node:assert/strict`)**, sin dependencias pesadas adicionales:
+Gracias a la **Arquitectura Hexagonal**, toda la lógica de negocio y los casos de uso se prueban de forma **100% aislada en memoria** sin requerir contenedores Docker activos ni base de datos MariaDB conectada:
 
 ```bash
+# Ejecutar las 10 suites (31 tests unitarios)
 npm test
+
+# Ejecutar con reporte de cobertura de código
+npm run test:cov
 ```
 
 ### Cobertura de las 10 Suites (31 Tests)
