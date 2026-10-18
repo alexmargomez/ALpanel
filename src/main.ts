@@ -7,17 +7,9 @@ import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import dotenv from 'dotenv';
 
-import { initDatabase } from './config/prisma';
-import { registerDashboardRoutes } from './modules/dashboard/dashboard.routes';
-import { registerAuthRoutes } from './modules/auth/auth.routes';
-import { registerUsersRoutes } from './modules/users/users.routes';
-import { registerRolesRoutes } from './modules/roles/roles.routes';
-import { registerPermissionsRoutes } from './modules/permissions/permissions.routes';
-import { registerProjectsRoutes } from './modules/projects/projects.routes';
-import { registerGitRoutes } from './modules/git/git.routes';
-import { registerDomainsRoutes } from './modules/domains/domains.routes';
-import { registerSecurityRoutes } from './modules/security/security.routes';
-import { hostService } from './services/host.service';
+import { initDatabase } from './shared/infrastructure/database/prisma.service';
+import { registerApiRoutes } from './shared/infrastructure/http/routes/api.routes';
+import { hostService } from './shared/infrastructure/services/host-metrics.service';
 import { projectsService } from './modules/projects/projects.service';
 import { domainsService } from './modules/domains/domains.service';
 
@@ -42,16 +34,8 @@ async function bootstrap() {
   await app.register(fastifyCookie);
   await app.register(fastifyJwt, { secret: JWT_SECRET });
 
-  // 3. Registrar todos los Módulos de Negocio de la Arquitectura por Capas
-  await registerDashboardRoutes(app);
-  await registerAuthRoutes(app);
-  await registerUsersRoutes(app);
-  await registerRolesRoutes(app);
-  await registerPermissionsRoutes(app);
-  await registerProjectsRoutes(app);
-  await registerGitRoutes(app);
-  await registerDomainsRoutes(app);
-  await registerSecurityRoutes(app);
+  // 3. Registrar Enrutador Maestro de Módulos Hexagonales (Domain / Application / Infrastructure)
+  await registerApiRoutes(app);
 
   // 4. Servir Vistas y Activos Modulares del Frontend
   const publicDir = path.join(__dirname, '..', 'public');
