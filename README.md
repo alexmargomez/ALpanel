@@ -2,7 +2,7 @@
 
 **ALpanel** es un panel de control autoalojado (self-hosted), ultraligero y escalable para servidores Linux VPS. Está diseñado para administrar múltiples proyectos en cualquier lenguaje (**Node.js, Python/Django, Java/Spring Boot, PHP/Laravel/Symfony, React/Vue/Next.js**) basados en `docker compose`, sin opciones de relleno y con control total en 1 clic.
 
-![Node.js 20](https://img.shields.gl/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
+![Node.js 20](https://img.shields.io/badge/Node.js-20_Alpine-339933?logo=nodedotjs&logoColor=white)
 ![Vue 3](https://img.shields.io/badge/Vue_3-Composition_API_%2B_TS-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
@@ -22,7 +22,7 @@ A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limit
 2. **Monitoreo en Tiempo Real (WebSockets):**
    - Barra superior con métricas reales del VPS (**CPU %**, **RAM usada/total**, **Disco SSD** y **Uptime**).
    - Medición exacta de **CPU (%)**, **RAM (MB)** y **Disco (MB)** por cada proyecto y desglosado por cada contenedor individual.
-3. ** Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
+3. **🔄 Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
    - Botón **Verificar remoto** que te avisa con una insignia (`⬆️ X commit(s) por bajar`) si hay cambios nuevos en GitHub/GitLab.
    - Al ejecutar **Git Pull & Restart**, guarda el commit estable actual (`HEAD`); si el despliegue falla, revierte automáticamente a la versión anterior funcional.
 4. **🗄️ Inspector y Backup de Base de Datos en 1 Clic:**
