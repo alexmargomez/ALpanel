@@ -10,7 +10,8 @@
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
     "dev:frontend": "vite",
-    "test": "tsc && node --test $(find dist -name '*.spec.js')"
+    "test": "jest",
+    "test:cov": "jest --coverage"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
@@ -29,9 +30,12 @@
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.31",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.14.10",
     "@vitejs/plugin-vue": "^5.1.2",
+    "jest": "^30.5.2",
     "prisma": "^5.22.0",
+    "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.3",
     "vite": "^5.4.2"

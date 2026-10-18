@@ -1,8 +1,6 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { AuditLogRepositoryPort } from '../ports/repositories/audit-log-repository.port';
-import { ManageAuditLogsUseCase } from '../use-cases/manage-audit-logs.use-case';
-import { AuditLogEntity } from '../../domain/entities/audit-log.entity';
+import { AuditLogRepositoryPort } from '../../../src/modules/security/application/ports/repositories/audit-log-repository.port';
+import { ManageAuditLogsUseCase } from '../../../src/modules/security/application/use-cases/manage-audit-logs.use-case';
+import { AuditLogEntity } from '../../../src/modules/security/domain/entities/audit-log.entity';
 
 class InMemoryAuditLogRepositoryMock implements AuditLogRepositoryPort {
   private logs: AuditLogEntity[] = [];
@@ -38,12 +36,12 @@ describe('Security Module — ManageAuditLogsUseCase', () => {
     await useCase.recordAudit('UFW_DENY', 'port:3306', '10.0.0.5', 'error');
 
     const allLogs = await useCase.getAuditLogs();
-    assert.equal(allLogs.length, 3);
-    assert.equal(allLogs[0].action, 'UFW_DENY');
-    assert.equal(allLogs[0].status, 'error');
+    expect(allLogs).toHaveLength(3);
+    expect(allLogs[0].action).toBe('UFW_DENY');
+    expect(allLogs[0].status).toBe('error');
 
     const topTwo = await useCase.getAuditLogs(2);
-    assert.equal(topTwo.length, 2);
-    assert.equal(topTwo[1].action, 'GIT_PULL');
+    expect(topTwo).toHaveLength(2);
+    expect(topTwo[1].action).toBe('GIT_PULL');
   });
 });

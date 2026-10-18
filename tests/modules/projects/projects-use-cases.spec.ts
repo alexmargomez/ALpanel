@@ -1,5 +1,3 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -8,16 +6,16 @@ import {
   ContainerRuntimePort,
   InspectedContainerConfig,
   LiveContainerMetrics,
-} from '../ports/container-runtime.port';
-import { GitRepositoryPort } from '../ports/git-repository.port';
-import { ManageProjectEnvUseCase } from '../use-cases/manage-project-env.use-case';
-import { ManageProjectDbUseCase } from '../use-cases/manage-project-db.use-case';
-import { ManageContainerPowerUseCase } from '../use-cases/manage-container-power.use-case';
-import { ToggleDevModeUseCase } from '../use-cases/toggle-dev-mode.use-case';
-import { ListProjectsUseCase } from '../use-cases/list-projects.use-case';
-import { FilesystemDiskAdapter } from '../../infrastructure/adapters/filesystem-disk.adapter';
-import { DockerodeRuntimeAdapter } from '../../infrastructure/adapters/dockerode-runtime.adapter';
-import { ContainerStatInfo } from '../../domain/entities/project.entity';
+} from '../../../src/modules/projects/application/ports/container-runtime.port';
+import { GitRepositoryPort } from '../../../src/modules/projects/application/ports/git-repository.port';
+import { ManageProjectEnvUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-env.use-case';
+import { ManageProjectDbUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-db.use-case';
+import { ManageContainerPowerUseCase } from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
+import { ToggleDevModeUseCase } from '../../../src/modules/projects/application/use-cases/toggle-dev-mode.use-case';
+import { ListProjectsUseCase } from '../../../src/modules/projects/application/use-cases/list-projects.use-case';
+import { FilesystemDiskAdapter } from '../../../src/modules/projects/infrastructure/adapters/filesystem-disk.adapter';
+import { DockerodeRuntimeAdapter } from '../../../src/modules/projects/infrastructure/adapters/dockerode-runtime.adapter';
+import { ContainerStatInfo } from '../../../src/modules/projects/domain/entities/project.entity';
 
 class InMemoryContainerRuntimeMock implements ContainerRuntimePort {
   public containers: Docker.ContainerInfo[] = [];
@@ -95,11 +93,11 @@ class InMemoryGitRepositoryMock implements GitRepositoryPort {
 describe('Projects Module — Application Use Cases & Adapters', () => {
   it('DockerodeRuntimeAdapter.detectRole clasifica correctamente database, proxy, frontend y backend', () => {
     const runtime = new InMemoryContainerRuntimeMock();
-    assert.equal(runtime.detectRole('db', 'mariadb:10.11'), 'database');
-    assert.equal(runtime.detectRole('cache', 'redis:7-alpine'), 'database');
-    assert.equal(runtime.detectRole('alpanel_caddy', 'caddy:2-alpine'), 'proxy');
-    assert.equal(runtime.detectRole('web_front', 'node:20-vite'), 'frontend');
-    assert.equal(runtime.detectRole('api_server', 'node:20-alpine'), 'backend');
+    expect(runtime.detectRole('db', 'mariadb:10.11')).toBe('database');
+    expect(runtime.detectRole('cache', 'redis:7-alpine')).toBe('database');
+    expect(runtime.detectRole('alpanel_caddy', 'caddy:2-alpine')).toBe('proxy');
+    expect(runtime.detectRole('web_front', 'node:20-vite')).toBe('frontend');
+    expect(runtime.detectRole('api_server', 'node:20-alpine')).toBe('backend');
   });
 
   it('ManageProjectEnvUseCase lee .env.example como fallback y guarda .env con permisos 0600', async () => {
@@ -108,41 +106,39 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     fs.mkdirSync(projDir, { recursive: true });
     fs.writeFileSync(path.join(projDir, '.env.example'), 'PORT=4000\n', 'utf-8');
 
-    let invalidatedPath = '';
+    const onInvalidate = jest.fn();
     const useCase = new ManageProjectEnvUseCase(
       tmpBase,
       path.join(tmpBase, 'alpanel'),
-      (dir) => {
-        invalidatedPath = dir;
-      }
+      onInvalidate
     );
 
     try {
       const initial = useCase.getEnvFileContent('mi_proyecto');
-      assert.equal(initial.exists, false);
-      assert.equal(initial.content, 'PORT=4000\n');
+      expect(initial.exists).toBe(false);
+      expect(initial.content).toBe('PORT=4000\n');
 
-      let restartedProject = '';
+      const restartMock = jest
+        .fn()
+        .mockResolvedValue({ success: true, output: 'Reiniciado mock' });
+
       const saveRes = await useCase.saveEnvFileContent(
         'mi_proyecto',
         'PORT=5000\nDB_HOST=db\n',
         true,
-        async (name) => {
-          restartedProject = name;
-          return { success: true, output: 'Reiniciado mock' };
-        }
+        restartMock
       );
 
-      assert.equal(saveRes.success, true);
-      assert.equal(restartedProject, 'mi_proyecto');
-      assert.equal(invalidatedPath, path.resolve(projDir));
+      expect(saveRes.success).toBe(true);
+      expect(restartMock).toHaveBeenCalledWith('mi_proyecto');
+      expect(onInvalidate).toHaveBeenCalledWith(path.resolve(projDir));
 
       const afterSave = useCase.getEnvFileContent('mi_proyecto');
-      assert.equal(afterSave.exists, true);
-      assert.equal(afterSave.content, 'PORT=5000\nDB_HOST=db\n');
+      expect(afterSave.exists).toBe(true);
+      expect(afterSave.content).toBe('PORT=5000\nDB_HOST=db\n');
 
       const mode = fs.statSync(path.join(projDir, '.env')).mode & 0o777;
-      assert.equal(mode, 0o600);
+      expect(mode).toBe(0o600);
     } finally {
       fs.rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -169,8 +165,8 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       {},
       '203.0.113.10'
     );
-    assert.equal(noDb.hasDatabase, false);
-    assert.equal(noDb.status, 'none');
+    expect(noDb.hasDatabase).toBe(false);
+    expect(noDb.status).toBe('none');
 
     const mariaDb = await dbUseCase.extractDatabaseInfo(
       '/tmp/hc_proj',
@@ -194,12 +190,14 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       '203.0.113.10'
     );
 
-    assert.equal(mariaDb.hasDatabase, true);
-    assert.equal(mariaDb.database, 'hc_clinica');
-    assert.equal(mariaDb.username, 'hc_user');
-    assert.equal(mariaDb.port, '3307');
-    assert.match(mariaDb.connectionUrl, /^mysql:\/\/hc_user:secret_password@203\.0\.113\.10:3307\/hc_clinica$/);
-    assert.match(mariaDb.cliCommand, /mysql -h 203\.0\.113\.10 -P 3307/);
+    expect(mariaDb.hasDatabase).toBe(true);
+    expect(mariaDb.database).toBe('hc_clinica');
+    expect(mariaDb.username).toBe('hc_user');
+    expect(mariaDb.port).toBe('3307');
+    expect(mariaDb.connectionUrl).toBe(
+      'mysql://hc_user:secret_password@203.0.113.10:3307/hc_clinica'
+    );
+    expect(mariaDb.cliCommand).toMatch(/mysql -h 203\.0\.113\.10 -P 3307/);
   });
 
   it('ManageContainerPowerUseCase impide detener el contenedor principal de ALpanel por seguridad', async () => {
@@ -211,8 +209,8 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     );
 
     const stopRes = await powerUseCase.stopProject('alpanel');
-    assert.equal(stopRes.success, false);
-    assert.match(stopRes.output, /no puedes detener ALpanel/i);
+    expect(stopRes.success).toBe(false);
+    expect(stopRes.output).toMatch(/no puedes detener ALpanel/i);
   });
 
   it('ToggleDevModeUseCase resuelve el subdominio develop desde domains.json y lee dev-mode.json', () => {
@@ -236,14 +234,13 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
         '/opt/alpanel'
       );
 
-      assert.equal(
-        devModeUseCase.resolveDevSubdomain(),
+      expect(devModeUseCase.resolveDevSubdomain()).toBe(
         'develop.integraweb.com.co'
       );
 
       const defaultState = devModeUseCase.getDevModeState();
-      assert.equal(defaultState.active, false);
-      assert.equal(defaultState.domain, 'develop.integraweb.com.co');
+      expect(defaultState.active).toBe(false);
+      expect(defaultState.domain).toBe('develop.integraweb.com.co');
     } finally {
       if (prevDataDir === undefined) delete process.env.PANEL_DATA_DIR;
       else process.env.PANEL_DATA_DIR = prevDataDir;
@@ -262,7 +259,11 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
 
     fs.writeFileSync(path.join(panelSelfDir, 'package.json'), '{}', 'utf-8');
     fs.writeFileSync(path.join(appDir, 'manage.py'), '# django', 'utf-8');
-    fs.writeFileSync(path.join(appDir, 'docker-compose.yml'), 'version: "3"', 'utf-8');
+    fs.writeFileSync(
+      path.join(appDir, 'docker-compose.yml'),
+      'version: "3"',
+      'utf-8'
+    );
 
     const runtime = new InMemoryContainerRuntimeMock();
     runtime.containers = [
@@ -283,7 +284,7 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
 
     const gitMock = new InMemoryGitRepositoryMock();
     const diskAdapter = new FilesystemDiskAdapter();
-    (diskAdapter as any).getDirectoryDiskSize = async () => 4096;
+    jest.spyOn(diskAdapter, 'getDirectoryDiskSize').mockResolvedValue(4096);
 
     const dbUseCase = new ManageProjectDbUseCase(runtime, panelSelfDir);
     const devModeUseCase = new ToggleDevModeUseCase(
@@ -292,7 +293,7 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       panelSelfDir
     );
     const hostServiceMock: any = {
-      getPublicIp: async () => '198.51.100.25',
+      getPublicIp: jest.fn().mockResolvedValue('198.51.100.25'),
     };
 
     const listUseCase = new ListProjectsUseCase(
@@ -308,13 +309,13 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
 
     try {
       const projects = await listUseCase.execute();
-      assert.equal(projects.length, 2);
-      assert.equal(projects[0].name, 'alpanel');
-      assert.equal(projects[1].name, 'zeta_crm');
-      assert.equal(projects[1].status, 'running');
-      assert.ok(projects[1].stack.includes('Python / Django'));
-      assert.equal(projects[1].containers.length, 1);
-      assert.equal(projects[1].resources.cpuPercent, 12.5);
+      expect(projects).toHaveLength(2);
+      expect(projects[0].name).toBe('alpanel');
+      expect(projects[1].name).toBe('zeta_crm');
+      expect(projects[1].status).toBe('running');
+      expect(projects[1].stack).toContain('Python / Django');
+      expect(projects[1].containers).toHaveLength(1);
+      expect(projects[1].resources.cpuPercent).toBe(12.5);
     } finally {
       fs.rmSync(tmpBase, { recursive: true, force: true });
     }

@@ -1,17 +1,15 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { UsernameVO } from '../../domain/value-objects/username.vo';
+import { UsernameVO } from '../../../src/modules/users/domain/value-objects/username.vo';
 import {
   InvalidUsernameException,
   UserNotFoundException,
-} from '../../domain/exceptions/user.exception';
+} from '../../../src/modules/users/domain/exceptions/user.exception';
 import {
   CreateUserInput,
   UpdateUserInput,
   UserRepositoryPort,
-} from '../ports/repositories/user-repository.port';
-import { ManageUsersUseCase } from '../use-cases/manage-users.use-case';
-import { UserEntity } from '../../domain/entities/user.entity';
+} from '../../../src/modules/users/application/ports/repositories/user-repository.port';
+import { ManageUsersUseCase } from '../../../src/modules/users/application/use-cases/manage-users.use-case';
+import { UserEntity } from '../../../src/modules/users/domain/entities/user.entity';
 
 class InMemoryUserRepositoryMock implements UserRepositoryPort {
   private users: UserEntity[] = [
@@ -83,15 +81,11 @@ class InMemoryUserRepositoryMock implements UserRepositoryPort {
 describe('Users Module — UsernameVO & ManageUsersUseCase', () => {
   it('UsernameVO normaliza en minúsculas y rechaza usernames cortos o con símbolos inválidos', () => {
     const vo = new UsernameVO('  Alex.Dev_01 ');
-    assert.equal(vo.value, 'alex.dev_01');
+    expect(vo.value).toBe('alex.dev_01');
 
-    assert.throws(
-      () => new UsernameVO('ab'),
-      (err: unknown) => err instanceof InvalidUsernameException
-    );
-    assert.throws(
-      () => new UsernameVO('usuario con espacio'),
-      (err: unknown) => err instanceof InvalidUsernameException
+    expect(() => new UsernameVO('ab')).toThrow(InvalidUsernameException);
+    expect(() => new UsernameVO('usuario con espacio')).toThrow(
+      InvalidUsernameException
     );
   });
 
@@ -100,7 +94,7 @@ describe('Users Module — UsernameVO & ManageUsersUseCase', () => {
     const useCase = new ManageUsersUseCase(repo);
 
     const initial = await useCase.listUsers();
-    assert.equal(initial.length, 1);
+    expect(initial).toHaveLength(1);
 
     const created = await useCase.createUser({
       username: 'Carlos_Ops',
@@ -108,22 +102,22 @@ describe('Users Module — UsernameVO & ManageUsersUseCase', () => {
       password: 'Password123!',
       roleCode: 'operator',
     });
-    assert.equal(created.id, 2);
-    assert.equal(created.username, 'carlos_ops');
+    expect(created.id).toBe(2);
+    expect(created.username).toBe('carlos_ops');
 
     const updated = await useCase.updateUser(2, {
       fullName: 'Carlos DevOps',
     });
-    assert.equal(updated.fullName, 'Carlos DevOps');
+    expect(updated.fullName).toBe('Carlos DevOps');
 
     const passChanged = await useCase.changeOwnPassword(
       'carlos_ops',
       'NuevaClaveSegura2026'
     );
-    assert.equal(passChanged, true);
+    expect(passChanged).toBe(true);
 
     const deleted = await useCase.deleteUser(2);
-    assert.equal(deleted, true);
-    assert.equal((await useCase.listUsers()).length, 1);
+    expect(deleted).toBe(true);
+    expect(await useCase.listUsers()).toHaveLength(1);
   });
 });

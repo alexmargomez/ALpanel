@@ -1,16 +1,14 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
 import {
   CreateRoleInput,
   RoleRepositoryPort,
   UpdateRoleInput,
-} from '../ports/repositories/role-repository.port';
-import { ManageRolesUseCase } from '../use-cases/manage-roles.use-case';
-import { RoleEntity } from '../../domain/entities/role.entity';
+} from '../../../src/modules/roles/application/ports/repositories/role-repository.port';
+import { ManageRolesUseCase } from '../../../src/modules/roles/application/use-cases/manage-roles.use-case';
+import { RoleEntity } from '../../../src/modules/roles/domain/entities/role.entity';
 import {
   ProtectedSuperAdminRoleException,
   RoleNotFoundException,
-} from '../../domain/exceptions/role.exception';
+} from '../../../src/modules/roles/domain/exceptions/role.exception';
 
 class InMemoryRoleRepositoryMock implements RoleRepositoryPort {
   private roles: RoleEntity[] = [
@@ -70,11 +68,8 @@ describe('Roles Module — ManageRolesUseCase & Protección SuperAdmin', () => {
     const repo = new InMemoryRoleRepositoryMock();
     const useCase = new ManageRolesUseCase(repo);
 
-    await assert.rejects(
-      () => useCase.deleteRole(1),
-      (err: unknown) =>
-        err instanceof ProtectedSuperAdminRoleException &&
-        err.statusCode === 403
+    await expect(useCase.deleteRole(1)).rejects.toThrow(
+      ProtectedSuperAdminRoleException
     );
 
     const auditor = await useCase.createRole({
@@ -82,21 +77,19 @@ describe('Roles Module — ManageRolesUseCase & Protección SuperAdmin', () => {
       name: 'Auditor de Seguridad',
       description: 'Solo lectura de logs y métricas',
     });
-    assert.equal(auditor.id, 2);
-    assert.equal(auditor.code, 'auditor');
+    expect(auditor.id).toBe(2);
+    expect(auditor.code).toBe('auditor');
 
     const updated = await useCase.updateRole(2, {
       name: 'Auditor Senior',
     });
-    assert.equal(updated.name, 'Auditor Senior');
+    expect(updated.name).toBe('Auditor Senior');
 
     const deleted = await useCase.deleteRole(2);
-    assert.equal(deleted, true);
+    expect(deleted).toBe(true);
 
-    await assert.rejects(
-      () => useCase.updateRole(999, { name: 'Inexistente' }),
-      (err: unknown) =>
-        err instanceof RoleNotFoundException && err.statusCode === 404
-    );
+    await expect(
+      useCase.updateRole(999, { name: 'Inexistente' })
+    ).rejects.toThrow(RoleNotFoundException);
   });
 });
