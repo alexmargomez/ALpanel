@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { apiFetch, panelStore, showToast } from '../../composables/usePanelStore';
+import { apiFetch, copyText, panelStore, showToast } from '../../composables/usePanelStore';
 import type { AppUserRecord, ProjectUsersDiscoveryResult } from '../../types/panel';
 
 const loading = ref(false);
@@ -12,6 +12,8 @@ const username = ref('');
 const email = ref('');
 const role = ref('admin');
 const password = ref('');
+const showFormPassword = ref(false);
+const revealedUserIds = ref<Record<string, boolean>>({});
 
 function resetForm(): void {
   editId.value = '';
@@ -19,14 +21,24 @@ function resetForm(): void {
   email.value = '';
   role.value = 'admin';
   password.value = '';
+  showFormPassword.value = false;
 }
 
 function prefillUser(u: AppUserRecord): void {
   editId.value = String(u.id);
   username.value = u.username || '';
   email.value = u.email || '';
-  role.value = u.role || 'admin';
-  password.value = '';
+  role.value = (u.role || 'admin').toLowerCase().includes('admin')
+    ? 'admin'
+    : (u.role || '').toLowerCase().includes('staff')
+    ? 'staff'
+    : 'user';
+  password.value = u.knownPassword || '';
+  showFormPassword.value = Boolean(u.knownPassword);
+}
+
+function toggleRevealUserPass(userId: string): void {
+  revealedUserIds.value[userId] = !revealedUserIds.value[userId];
 }
 
 async function fetchAppUsers(): Promise<void> {
@@ -51,6 +63,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       resetForm();
+      revealedUserIds.value = {};
       fetchAppUsers();
     }
   }
@@ -198,7 +211,7 @@ async function deleteAppUser(userId: string, uname: string): Promise<void> {
                 <input
                   v-model="username"
                   type="text"
-                  placeholder="ej. admin@zapatoca.com"
+                  placeholder="ej. admin"
                   required
                   class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-sky-500"
                 />
@@ -228,15 +241,28 @@ async function deleteAppUser(userId: string, uname: string): Promise<void> {
 
               <div>
                 <label class="block text-slate-400 mb-1">
-                  {{ editId ? 'Nueva Contraseña (Opcional)' : 'Contraseña (obligatoria)' }}
+                  {{ editId ? 'Contraseña (Ver / Cambiar)' : 'Contraseña (obligatoria)' }}
                 </label>
-                <input
-                  v-model="password"
-                  type="password"
-                  placeholder="••••••••"
-                  :required="!editId"
-                  class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
-                />
+                <div class="relative flex items-center">
+                  <input
+                    v-model="password"
+                    :type="showFormPassword ? 'text' : 'password'"
+                    placeholder="••••••••"
+                    :required="!editId"
+                    class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3 pr-9 py-2 text-white font-mono focus:outline-none focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    @click="showFormPassword = !showFormPassword"
+                    class="absolute right-2.5 text-slate-400 hover:text-sky-300"
+                    title="Mostrar / Ocultar contraseña"
+                  >
+                    <i
+                      class="fa-solid"
+                      :class="showFormPassword ? 'fa-eye-slash' : 'fa-eye'"
+                    ></i>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -268,7 +294,7 @@ async function deleteAppUser(userId: string, uname: string): Promise<void> {
                 :key="u.id"
                 class="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl p-3"
               >
-                <div class="flex items-center gap-2.5">
+                <div class="flex flex-wrap items-center gap-2.5">
                   <span
                     class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 font-mono text-[10px]"
                   >
@@ -280,6 +306,43 @@ async function deleteAppUser(userId: string, uname: string): Promise<void> {
                     class="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[10px] font-semibold"
                   >
                     {{ u.role || 'admin' }}
+                  </span>
+
+                  <!-- Visualizador de Contraseña en línea -->
+                  <div
+                    v-if="u.knownPassword"
+                    class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-950/30 border border-emerald-800/40 text-[11px]"
+                  >
+                    <i class="fa-solid fa-lock-open text-emerald-400 text-[10px]"></i>
+                    <span class="font-mono text-emerald-200">
+                      {{ revealedUserIds[u.id] ? u.knownPassword : '••••••••' }}
+                    </span>
+                    <button
+                      type="button"
+                      @click="toggleRevealUserPass(u.id)"
+                      class="text-slate-400 hover:text-white ml-1"
+                      :title="revealedUserIds[u.id] ? 'Ocultar contraseña' : 'Ver contraseña'"
+                    >
+                      <i
+                        class="fa-solid"
+                        :class="revealedUserIds[u.id] ? 'fa-eye-slash' : 'fa-eye'"
+                      ></i>
+                    </button>
+                    <button
+                      type="button"
+                      @click="copyText(u.knownPassword)"
+                      class="text-slate-400 hover:text-emerald-300 ml-0.5"
+                      title="Copiar contraseña"
+                    >
+                      <i class="fa-regular fa-copy"></i>
+                    </button>
+                  </div>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 text-[10px]"
+                    title="Hash bcrypt/pbkdf2 externo. Al asignarle una clave desde ALpanel podrás visualizarla siempre aquí."
+                  >
+                    <i class="fa-solid fa-shield-halved mr-1"></i>Hash cifrado
                   </span>
                 </div>
 
@@ -317,3 +380,4 @@ async function deleteAppUser(userId: string, uname: string): Promise<void> {
     </div>
   </div>
 </template>
+

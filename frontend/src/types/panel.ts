@@ -150,6 +150,7 @@ export interface AppUserRecord {
   email: string;
   role: string;
   isActive: boolean;
+  knownPassword?: string;
 }
 
 export interface ProjectUsersDiscoveryResult {
