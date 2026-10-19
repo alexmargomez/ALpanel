@@ -53,6 +53,7 @@ export class ManageProjectDbUseCase {
     const hasDbVars = Boolean(
       dbContainer ||
         merged.MYSQL_DATABASE ||
+        merged.MARIADB_DATABASE ||
         merged.DB_NAME ||
         merged.DB_DATABASE ||
         merged.POSTGRES_DB
@@ -92,6 +93,7 @@ export class ManageProjectDbUseCase {
 
     const database =
       merged.MYSQL_DATABASE ||
+      merged.MARIADB_DATABASE ||
       merged.POSTGRES_DB ||
       merged.DB_NAME ||
       merged.DB_DATABASE ||
@@ -99,6 +101,7 @@ export class ManageProjectDbUseCase {
 
     const username =
       merged.MYSQL_USER ||
+      merged.MARIADB_USER ||
       merged.POSTGRES_USER ||
       merged.DB_USER ||
       merged.DB_USERNAME ||
@@ -106,17 +109,26 @@ export class ManageProjectDbUseCase {
 
     const password =
       merged.MYSQL_PASSWORD ||
+      merged.MARIADB_PASSWORD ||
       merged.POSTGRES_PASSWORD ||
       merged.DB_PASSWORD ||
       '';
 
     const rootUsername = isPostgres ? 'postgres' : 'root';
     const rootPassword =
-      merged.MYSQL_ROOT_PASSWORD || merged.POSTGRES_PASSWORD || password;
+      merged.MYSQL_ROOT_PASSWORD ||
+      merged.MARIADB_ROOT_PASSWORD ||
+      merged.DB_ROOT_PASSWORD ||
+      merged.POSTGRES_PASSWORD ||
+      password;
 
     const effectivePort =
       externalPort || internalPort || (isPostgres ? '5432' : '3306');
-    const internalHost = merged.DB_HOST || dbContainer?.serviceName || 'db';
+    const internalHost =
+      envDict.DB_HOST ||
+      (merged.DB_HOST && merged.DB_HOST !== 'panel_db' ? merged.DB_HOST : '') ||
+      dbContainer?.serviceName ||
+      'db';
     const protocol = isPostgres ? 'postgresql' : 'mysql';
 
     const connectionUrl = `${protocol}://${encodeURIComponent(

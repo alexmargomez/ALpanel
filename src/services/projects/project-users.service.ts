@@ -125,7 +125,7 @@ export class ProjectUsersService {
       const { stdout } = await execAsync(cmd, { timeout: 15000 });
       return stdout.trim();
     } else {
-      const cmd = `docker exec ${ctx.containerName} sh -c 'export MYSQL_PWD="$(echo ${b64Pass} | base64 -d)"; BIN=$(command -v mariadb >/dev/null 2>&1 && echo mariadb || echo mysql); echo ${b64Sql} | base64 -d | $BIN -u "${ctx.username}" -D "${ctx.database}" -N -B'`;
+      const cmd = `docker exec ${ctx.containerName} sh -c 'PASS="$(echo ${b64Pass} | base64 -d)"; SQL="$(echo ${b64Sql} | base64 -d)"; BIN=$(command -v mariadb >/dev/null 2>&1 && echo mariadb || echo mysql); (MYSQL_PWD="$PASS" $BIN -h 127.0.0.1 -P "${ctx.internalPort}" -u "${ctx.username}" -D "${ctx.database}" -N -B -e "$SQL" 2>/dev/null) || (MYSQL_PWD="$PASS" $BIN -u "${ctx.username}" -D "${ctx.database}" -N -B -e "$SQL" 2>/dev/null) || ($BIN -u root -D "${ctx.database}" -N -B -e "$SQL")'`;
       const { stdout } = await execAsync(cmd, { timeout: 15000 });
       return stdout.trim();
     }
@@ -183,13 +183,27 @@ export class ProjectUsersService {
       };
     }
 
-    // 2. Verificar tabla `users` (Node/Express como Servidor_Zapatoqueando, o Laravel)
+    // 2. Verificar tabla `users` (Node/Express como Servidor_Zapatoqueando, o Laravel como Factupos)
     const usersCols = await this.detectTableColumns(ctx, 'users');
-    if (usersCols.includes('password') && (usersCols.includes('username') || usersCols.includes('email'))) {
+    if (
+      usersCols.includes('password') &&
+      (usersCols.includes('username') ||
+        usersCols.includes('name') ||
+        usersCols.includes('email'))
+    ) {
       const sep = ctx.isPostgres ? '|' : '\t';
-      const userCol = usersCols.includes('username') ? 'username' : (usersCols.includes('name') ? 'name' : 'email');
+      const userCol = usersCols.includes('username')
+        ? 'username'
+        : usersCols.includes('name')
+        ? 'name'
+        : 'email';
       const emailExpr = usersCols.includes('email') ? "COALESCE(email, '')" : "''";
-      const roleExpr = usersCols.includes('role') ? "COALESCE(role, 'admin')" : "'user'";
+      const roleCol = usersCols.includes('role')
+        ? 'role'
+        : usersCols.includes('roles')
+        ? 'roles'
+        : null;
+      const roleExpr = roleCol ? `COALESCE(${roleCol}, 'admin')` : "'user'";
       const activeExpr = usersCols.includes('is_active')
         ? `CASE WHEN is_active = ${ctx.isPostgres ? 'true' : '1'} THEN '1' ELSE '0' END`
         : "'1'";
@@ -219,7 +233,7 @@ export class ProjectUsersService {
         schemaLabel: 'Tabla users (Node.js / Express / Laravel)',
         hashAlgorithm: 'bcrypt ($2a$10$)',
         hasEmail: usersCols.includes('email'),
-        hasRole: usersCols.includes('role'),
+        hasRole: Boolean(roleCol),
         hasActive: usersCols.includes('is_active'),
         users,
       };
@@ -271,7 +285,7 @@ export class ProjectUsersService {
       hasRole: false,
       hasActive: false,
       users: [],
-      message: 'No se encontró una tabla de usuarios reconocida (users, auth_user o sf_guard_user) en esta base de datos.',
+      message: 'No se encontró una tabla de usuarios reconocida (users, auth_user o sf_guard_user) en esta base de datos. Asegúrate de que el contenedor Backend haya ejecutado sus migraciones iniciales.',
     };
   }
 
@@ -328,8 +342,23 @@ export class ProjectUsersService {
 
     // 2. Tabla `users` (Servidor_Zapatoqueando / Node / Laravel)
     const usersCols = await this.detectTableColumns(ctx, 'users');
-    if (usersCols.includes('password') && (usersCols.includes('username') || usersCols.includes('email'))) {
-      const userCol = usersCols.includes('username') ? 'username' : (usersCols.includes('name') ? 'name' : 'email');
+    if (
+      usersCols.includes('password') &&
+      (usersCols.includes('username') ||
+        usersCols.includes('name') ||
+        usersCols.includes('email'))
+    ) {
+      const userCol = usersCols.includes('username')
+        ? 'username'
+        : usersCols.includes('name')
+        ? 'name'
+        : 'email';
+      const hasPluralRoles = !usersCols.includes('role') && usersCols.includes('roles');
+      const normalizedRoleValue = hasPluralRoles
+        ? cleanRole.toLowerCase().includes('admin') || cleanRole.toLowerCase().includes('super')
+          ? 'Admin'
+          : 'Empleado'
+        : cleanRole;
 
       if (payload.id) {
         const cleanId = Number(payload.id);
@@ -339,9 +368,14 @@ export class ProjectUsersService {
         }
         if (usersCols.includes('role')) {
           updates.push(`role = '${cleanRole}'`);
+        } else if (usersCols.includes('roles')) {
+          updates.push(`roles = '${normalizedRoleValue}'`);
         }
         if (usersCols.includes('is_active')) {
           updates.push(`is_active = ${ctx.isPostgres ? (isActive ? 'true' : 'false') : (isActive ? '1' : '0')}`);
+        }
+        if (usersCols.includes('updated_at')) {
+          updates.push(`updated_at = NOW()`);
         }
         if (rawPass) {
           const hashed = this.escapeSqlLiteral(await this.hashBcrypt(ctx, rawPass));
@@ -362,10 +396,21 @@ export class ProjectUsersService {
         if (usersCols.includes('role')) {
           cols.push('role');
           vals.push(`'${cleanRole || 'admin'}'`);
+        } else if (usersCols.includes('roles')) {
+          cols.push('roles');
+          vals.push(`'${normalizedRoleValue}'`);
         }
         if (usersCols.includes('is_active')) {
           cols.push('is_active');
           vals.push(ctx.isPostgres ? (isActive ? 'true' : 'false') : (isActive ? '1' : '0'));
+        }
+        if (usersCols.includes('created_at')) {
+          cols.push('created_at');
+          vals.push('NOW()');
+        }
+        if (usersCols.includes('updated_at')) {
+          cols.push('updated_at');
+          vals.push('NOW()');
         }
 
         await this.runSql(ctx, `INSERT INTO users (${cols.join(', ')}) VALUES (${vals.join(', ')});`);

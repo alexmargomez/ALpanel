@@ -6,6 +6,8 @@ import { promisify } from 'util';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
+import { getCleanComposeEnv } from './manage-container-power.use-case';
+import { domainsService } from '../../../domains/domains.service';
 
 const execAsync = promisify(exec);
 
@@ -105,10 +107,15 @@ export class DeployGitProjectUseCase {
       logs.push(
         `\n==> [2/2] Reiniciando contenedores Docker de producción (${projectName})...`
       );
-      const restartRes = await execAsync('docker compose restart', {
-        cwd: projectDir,
-        timeout: 120000,
-      });
+      const restartRes = await execAsync(
+        'docker compose up -d --force-recreate',
+        {
+          cwd: projectDir,
+          env: getCleanComposeEnv(projectDir),
+          timeout: 180000,
+        }
+      );
+      await domainsService.reloadCaddy().catch(() => null);
       if (restartRes.stdout) logs.push(restartRes.stdout.trim());
       if (restartRes.stderr) logs.push(restartRes.stderr.trim());
       logs.push(
@@ -139,7 +146,10 @@ export class DeployGitProjectUseCase {
           ).catch(() => null);
           this.onInvalidateCache?.(projectDir);
           if (!isSelfPanel) {
-            await execAsync('docker compose restart', { cwd: projectDir });
+            await execAsync('docker compose restart', {
+              cwd: projectDir,
+              env: getCleanComposeEnv(projectDir),
+            });
           }
           logs.push(
             `✅ Rollback completado. El proyecto sigue corriendo en la versión anterior estable.`
@@ -257,6 +267,7 @@ export class DeployGitProjectUseCase {
         );
         const upRes = await execAsync('docker compose up -d --build', {
           cwd: targetDir,
+          env: getCleanComposeEnv(targetDir),
           timeout: 600000,
         });
         if (upRes.stdout) logs.push(upRes.stdout.trim());

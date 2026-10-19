@@ -10,7 +10,10 @@ import {
 import { GitRepositoryPort } from '../../../src/modules/projects/application/ports/git-repository.port';
 import { ManageProjectEnvUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-env.use-case';
 import { ManageProjectDbUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-db.use-case';
-import { ManageContainerPowerUseCase } from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
+import {
+  ManageContainerPowerUseCase,
+  getCleanComposeEnv,
+} from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
 import { ToggleDevModeUseCase } from '../../../src/modules/projects/application/use-cases/toggle-dev-mode.use-case';
 import { ListProjectsUseCase } from '../../../src/modules/projects/application/use-cases/list-projects.use-case';
 import { FilesystemDiskAdapter } from '../../../src/modules/projects/infrastructure/adapters/filesystem-disk.adapter';
@@ -362,6 +365,60 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       expect(stacks).toEqual(['PHP / Laravel', 'React', 'MariaDB']);
     } finally {
       fs.rmSync(tmpProj, { recursive: true, force: true });
+    }
+  });
+
+  it('getCleanComposeEnv aísla las variables DB_HOST de ALpanel y soporta variables MARIADB_*', async () => {
+    const prevDbHost = process.env.DB_HOST;
+    process.env.DB_HOST = 'panel_db';
+    try {
+      const cleanEnv = getCleanComposeEnv('/opt/projects/Factupos');
+      expect(cleanEnv.DB_HOST).toBeUndefined();
+      expect(cleanEnv.COMPOSE_PROJECT_NAME).toBe('factupos');
+
+      const runtime = new InMemoryContainerRuntimeMock();
+      runtime.inspectedConfigs.set('factupos_db_id', {
+        env: {
+          MARIADB_DATABASE: 'factupos',
+          MARIADB_USER: 'factupos_user',
+          MARIADB_PASSWORD: 'factupos_pass',
+          MARIADB_ROOT_PASSWORD: 'root_factupos_pass',
+        },
+        externalPort: '3307',
+        internalPort: '3306',
+      });
+
+      const dbUseCase = new ManageProjectDbUseCase(runtime, '/opt/alpanel');
+      const info = await dbUseCase.extractDatabaseInfo(
+        '/opt/projects/Factupos',
+        [
+          {
+            id: 'factupos_db_id',
+            name: 'factupos-mariadb',
+            serviceName: 'db',
+            image: 'mariadb:11.4',
+            state: 'running',
+            status: 'Up',
+            cpuPercent: 0,
+            memoryBytes: 0,
+            memoryLimitBytes: 0,
+            memoryPercent: 0,
+            ports: [],
+            role: 'database',
+          },
+        ],
+        { DB_HOST: 'db' },
+        '51.222.81.132'
+      );
+
+      expect(info.database).toBe('factupos');
+      expect(info.username).toBe('factupos_user');
+      expect(info.password).toBe('factupos_pass');
+      expect(info.rootPassword).toBe('root_factupos_pass');
+      expect(info.internalHost).toBe('db');
+    } finally {
+      if (prevDbHost === undefined) delete process.env.DB_HOST;
+      else process.env.DB_HOST = prevDbHost;
     }
   });
 });
