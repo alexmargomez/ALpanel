@@ -6,7 +6,10 @@ import { promisify } from 'util';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
-import { getCleanComposeEnv } from './manage-container-power.use-case';
+import {
+  getCleanComposeEnv,
+  runDockerComposeSafe,
+} from './manage-container-power.use-case';
 import { domainsService } from '../../../domains/domains.service';
 
 const execAsync = promisify(exec);
@@ -107,13 +110,10 @@ export class DeployGitProjectUseCase {
       logs.push(
         `\n==> [2/2] Reiniciando contenedores Docker de producción (${projectName})...`
       );
-      const restartRes = await execAsync(
-        'docker compose up -d --force-recreate',
-        {
-          cwd: projectDir,
-          env: getCleanComposeEnv(projectDir),
-          timeout: 180000,
-        }
+      const restartRes = await runDockerComposeSafe(
+        projectDir,
+        'up -d --force-recreate',
+        180000
       );
       await domainsService.reloadCaddy().catch(() => null);
       if (restartRes.stdout) logs.push(restartRes.stdout.trim());
@@ -265,11 +265,12 @@ export class DeployGitProjectUseCase {
         logs.push(
           '==> Construyendo y levantando contenedores Docker (docker compose up -d --build)...'
         );
-        const upRes = await execAsync('docker compose up -d --build', {
-          cwd: targetDir,
-          env: getCleanComposeEnv(targetDir),
-          timeout: 600000,
-        });
+        const upRes = await runDockerComposeSafe(
+          targetDir,
+          'up -d --build',
+          600000
+        );
+        await domainsService.reloadCaddy().catch(() => null);
         if (upRes.stdout) logs.push(upRes.stdout.trim());
         if (upRes.stderr) logs.push(upRes.stderr.trim());
       }

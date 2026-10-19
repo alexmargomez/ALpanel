@@ -10,6 +10,15 @@ import { domainsService } from '../../../domains/domains.service';
 
 const execAsync = promisify(exec);
 
+export const PROTECTED_PANEL_CONTAINERS = new Set([
+  'alpanel_server',
+  'alpanel_db',
+  'alpanel_caddy',
+  'sm_server_panel',
+  'sm_panel_caddy',
+  'panel_db',
+]);
+
 export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
   const cleanProjectName = path
     .basename(projectDir)
@@ -24,6 +33,150 @@ export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
     DOCKER_HOST: process.env.DOCKER_HOST || '',
     COMPOSE_PROJECT_NAME: cleanProjectName || 'app',
   };
+}
+
+export function extractComposeContainerNames(projectDir: string): string[] {
+  const names = new Set<string>();
+  for (const file of ['docker-compose.yml', 'docker-compose.yaml']) {
+    const composePath = path.join(projectDir, file);
+    if (!fs.existsSync(composePath)) continue;
+    try {
+      const content = fs.readFileSync(composePath, 'utf-8');
+      const regex =
+        /^\s*container_name\s*:\s*['"]?([a-zA-Z0-9._-]+)['"]?\s*$/gm;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(content)) !== null) {
+        const cName = match[1].trim();
+        if (cName && !PROTECTED_PANEL_CONTAINERS.has(cName)) {
+          names.add(cName);
+        }
+      }
+    } catch {
+      // ignore read errors
+    }
+  }
+  return Array.from(names);
+}
+
+async function reconcileProjectComposeContainers(
+  projectDir: string,
+  expectedComposeProject: string
+): Promise<void> {
+  const candidateNames = new Set<string>(
+    extractComposeContainerNames(projectDir)
+  );
+
+  try {
+    const { stdout } = await execAsync(
+      `docker ps -a --filter "label=com.docker.compose.project.working_dir=${projectDir}" --format "{{.Names}}"`,
+      { timeout: 10000 }
+    );
+    for (const line of stdout.split('\n')) {
+      const name = line.trim();
+      if (name && !PROTECTED_PANEL_CONTAINERS.has(name)) {
+        candidateNames.add(name);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  for (const containerName of candidateNames) {
+    try {
+      const { stdout } = await execAsync(
+        `docker inspect "${containerName}" --format '{{index .Config.Labels "com.docker.compose.project"}}||{{.Config.Image}}||{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}},{{end}}{{end}}'`,
+        { timeout: 10000 }
+      );
+      const [currentProjectRaw, imageRaw, mountsRaw] = stdout.trim().split('||');
+      const currentProject = (currentProjectRaw || '').trim();
+      const image = (imageRaw || '').trim();
+      const mounts = (mountsRaw || '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean);
+
+      if (currentProject !== expectedComposeProject) {
+        await execAsync(`docker stop "${containerName}" 2>/dev/null || true`, {
+          timeout: 20000,
+        }).catch(() => null);
+
+        if (currentProject && image && mounts.length > 0) {
+          for (const volName of mounts) {
+            if (volName.startsWith(`${currentProject}_`)) {
+              const suffix = volName.slice(currentProject.length + 1);
+              const targetVol = `${expectedComposeProject}_${suffix}`;
+              if (targetVol !== volName) {
+                await execAsync(
+                  `docker volume create "${targetVol}" >/dev/null 2>&1 || true`,
+                  { timeout: 10000 }
+                ).catch(() => null);
+                await execAsync(
+                  `docker run --rm --entrypoint sh -v "${volName}:/from:ro" -v "${targetVol}:/to" "${image}" -c 'if [ -z "$(ls -A /to 2>/dev/null)" ] && [ -n "$(ls -A /from 2>/dev/null)" ]; then cp -a /from/. /to/; fi' 2>/dev/null || true`,
+                  { timeout: 60000 }
+                ).catch(() => null);
+              }
+            }
+          }
+        }
+
+        await execAsync(`docker rm -f "${containerName}" 2>/dev/null || true`, {
+          timeout: 15000,
+        }).catch(() => null);
+      }
+    } catch {
+      // Container does not exist yet
+    }
+  }
+}
+
+export async function runDockerComposeSafe(
+  projectDir: string,
+  composeArgs: string,
+  timeout = 180000
+): Promise<{ stdout: string; stderr: string }> {
+  const env = getCleanComposeEnv(projectDir);
+  const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
+
+  if (composeArgs.trim().startsWith('up')) {
+    await reconcileProjectComposeContainers(projectDir, expectedProject);
+  }
+
+  try {
+    return await execAsync(`docker compose ${composeArgs}`, {
+      cwd: projectDir,
+      env,
+      timeout,
+    });
+  } catch (error: any) {
+    const errText = `${error?.stderr || ''}\n${error?.stdout || ''}\n${
+      error?.message || ''
+    }`;
+    if (errText.includes('is already in use by container')) {
+      const toRemove = new Set<string>(extractComposeContainerNames(projectDir));
+      const conflictRegex =
+        /The container name "\/([^"]+)" is already in use/g;
+      let match: RegExpExecArray | null;
+      while ((match = conflictRegex.exec(errText)) !== null) {
+        const cName = match[1].trim();
+        if (cName && !PROTECTED_PANEL_CONTAINERS.has(cName)) {
+          toRemove.add(cName);
+        }
+      }
+
+      for (const cName of toRemove) {
+        await execAsync(`docker rm -f "${cName}" 2>/dev/null || true`, {
+          timeout: 15000,
+        }).catch(() => null);
+      }
+
+      return await execAsync(`docker compose ${composeArgs}`, {
+        cwd: projectDir,
+        env,
+        timeout,
+      });
+    }
+    throw error;
+  }
 }
 
 export class ManageContainerPowerUseCase {
@@ -86,13 +239,10 @@ export class ManageContainerPowerUseCase {
         };
       }
 
-      const { stdout, stderr } = await execAsync(
-        'docker compose up -d --force-recreate',
-        {
-          cwd: projectDir,
-          env: getCleanComposeEnv(projectDir),
-          timeout: 180000,
-        }
+      const { stdout, stderr } = await runDockerComposeSafe(
+        projectDir,
+        'up -d --force-recreate',
+        180000
       );
       await domainsService.reloadCaddy().catch(() => null);
       return {
@@ -117,11 +267,11 @@ export class ManageContainerPowerUseCase {
     );
     this.onInvalidateCache?.(projectDir);
     try {
-      const { stdout, stderr } = await execAsync('docker compose up -d', {
-        cwd: projectDir,
-        env: getCleanComposeEnv(projectDir),
-        timeout: 180000,
-      });
+      const { stdout, stderr } = await runDockerComposeSafe(
+        projectDir,
+        'up -d',
+        180000
+      );
       await domainsService.reloadCaddy().catch(() => null);
       return {
         success: true,
@@ -225,13 +375,10 @@ export class ManageContainerPowerUseCase {
         };
       }
 
-      const { stdout, stderr } = await execAsync(
-        'docker compose up -d --build --force-recreate',
-        {
-          cwd: projectDir,
-          env: getCleanComposeEnv(projectDir),
-          timeout: 600000,
-        }
+      const { stdout, stderr } = await runDockerComposeSafe(
+        projectDir,
+        'up -d --build --force-recreate',
+        600000
       );
       await domainsService.reloadCaddy().catch(() => null);
       return {
