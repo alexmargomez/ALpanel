@@ -8,7 +8,7 @@
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
 ![Architecture](https://img.shields.io/badge/Architecture-Hexagonal_(Ports_%26_Adapters)-8A2BE2)
-![Unit Tests](https://img.shields.io/badge/Tests-31_Passing_(Jest_%2B_ts--jest)-C21325?logo=jest&logoColor=white)
+![Unit Tests](https://img.shields.io/badge/Tests-35_Passing_(Jest_%2B_ts--jest)-C21325?logo=jest&logoColor=white)
 
 ---
 
@@ -86,41 +86,103 @@ Ingresa desde tu navegador a: **`http://TU_IP_DEL_SERVIDOR:9000`** (o a tu domin
 
 ---
 
-## 📐 Cómo estructurar tus proyectos para que ALpanel los administre
+## 📐 Cómo estructurar tus proyectos y variables `.env` para ALpanel
 
-ALpanel escanea automáticamente todas las carpetas dentro de `PROJECTS_ROOT` (`/opt/projects`) **y además incluye siempre su propio directorio `PANEL_SELF_PATH` (`/opt/alpanel`)** como tarjeta protegida (`🛡️ Panel Principal`) para que puedas ejecutar `Git Pull & Restart`, `Restart Docker`, `Limpiar Caché`, `Base de Datos`, `.env` y `Modo Desarrollador` del propio panel desde la interfaz web.
+ALpanel escanea automáticamente todas las carpetas dentro de `PROJECTS_ROOT` (`/opt/projects`) **y además incluye siempre su propio directorio `PANEL_SELF_PATH` (`/opt/alpanel`)** como tarjeta protegida (`🛡️ Panel Principal`).
 
-Para que cualquier proyecto alojado sea detectado con todas sus funciones:
+Además, **ALpanel sincroniza automáticamente los puertos y el dominio en el archivo `.env` de cada proyecto** cuando guardas una regla en **Dominios & SSL** o cuando inicias/reinicias el proyecto, evitando choques de puertos entre múltiples aplicaciones alojadas en el mismo VPS.
 
-1. **Ubica cada proyecto en su propia carpeta dentro de `/opt/projects`:** ej. `/opt/projects/mi_proyecto` (o clónalo en 1 clic desde el botón **`+ Nuevo Proyecto (Git)`** del panel).
-2. **Incluye un `docker-compose.yml` y un `.env`:**
-   - Para que el botón **Base de Datos** detecte las credenciales automáticamente, usa nombres de variables estándar en tu `.env`:
-     - `MYSQL_DATABASE` / `POSTGRES_DB` / `DB_NAME`
-     - `MYSQL_USER` / `POSTGRES_USER` / `DB_USER`
-     - `MYSQL_PASSWORD` / `POSTGRES_PASSWORD` / `DB_PASSWORD`
-     - `MYSQL_ROOT_PASSWORD`
-   - Si quieres conectarte a la base de datos desde un cliente externo (DBeaver/TablePlus), mapea un puerto único en el servicio `db` de tu `docker-compose.yml` (ej. `"3307:3306"` en el Proyecto 1, `"3309:3306"` en el Proyecto 2).
+---
 
-### Ejemplo de `docker-compose.yml` con Frontend + Backend + MariaDB 11 independientes
+### 🔌 Convención de Variables de Puerto y Dominio en `.env` (Sincronización Automática)
+
+Para que ALpanel modifique automáticamente los puertos de tu `.env` desde **Dominios & SSL** y auto-asigne el puerto de Base de Datos según disponibilidad en el servidor, utiliza estos nombres estándar en tu `.env.example` / `.env` y en tu `docker-compose.yml`:
+
+#### Opción A — Proyecto de **2 Variables de Puerto** (Monolito / API + Base de Datos)
+Si tu proyecto tiene un único contenedor de aplicación + un contenedor de Base de Datos:
+
+| Variable en `.env` | Función en ALpanel |
+| :--- | :--- |
+| **`PORT`** *(o `BACKEND_PORT`)* | **Puerto de la Aplicación.** Se modifica automáticamente en el `.env` con el puerto que coloques en **Dominios & SSL** (ej. si colocas `miapp_server:3000`, ALpanel escribe `PORT=3000` en `.env`). |
+| **`DB_EXTERNAL_PORT`** *(o `POSTGRES_PORT`)* | **Puerto Externo de Base de Datos.** ALpanel verifica qué puertos están ocupados en el VPS y **modifica automáticamente tu `.env`** con el primer puerto libre disponible (`3307`, `3309`, `3310`... en MariaDB o `5432`, `5433`... en PostgreSQL). |
+
+#### Opción B — Proyecto de **3 Variables de Puerto** (`Frontend` + `Backend` + `Base de Datos` separados)
+Si tu proyecto desacopla el Frontend (Vue/React/Vite) y el Backend (Django/Laravel/Node/Spring) en contenedores separados:
+
+| Variable en `.env` | Función en ALpanel |
+| :--- | :--- |
+| **`FRONTEND_PORT`** | **Puerto del Frontend.** Se modifica automáticamente en el `.env` con el puerto que coloques en **Frontend Target** dentro de **Dominios & SSL** (ej. `miapp_frontend:5174` $\rightarrow$ `FRONTEND_PORT=5174`). |
+| **`BACKEND_PORT`** | **Puerto del Backend (API).** Se modifica automáticamente en el `.env` con el puerto que coloques en **Backend Target (`/api/*`)** dentro de **Dominios & SSL** (ej. `miapp_backend:8000` $\rightarrow$ `BACKEND_PORT=8000` y actualiza `VITE_BACKEND_PROXY=http://backend:8000`). |
+| **`DB_EXTERNAL_PORT`** *(o `POSTGRES_PORT`)* | **Puerto Externo de Base de Datos.** Se auto-asigna y escribe automáticamente en `.env` según disponibilidad en el servidor para que nunca choque con otros proyectos. |
+
+#### 🌐 Variables de Dominio en `.env` (Cero dominios quemados en GitHub)
+En tu repositorio de GitHub/GitLab **nunca debes quemar tu dominio real** en `docker-compose.yml` ni en `.env.example` (deja únicamente `localhost`). Si tu `.env` incluye cualquiera de las siguientes variables, **ALpanel inyectará automáticamente el dominio real** cuando lo configures en la pestaña **Dominios & SSL**:
+
+- **`APP_DOMAIN`** o **`CADDY_DOMAIN`** $\rightarrow$ ALpanel escribe `tu-dominio.com`.
+- **`APP_URL`** *(Laravel / Node)* $\rightarrow$ ALpanel escribe `https://tu-dominio.com`.
+- **`ALLOWED_HOSTS`** *(Django)* $\rightarrow$ ALpanel conserva `localhost,127.0.0.1,backend` y agrega automáticamente `,tu-dominio.com`.
+- **`CSRF_TRUSTED_ORIGINS`** *(Django)* $\rightarrow$ ALpanel conserva `http://localhost,https://localhost` y agrega automáticamente `,http://tu-dominio.com,https://tu-dominio.com`.
+
+#### 🗄️ Variables de Credenciales de Base de Datos (Auto-detectadas por el Inspector SQL)
+- **MariaDB:** `MARIADB_DATABASE`, `MARIADB_USER`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD` *(también soporta `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_DATABASE`, `DB_USERNAME`)*.
+- **PostgreSQL:** `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
+
+---
+
+### Ejemplo de `.env.example` y `docker-compose.yml` (3 Variables: Frontend + Backend + MariaDB 11)
+
+**`.env.example` (seguro para subir a GitHub):**
+```ini
+# 1. Puertos (Sincronizados y auto-asignados por ALpanel)
+FRONTEND_PORT=5173
+BACKEND_PORT=8000
+DB_EXTERNAL_PORT=3307
+
+# 2. Dominio y Seguridad (ALpanel inyecta el dominio real al asignarlo en Dominios & SSL)
+APP_DOMAIN=localhost
+APP_URL=http://localhost:8000
+ALLOWED_HOSTS=localhost,127.0.0.1,backend
+CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://localhost:5173
+
+# 3. Base de Datos (MariaDB 11)
+MARIADB_DATABASE=miapp_db
+MARIADB_USER=miapp_user
+MARIADB_PASSWORD=miapp_password
+MARIADB_ROOT_PASSWORD=miapp_root_password
+
+DB_HOST=db
+DB_PORT=3306
+VITE_API_URL=/api
+VITE_BACKEND_PROXY=http://backend:8000
+```
+
+**`docker-compose.yml`:**
 ```yaml
 services:
   db:
     image: mariadb:11
-    container_name: miapp_db
+    container_name: miapp_mariadb
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+    environment:
+      MARIADB_DATABASE: "${MARIADB_DATABASE:-miapp_db}"
+      MARIADB_USER: "${MARIADB_USER:-miapp_user}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD:-miapp_password}"
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:-miapp_root_password}"
     ports:
-      - "3307:3306"
+      - "${DB_EXTERNAL_PORT:-3307}:3306"
     volumes:
-      - db_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
 
   backend:
     build: ./backend
     container_name: miapp_backend
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
     ports:
-      - "8081:8080"
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     depends_on:
       - db
 
@@ -128,13 +190,18 @@ services:
     build: ./frontend
     container_name: miapp_frontend
     restart: unless-stopped
+    environment:
+      FRONTEND_PORT: "${FRONTEND_PORT:-5173}"
+      BACKEND_PORT: "${BACKEND_PORT:-8000}"
+      VITE_API_URL: "${VITE_API_URL:-/api}"
+      VITE_BACKEND_PROXY: "${VITE_BACKEND_PROXY:-http://backend:${BACKEND_PORT:-8000}}"
     ports:
-      - "3001:80"
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
     depends_on:
       - backend
 
 volumes:
-  db_data:
+  mariadb_data:
 ```
 
 ---

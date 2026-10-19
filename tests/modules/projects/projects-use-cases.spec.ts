@@ -453,7 +453,7 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     }
   });
 
-  it('syncDomainRoutePortsToProjectEnv sincroniza los puertos configurados en Dominios & SSL hacia el archivo .env del proyecto', () => {
+  it('syncDomainRoutePortsToProjectEnv sincroniza los puertos y el dominio configurados en Dominios & SSL hacia el archivo .env del proyecto', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-portsync-'));
     const projDir = path.join(tmpRoot, 'API_SM');
     fs.mkdirSync(projDir, { recursive: true });
@@ -465,6 +465,9 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
           'FRONTEND_PORT=5173',
           'BACKEND_PORT=8000',
           'DB_EXTERNAL_PORT=3307',
+          'APP_DOMAIN=localhost',
+          'ALLOWED_HOSTS=localhost,127.0.0.1,backend,tu_ip_o_dominio',
+          'CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://tu_dominio',
           'VITE_BACKEND_PROXY=http://backend:8000',
         ].join('\n') + '\n',
         'utf-8'
@@ -472,6 +475,7 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
 
       syncDomainRoutePortsToProjectEnv(
         {
+          domain: 'smdatos.sudoalexmar.tech',
           projectName: 'API_SM',
           frontendTarget: 'api_sm_frontend:5174',
           backendTarget: 'api_sm_django:8085',
@@ -486,6 +490,13 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       expect(envContent).toContain('FRONTEND_PORT=5174');
       expect(envContent).toContain('BACKEND_PORT=8085');
       expect(envContent).toContain('DB_EXTERNAL_PORT=3310');
+      expect(envContent).toContain('APP_DOMAIN=smdatos.sudoalexmar.tech');
+      expect(envContent).toContain(
+        'ALLOWED_HOSTS=localhost,127.0.0.1,backend,smdatos.sudoalexmar.tech'
+      );
+      expect(envContent).toContain(
+        'CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://smdatos.sudoalexmar.tech,https://smdatos.sudoalexmar.tech'
+      );
       expect(envContent).toContain('VITE_BACKEND_PROXY=http://backend:8085');
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });

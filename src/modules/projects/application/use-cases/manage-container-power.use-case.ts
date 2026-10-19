@@ -208,6 +208,7 @@ export function upsertEnvFileVariables(
 
 export function syncDomainRoutePortsToProjectEnv(
   route: {
+    domain?: string;
     projectName?: string;
     frontendTarget?: string;
     backendTarget?: string;
@@ -239,7 +240,12 @@ export function syncDomainRoutePortsToProjectEnv(
 
   const frontPort = extractPort(route.frontendTarget);
   const backPort = extractPort(route.backendTarget);
-  if (!frontPort && !backPort) return {};
+  const cleanDomain = (route.domain || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '');
+
+  if (!frontPort && !backPort && !cleanDomain) return {};
 
   let combinedText = '';
   for (const f of ['.env', '.env.example', 'docker-compose.yml', 'docker-compose.yaml']) {
@@ -253,6 +259,7 @@ export function syncDomainRoutePortsToProjectEnv(
     }
   }
 
+  const envMap = readEnvMap(projectDir);
   const updates: Record<string, string> = {};
   if (frontPort && backPort) {
     updates.FRONTEND_PORT = frontPort;
@@ -278,6 +285,50 @@ export function syncDomainRoutePortsToProjectEnv(
     updates.BACKEND_PORT = backPort;
     if (/^\s*PORT\s*=/m.test(combinedText)) {
       updates.PORT = backPort;
+    }
+  }
+
+  if (cleanDomain) {
+    if (/\bAPP_DOMAIN\b/.test(combinedText)) {
+      updates.APP_DOMAIN = cleanDomain;
+    }
+    if (/\bCADDY_DOMAIN\b/.test(combinedText)) {
+      updates.CADDY_DOMAIN = cleanDomain;
+    }
+    if (/\bAPP_URL\b/.test(combinedText)) {
+      updates.APP_URL = `https://${cleanDomain}`;
+    }
+    if (/\bALLOWED_HOSTS\b/.test(combinedText)) {
+      const currentHosts = (
+        envMap.ALLOWED_HOSTS || 'localhost,127.0.0.1,backend'
+      )
+        .split(',')
+        .map((h) => h.trim())
+        .filter((h) => h && h !== 'tu_ip_o_dominio' && h !== 'tu_dominio');
+      if (!currentHosts.includes(cleanDomain)) {
+        currentHosts.push(cleanDomain);
+      }
+      updates.ALLOWED_HOSTS = currentHosts.join(',');
+    }
+    if (/\bCSRF_TRUSTED_ORIGINS\b/.test(combinedText)) {
+      const currentOrigins = (
+        envMap.CSRF_TRUSTED_ORIGINS || 'http://localhost,https://localhost'
+      )
+        .split(',')
+        .map((o) => o.trim())
+        .filter(
+          (o) =>
+            o &&
+            o !== 'http://tu_dominio' &&
+            o !== 'https://tu_dominio' &&
+            o !== 'tu_dominio'
+        );
+      for (const origin of [`http://${cleanDomain}`, `https://${cleanDomain}`]) {
+        if (!currentOrigins.includes(origin)) {
+          currentOrigins.push(origin);
+        }
+      }
+      updates.CSRF_TRUSTED_ORIGINS = currentOrigins.join(',');
     }
   }
 
