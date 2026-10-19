@@ -320,4 +320,48 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       fs.rmSync(tmpBase, { recursive: true, force: true });
     }
   });
+
+  it('FilesystemDiskAdapter.detectStack detecta PHP / Laravel y React en subcarpetas personalizadas (ej. API_REST y Frontend)', () => {
+    const tmpProj = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-stack-'));
+    const apiRestDir = path.join(tmpProj, 'API_REST');
+    const frontendDir = path.join(tmpProj, 'Frontend');
+    fs.mkdirSync(apiRestDir, { recursive: true });
+    fs.mkdirSync(frontendDir, { recursive: true });
+
+    fs.writeFileSync(path.join(apiRestDir, 'artisan'), '#!/usr/bin/env php', 'utf-8');
+    fs.writeFileSync(
+      path.join(apiRestDir, 'package.json'),
+      JSON.stringify({ devDependencies: { vite: '^5.0.0' } }),
+      'utf-8'
+    );
+    fs.writeFileSync(
+      path.join(frontendDir, 'package.json'),
+      JSON.stringify({ dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' } }),
+      'utf-8'
+    );
+
+    const diskAdapter = new FilesystemDiskAdapter();
+    try {
+      const stacks = diskAdapter.detectStack(tmpProj, [
+        {
+          id: 'db1',
+          name: 'factupos-mariadb',
+          serviceName: 'db',
+          image: 'mariadb:11.4',
+          state: 'running',
+          status: 'Up',
+          cpuPercent: 0,
+          memoryBytes: 0,
+          memoryLimitBytes: 0,
+          memoryPercent: 0,
+          ports: [],
+          role: 'database',
+        },
+      ]);
+
+      expect(stacks).toEqual(['PHP / Laravel', 'React', 'MariaDB']);
+    } finally {
+      fs.rmSync(tmpProj, { recursive: true, force: true });
+    }
+  });
 });

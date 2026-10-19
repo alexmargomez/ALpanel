@@ -136,51 +136,121 @@ export class FilesystemDiskAdapter {
     return Array.from(domains);
   }
 
-  detectStack(projectDir: string, containers: ContainerStatInfo[]): string[] {
-    const stacks = new Set<string>();
-    try {
-      if (
-        fs.existsSync(path.join(projectDir, 'manage.py')) ||
-        fs.existsSync(path.join(projectDir, 'requirements.txt'))
-      ) {
-        stacks.add('Python / Django');
-      }
-      if (fs.existsSync(path.join(projectDir, 'artisan'))) {
-        stacks.add('PHP / Laravel');
-      } else if (
-        fs.existsSync(path.join(projectDir, 'composer.json')) ||
-        fs.existsSync(path.join(projectDir, 'symfony'))
-      ) {
+  private inspectDirStack(dir: string, stacks: Set<string>): void {
+    const hasArtisan = fs.existsSync(path.join(dir, 'artisan'));
+    const hasSymfony = fs.existsSync(path.join(dir, 'symfony'));
+    const composerPath = path.join(dir, 'composer.json');
+
+    if (hasArtisan) {
+      stacks.add('PHP / Laravel');
+    } else if (hasSymfony) {
+      stacks.add('PHP / Symfony');
+    } else if (fs.existsSync(composerPath)) {
+      try {
+        const comp = JSON.parse(fs.readFileSync(composerPath, 'utf-8'));
+        const reqs = { ...(comp.require || {}), ...(comp['require-dev'] || {}) };
+        if (reqs['laravel/framework']) {
+          stacks.add('PHP / Laravel');
+        } else if (
+          Object.keys(reqs).some((k) => k.startsWith('symfony/'))
+        ) {
+          stacks.add('PHP / Symfony');
+        } else {
+          stacks.add('PHP');
+        }
+      } catch {
         stacks.add('PHP');
       }
-      if (
-        fs.existsSync(path.join(projectDir, 'pom.xml')) ||
-        fs.existsSync(path.join(projectDir, 'build.gradle'))
-      ) {
-        stacks.add('Java / Spring');
+    }
+
+    if (fs.existsSync(path.join(dir, 'manage.py'))) {
+      stacks.add('Python / Django');
+    } else if (fs.existsSync(path.join(dir, 'requirements.txt'))) {
+      try {
+        const reqTxt = fs
+          .readFileSync(path.join(dir, 'requirements.txt'), 'utf-8')
+          .toLowerCase();
+        if (reqTxt.includes('fastapi')) stacks.add('Python / FastAPI');
+        else if (reqTxt.includes('django')) stacks.add('Python / Django');
+        else stacks.add('Python');
+      } catch {
+        stacks.add('Python');
       }
-      if (fs.existsSync(path.join(projectDir, 'package.json'))) {
-        stacks.add('Node.js');
-      }
-      for (const sub of [
-        'frontend',
-        'backend',
-        'client',
-        'server',
-        'api',
-        'web',
-      ]) {
-        const subDir = path.join(projectDir, sub);
-        if (fs.existsSync(subDir) && fs.statSync(subDir).isDirectory()) {
-          if (fs.existsSync(path.join(subDir, 'package.json')))
-            stacks.add(`Node / ${sub}`);
-          if (fs.existsSync(path.join(subDir, 'pom.xml')))
-            stacks.add('Java / Spring');
-          if (fs.existsSync(path.join(subDir, 'artisan')))
-            stacks.add('PHP / Laravel');
-          if (fs.existsSync(path.join(subDir, 'manage.py')))
-            stacks.add('Python / Django');
+    }
+
+    if (
+      fs.existsSync(path.join(dir, 'pom.xml')) ||
+      fs.existsSync(path.join(dir, 'build.gradle'))
+    ) {
+      stacks.add('Java / Spring');
+    }
+
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const deps = {
+          ...(pkg.dependencies || {}),
+          ...(pkg.devDependencies || {}),
+        };
+        let detectedJsFramework = false;
+        if (deps.next) {
+          stacks.add('Next.js');
+          detectedJsFramework = true;
         }
+        if (deps.react) {
+          stacks.add('React');
+          detectedJsFramework = true;
+        }
+        if (deps.vue) {
+          stacks.add('Vue 3');
+          detectedJsFramework = true;
+        }
+        if (deps['@angular/core']) {
+          stacks.add('Angular');
+          detectedJsFramework = true;
+        }
+        if (deps.fastify || deps.express || deps['@nestjs/core']) {
+          stacks.add('Node.js');
+          detectedJsFramework = true;
+        }
+        if (!detectedJsFramework && !hasArtisan) {
+          stacks.add('Node.js');
+        }
+      } catch {
+        if (!hasArtisan) stacks.add('Node.js');
+      }
+    }
+  }
+
+  detectStack(projectDir: string, containers: ContainerStatInfo[]): string[] {
+    const stacks = new Set<string>();
+    const ignoredDirs = new Set([
+      'node_modules',
+      'vendor',
+      'dist',
+      'build',
+      'public',
+      'storage',
+      'coverage',
+      'data',
+      'tests',
+      'test',
+    ]);
+
+    try {
+      this.inspectDirStack(projectDir, stacks);
+
+      const entries = fs.readdirSync(projectDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (
+          !entry.isDirectory() ||
+          entry.name.startsWith('.') ||
+          ignoredDirs.has(entry.name.toLowerCase())
+        ) {
+          continue;
+        }
+        this.inspectDirStack(path.join(projectDir, entry.name), stacks);
       }
     } catch {
       // Ignore fs errors
