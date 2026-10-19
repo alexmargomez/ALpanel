@@ -498,6 +498,17 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
         'CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://smdatos.sudoalexmar.tech,https://smdatos.sudoalexmar.tech'
       );
       expect(envContent).toContain('VITE_BACKEND_PROXY=http://backend:8085');
+
+      const diskAdapter = new FilesystemDiskAdapter();
+      const extractedDomains = diskAdapter.extractDomains(
+        projDir,
+        {
+          ALLOWED_HOSTS:
+            'localhost,127.0.0.1,backend,api_sm_django,smdatos.sudoalexmar.tech',
+        },
+        '/opt/alpanel'
+      );
+      expect(extractedDomains).toEqual(['smdatos.sudoalexmar.tech']);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }

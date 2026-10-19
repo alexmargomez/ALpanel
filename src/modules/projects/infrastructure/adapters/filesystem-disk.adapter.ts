@@ -78,6 +78,38 @@ export class FilesystemDiskAdapter {
     return result;
   }
 
+  private isValidExternalDomain(candidate: string): boolean {
+    const clean = candidate
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '');
+    if (!clean) return false;
+    if (
+      clean === 'localhost' ||
+      clean === '127.0.0.1' ||
+      clean === '0.0.0.0' ||
+      clean === '*' ||
+      clean === 'tu_dominio.com' ||
+      clean === 'tu_dominio' ||
+      clean === 'tu_ip_o_dominio' ||
+      clean === 'example.com' ||
+      clean.endsWith('.local') ||
+      clean.endsWith('.internal') ||
+      clean.endsWith('.docker')
+    ) {
+      return false;
+    }
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(clean)) return false;
+    // Must contain at least one dot, only valid hostname chars (no underscores), and end with a TLD >= 2 letters
+    return (
+      /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(
+        clean
+      ) && /\.[a-z]{2,}$/.test(clean)
+    );
+  }
+
   extractDomains(
     projectDir: string,
     envDict: Record<string, string>,
@@ -86,27 +118,25 @@ export class FilesystemDiskAdapter {
     const domains = new Set<string>();
     if (
       envDict.CADDY_DOMAIN &&
-      envDict.CADDY_DOMAIN !== 'localhost' &&
-      envDict.CADDY_DOMAIN !== 'tu_dominio.com'
+      this.isValidExternalDomain(envDict.CADDY_DOMAIN)
     ) {
       domains.add(envDict.CADDY_DOMAIN.trim());
+    }
+    if (envDict.APP_DOMAIN && this.isValidExternalDomain(envDict.APP_DOMAIN)) {
+      domains.add(envDict.APP_DOMAIN.trim());
     }
     if (envDict.APP_URL) {
       try {
         const u = new URL(envDict.APP_URL);
-        if (u.hostname && u.hostname !== 'localhost') domains.add(u.hostname);
+        if (u.hostname && this.isValidExternalDomain(u.hostname)) {
+          domains.add(u.hostname);
+        }
       } catch {}
     }
     if (envDict.ALLOWED_HOSTS) {
       envDict.ALLOWED_HOSTS.split(',').forEach((h) => {
         const clean = h.trim();
-        if (
-          clean &&
-          clean !== 'localhost' &&
-          clean !== '127.0.0.1' &&
-          !/^\d+\.\d+\.\d+\.\d+$/.test(clean) &&
-          clean !== 'tu_ip_o_dominio'
-        ) {
+        if (this.isValidExternalDomain(clean)) {
           domains.add(clean);
         }
       });
@@ -127,7 +157,10 @@ export class FilesystemDiskAdapter {
               (routeProj === projBase ||
                 (isSelf && ProjectNameVO.isSelfPanel(routeProj, panelSelfDir)))
             ) {
-              domains.add(String(r.domain).trim());
+              const cleanRouteDomain = String(r.domain).trim();
+              if (this.isValidExternalDomain(cleanRouteDomain)) {
+                domains.add(cleanRouteDomain);
+              }
             }
           }
         }
