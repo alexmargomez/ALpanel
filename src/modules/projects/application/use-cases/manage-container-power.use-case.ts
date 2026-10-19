@@ -137,18 +137,350 @@ async function reconcileProjectComposeContainers(
   }
 }
 
+export function upsertEnvFileVariables(
+  projectDir: string,
+  updates: Record<string, string>
+): boolean {
+  const entries = Object.entries(updates).filter(
+    ([k, v]) => Boolean(k) && Boolean(v)
+  );
+  if (entries.length === 0 || !fs.existsSync(projectDir)) return false;
+
+  const envPath = path.join(projectDir, '.env');
+  const examplePath = path.join(projectDir, '.env.example');
+  let content = '';
+
+  try {
+    if (fs.existsSync(envPath)) {
+      content = fs.readFileSync(envPath, 'utf-8');
+    } else if (fs.existsSync(examplePath)) {
+      content = fs.readFileSync(examplePath, 'utf-8');
+    }
+  } catch {
+    return false;
+  }
+
+  let changed = false;
+  for (const [key, val] of entries) {
+    const lineRegex = new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`, 'm');
+    const match = lineRegex.exec(content);
+    if (match) {
+      const currentVal = match[1].trim().replace(/^['"]|['"]$/g, '');
+      if (currentVal !== val) {
+        content = content.replace(lineRegex, `${key}=${val}`);
+        changed = true;
+      }
+    } else {
+      content = `${content.trimEnd()}\n${key}=${val}\n`;
+      changed = true;
+    }
+  }
+
+  if (updates.BACKEND_PORT) {
+    const proxyRegex =
+      /^(\s*VITE_BACKEND_PROXY\s*=\s*https?:\/\/[^:\s#]+):\d+(.*)$/m;
+    if (proxyRegex.test(content)) {
+      const replaced = content.replace(
+        proxyRegex,
+        `$1:${updates.BACKEND_PORT}$2`
+      );
+      if (replaced !== content) {
+        content = replaced;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed || !fs.existsSync(envPath)) {
+    try {
+      fs.writeFileSync(
+        envPath,
+        content.endsWith('\n') ? content : `${content}\n`,
+        { encoding: 'utf-8', mode: 0o600 }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export function syncDomainRoutePortsToProjectEnv(
+  route: {
+    projectName?: string;
+    frontendTarget?: string;
+    backendTarget?: string;
+  },
+  projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects',
+  panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel'
+): Record<string, string> {
+  const projectName = (route.projectName || '').trim();
+  if (!projectName || ProjectNameVO.isSelfPanel(projectName, panelSelfDir)) {
+    return {};
+  }
+
+  let projectDir = '';
+  try {
+    projectDir = new ProjectNameVO(projectName).resolvePath(
+      projectsRoot,
+      panelSelfDir
+    );
+  } catch {
+    return {};
+  }
+
+  if (!fs.existsSync(projectDir)) return {};
+
+  const extractPort = (target?: string): string | null => {
+    const m = /:(\d+)\s*$/.exec((target || '').trim());
+    return m ? m[1] : null;
+  };
+
+  const frontPort = extractPort(route.frontendTarget);
+  const backPort = extractPort(route.backendTarget);
+  if (!frontPort && !backPort) return {};
+
+  let combinedText = '';
+  for (const f of ['.env', '.env.example', 'docker-compose.yml', 'docker-compose.yaml']) {
+    const p = path.join(projectDir, f);
+    if (fs.existsSync(p)) {
+      try {
+        combinedText += '\n' + fs.readFileSync(p, 'utf-8');
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const updates: Record<string, string> = {};
+  if (frontPort && backPort) {
+    updates.FRONTEND_PORT = frontPort;
+    updates.BACKEND_PORT = backPort;
+    if (/^\s*PORT\s*=/m.test(combinedText)) {
+      updates.PORT = backPort;
+    }
+  } else if (frontPort && !backPort) {
+    const isFrontendContainer = (route.frontendTarget || '')
+      .toLowerCase()
+      .includes('front');
+    if (isFrontendContainer) {
+      updates.FRONTEND_PORT = frontPort;
+    } else {
+      if (/\bBACKEND_PORT\b/.test(combinedText)) {
+        updates.BACKEND_PORT = frontPort;
+      }
+      if (/\bPORT\b/.test(combinedText) || !updates.BACKEND_PORT) {
+        updates.PORT = frontPort;
+      }
+    }
+  } else if (backPort && !frontPort) {
+    updates.BACKEND_PORT = backPort;
+    if (/^\s*PORT\s*=/m.test(combinedText)) {
+      updates.PORT = backPort;
+    }
+  }
+
+  upsertEnvFileVariables(projectDir, updates);
+  return updates;
+}
+
+function readEnvMap(projectDir: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const file of ['.env.example', '.env']) {
+    const p = path.join(projectDir, file);
+    if (!fs.existsSync(p)) continue;
+    try {
+      const lines = fs.readFileSync(p, 'utf-8').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const k = trimmed.slice(0, eqIdx).trim();
+          const v = trimmed
+            .slice(eqIdx + 1)
+            .trim()
+            .replace(/^['"]|['"]$/g, '');
+          map[k] = v;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return map;
+}
+
+export async function autoAssignAndPersistProjectPorts(
+  projectDir: string
+): Promise<Record<string, string>> {
+  if (!fs.existsSync(projectDir)) return {};
+  const projectName = path.basename(projectDir);
+
+  // 1. Sincronizar primero los puertos configurados en Dominios & SSL (si existe ruta para este proyecto)
+  let domainSynced: Record<string, string> = {};
+  try {
+    const routes = await domainsService.listRoutes();
+    const matchingRoute = routes.find(
+      (r) => (r.projectName || '').toLowerCase() === projectName.toLowerCase()
+    );
+    if (matchingRoute) {
+      domainSynced = syncDomainRoutePortsToProjectEnv(matchingRoute);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Descubrir puertos host ocupados por OTROS proyectos
+  const ownContainers = new Set<string>(extractComposeContainerNames(projectDir));
+  const busyPorts = new Set<number>([3308, 9000, 80, 443]);
+
+  try {
+    const { stdout } = await execAsync(
+      `docker ps --format "{{.Names}}||{{.Ports}}"`,
+      { timeout: 10000 }
+    );
+    for (const line of stdout.split('\n')) {
+      const [cNameRaw, portsRaw] = line.split('||');
+      const cName = (cNameRaw || '').trim();
+      if (!cName || ownContainers.has(cName)) continue;
+      const portRegex = /:(\d+)->/g;
+      let m: RegExpExecArray | null;
+      while ((m = portRegex.exec(portsRaw || '')) !== null) {
+        busyPorts.add(Number(m[1]));
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Inspeccionar docker-compose.yml y .env para auto-asignar puerto DB (y evitar colisiones)
+  let composeContent = '';
+  let composePath = '';
+  for (const file of ['docker-compose.yml', 'docker-compose.yaml']) {
+    const p = path.join(projectDir, file);
+    if (fs.existsSync(p)) {
+      composePath = p;
+      try {
+        composeContent = fs.readFileSync(p, 'utf-8');
+      } catch {
+        // ignore
+      }
+      break;
+    }
+  }
+
+  if (composeContent && composePath) {
+    // Si tiene un puerto fijo "3307:3306" o "3306:3306" sin variable, parametrizarlo con DB_EXTERNAL_PORT
+    const fixedMysqlPortRegex = /^(\s*-\s*['"]?)(\d{4})(:3306['"]?\s*)$/m;
+    const fixedMatch = fixedMysqlPortRegex.exec(composeContent);
+    if (fixedMatch) {
+      composeContent = composeContent.replace(
+        fixedMysqlPortRegex,
+        `$1\${DB_EXTERNAL_PORT:-${fixedMatch[2]}}$3`
+      );
+      try {
+        fs.writeFileSync(composePath, composeContent, 'utf-8');
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const envMap = readEnvMap(projectDir);
+  const updates: Record<string, string> = {};
+
+  const pickFreePort = (startPort: number): number => {
+    let candidate = startPort;
+    while (busyPorts.has(candidate)) {
+      candidate++;
+    }
+    busyPorts.add(candidate);
+    return candidate;
+  };
+
+  // Detectar variable de puerto externo de Base de Datos (ej. DB_EXTERNAL_PORT, FACTUPOS_DB_PORT, POSTGRES_PORT)
+  const dbPortVarRegex =
+    /\$\{([A-Z0-9_]*PORT[A-Z0-9_]*)(?::-(\d+))?\}:(?:3306|5432|\$\{[A-Z0-9_]+(?::-5432|:-3306)?\})/g;
+  let dbMatch: RegExpExecArray | null;
+  while ((dbMatch = dbPortVarRegex.exec(composeContent)) !== null) {
+    const varName = dbMatch[1];
+    const defaultPort = Number(dbMatch[2]) || (varName.includes('POSTGRES') ? 5432 : 3307);
+    const currentPort = Number(envMap[varName]) || defaultPort;
+    const freeDbPort = pickFreePort(currentPort);
+    if (String(freeDbPort) !== envMap[varName]) {
+      updates[varName] = String(freeDbPort);
+      envMap[varName] = String(freeDbPort);
+    }
+  }
+
+  // Verificar FRONTEND_PORT si existe en compose o .env
+  const frontVarMatch = /\$\{FRONTEND_PORT(?::-(\d+))?\}/.exec(composeContent);
+  if (frontVarMatch || envMap.FRONTEND_PORT) {
+    const defaultFront = Number(frontVarMatch?.[1]) || 5173;
+    const currentFront = Number(envMap.FRONTEND_PORT) || defaultFront;
+    const freeFront = busyPorts.has(currentFront)
+      ? pickFreePort(5173)
+      : pickFreePort(currentFront);
+    if (String(freeFront) !== envMap.FRONTEND_PORT) {
+      updates.FRONTEND_PORT = String(freeFront);
+      envMap.FRONTEND_PORT = String(freeFront);
+    }
+  }
+
+  // Verificar BACKEND_PORT / PORT si existe en compose o .env
+  const backVarMatch = /\$\{BACKEND_PORT(?::-(\d+))?\}/.exec(composeContent);
+  if (backVarMatch || envMap.BACKEND_PORT) {
+    const defaultBack = Number(backVarMatch?.[1]) || 8000;
+    const currentBack = Number(envMap.BACKEND_PORT) || defaultBack;
+    const freeBack = pickFreePort(currentBack);
+    if (String(freeBack) !== envMap.BACKEND_PORT) {
+      updates.BACKEND_PORT = String(freeBack);
+      envMap.BACKEND_PORT = String(freeBack);
+    }
+  }
+
+  const singlePortMatch = /\$\{PORT(?::-(\d+))?\}/.exec(composeContent);
+  if (singlePortMatch || envMap.PORT) {
+    const defaultPort = Number(singlePortMatch?.[1]) || 3000;
+    const currentPort =
+      Number(updates.BACKEND_PORT || envMap.PORT) || defaultPort;
+    const freePort = busyPorts.has(currentPort)
+      ? pickFreePort(currentPort)
+      : currentPort;
+    if (String(freePort) !== envMap.PORT) {
+      updates.PORT = String(freePort);
+      envMap.PORT = String(freePort);
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    upsertEnvFileVariables(projectDir, updates);
+  }
+
+  return { ...domainSynced, ...updates };
+}
+
 export async function runDockerComposeSafe(
   projectDir: string,
   composeArgs: string,
   timeout = 180000
 ): Promise<{ stdout: string; stderr: string }> {
-  const env = getCleanComposeEnv(projectDir);
-  const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
-
   let finalArgs = composeArgs.trim();
   if (finalArgs.startsWith('up') && !finalArgs.includes('--remove-orphans')) {
     finalArgs = `${finalArgs} --remove-orphans`;
   }
+
+  if (finalArgs.startsWith('up')) {
+    await autoAssignAndPersistProjectPorts(projectDir);
+  }
+
+  const env = {
+    ...getCleanComposeEnv(projectDir),
+    ...readEnvMap(projectDir),
+  };
+  const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
 
   if (finalArgs.startsWith('up')) {
     await reconcileProjectComposeContainers(projectDir, expectedProject);
@@ -194,23 +526,34 @@ export async function runDockerComposeSafe(
     );
     if (portMatch) {
       const busyPort = Number(portMatch[1]);
-      if (busyPort >= 5170 && busyPort <= 5199) {
-        const { stdout: portsOut } = await execAsync(
-          `docker ps --format "{{.Ports}}"`,
-          { timeout: 10000 }
-        ).catch(() => ({ stdout: '' }));
-        let nextPort = 5174;
-        while (portsOut.includes(`:${nextPort}->`) && nextPort < 5199) {
-          nextPort++;
-        }
-        env.FRONTEND_PORT = String(nextPort);
-        await reconcileProjectComposeContainers(projectDir, expectedProject);
-        return await execAsync(`docker compose ${finalArgs}`, {
-          cwd: projectDir,
-          env,
-          timeout,
-        });
+      const { stdout: portsOut } = await execAsync(
+        `docker ps --format "{{.Ports}}"`,
+        { timeout: 10000 }
+      ).catch(() => ({ stdout: '' }));
+      let nextPort = busyPort + 1;
+      while (portsOut.includes(`:${nextPort}->`)) {
+        nextPort++;
       }
+
+      const currentEnv = readEnvMap(projectDir);
+      const portUpdates: Record<string, string> = {};
+      for (const [k, v] of Object.entries(currentEnv)) {
+        if (k.includes('PORT') && Number(v) === busyPort) {
+          portUpdates[k] = String(nextPort);
+          env[k] = String(nextPort);
+        }
+      }
+      if (Object.keys(portUpdates).length === 0 && busyPort >= 5170 && busyPort <= 5199) {
+        portUpdates.FRONTEND_PORT = String(nextPort);
+        env.FRONTEND_PORT = String(nextPort);
+      }
+      upsertEnvFileVariables(projectDir, portUpdates);
+      await reconcileProjectComposeContainers(projectDir, expectedProject);
+      return await execAsync(`docker compose ${finalArgs}`, {
+        cwd: projectDir,
+        env,
+        timeout,
+      });
     }
 
     throw error;
