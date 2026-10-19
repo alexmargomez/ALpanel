@@ -82,6 +82,14 @@ async function reconcileProjectComposeContainers(
   }
 
   for (const containerName of candidateNames) {
+    // Limpiar contenedores temporales <12-hex>_<nombre> dejados por un --force-recreate interrumpido
+    if (/^[0-9a-f]{12}_/i.test(containerName)) {
+      await execAsync(`docker rm -f "${containerName}" 2>/dev/null || true`, {
+        timeout: 15000,
+      }).catch(() => null);
+      continue;
+    }
+
     try {
       const { stdout } = await execAsync(
         `docker inspect "${containerName}" --format '{{index .Config.Labels "com.docker.compose.project"}}||{{.Config.Image}}||{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}},{{end}}{{end}}'`,
@@ -137,12 +145,17 @@ export async function runDockerComposeSafe(
   const env = getCleanComposeEnv(projectDir);
   const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
 
-  if (composeArgs.trim().startsWith('up')) {
+  let finalArgs = composeArgs.trim();
+  if (finalArgs.startsWith('up') && !finalArgs.includes('--remove-orphans')) {
+    finalArgs = `${finalArgs} --remove-orphans`;
+  }
+
+  if (finalArgs.startsWith('up')) {
     await reconcileProjectComposeContainers(projectDir, expectedProject);
   }
 
   try {
-    return await execAsync(`docker compose ${composeArgs}`, {
+    return await execAsync(`docker compose ${finalArgs}`, {
       cwd: projectDir,
       env,
       timeout,
@@ -169,12 +182,37 @@ export async function runDockerComposeSafe(
         }).catch(() => null);
       }
 
-      return await execAsync(`docker compose ${composeArgs}`, {
+      return await execAsync(`docker compose ${finalArgs}`, {
         cwd: projectDir,
         env,
         timeout,
       });
     }
+
+    const portMatch = /Bind for 0\.0\.0\.0:(\d+) failed: port is already allocated/.exec(
+      errText
+    );
+    if (portMatch) {
+      const busyPort = Number(portMatch[1]);
+      if (busyPort >= 5170 && busyPort <= 5199) {
+        const { stdout: portsOut } = await execAsync(
+          `docker ps --format "{{.Ports}}"`,
+          { timeout: 10000 }
+        ).catch(() => ({ stdout: '' }));
+        let nextPort = 5174;
+        while (portsOut.includes(`:${nextPort}->`) && nextPort < 5199) {
+          nextPort++;
+        }
+        env.FRONTEND_PORT = String(nextPort);
+        await reconcileProjectComposeContainers(projectDir, expectedProject);
+        return await execAsync(`docker compose ${finalArgs}`, {
+          cwd: projectDir,
+          env,
+          timeout,
+        });
+      }
+    }
+
     throw error;
   }
 }

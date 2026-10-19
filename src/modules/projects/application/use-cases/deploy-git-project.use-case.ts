@@ -112,8 +112,8 @@ export class DeployGitProjectUseCase {
       );
       const restartRes = await runDockerComposeSafe(
         projectDir,
-        'up -d --force-recreate',
-        180000
+        'up -d --build --force-recreate --remove-orphans',
+        300000
       );
       await domainsService.reloadCaddy().catch(() => null);
       if (restartRes.stdout) logs.push(restartRes.stdout.trim());
@@ -146,10 +146,12 @@ export class DeployGitProjectUseCase {
           ).catch(() => null);
           this.onInvalidateCache?.(projectDir);
           if (!isSelfPanel) {
-            await execAsync('docker compose restart', {
-              cwd: projectDir,
-              env: getCleanComposeEnv(projectDir),
-            });
+            await runDockerComposeSafe(
+              projectDir,
+              'up -d --force-recreate --remove-orphans',
+              180000
+            );
+            await domainsService.reloadCaddy().catch(() => null);
           }
           logs.push(
             `✅ Rollback completado. El proyecto sigue corriendo en la versión anterior estable.`
