@@ -79,7 +79,7 @@ export class DeployGitProjectUseCase {
           `\n==> [2/2] Sincronizando código (Vue 3 + TS Frontend & Fastify Backend), Prisma ORM y compilando ALpanel en caliente...`
         );
         await execAsync(
-          `rm -rf /app/public/js /app/public/views && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          `rm -rf /app/public/js /app/public/views /app/src /app/dist && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
           { timeout: 30000 }
         );
         await this.runtime.ensureAlpanelContainerNames();
@@ -124,11 +124,11 @@ export class DeployGitProjectUseCase {
 
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
-      logs.push(
-        `\n❌ Error durante la actualización: ${
-          error?.stderr || error?.stdout || error?.message
-        }`
-      );
+      const errorDetails = [error?.stdout, error?.stderr, error?.message]
+        .map((s) => (s || '').trim())
+        .filter(Boolean)
+        .join('\n');
+      logs.push(`\n❌ Error durante la actualización: ${errorDetails}`);
       if (prevHead) {
         try {
           logs.push(
