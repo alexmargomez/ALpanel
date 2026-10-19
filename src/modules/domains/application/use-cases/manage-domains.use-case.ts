@@ -3,6 +3,7 @@ import { ReverseProxyPort } from '../ports/services/reverse-proxy.port';
 import { DomainRouteEntity } from '../../domain/entities/domain-route.entity';
 import { prismaDomainRouteRepository } from '../../infrastructure/repositories/prisma-domain-route.repository';
 import { caddyProxyAdapter } from '../../infrastructure/adapters/caddy-proxy.adapter';
+import { syncDomainRoutePortsToProjectEnv } from '../../../projects/application/use-cases/manage-container-power.use-case';
 
 export class ManageDomainsUseCase {
   constructor(
@@ -18,6 +19,7 @@ export class ManageDomainsUseCase {
     route: Omit<DomainRouteEntity, 'id' | 'createdAt'> & { id?: string }
   ) {
     const saved = await this.repository.saveRoute(route);
+    syncDomainRoutePortsToProjectEnv(saved);
     const allRoutes = await this.repository.listRoutes();
     await this.proxy.generateCaddyfile(allRoutes);
     return saved;
