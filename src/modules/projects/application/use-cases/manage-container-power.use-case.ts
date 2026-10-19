@@ -6,7 +6,25 @@ import { ProjectInfo } from '../../domain/entities/project.entity';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 
+import { domainsService } from '../../../domains/domains.service';
+
 const execAsync = promisify(exec);
+
+export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
+  const cleanProjectName = path
+    .basename(projectDir)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+  return {
+    PATH:
+      process.env.PATH ||
+      '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    HOME: process.env.HOME || '/root',
+    USER: process.env.USER || 'root',
+    DOCKER_HOST: process.env.DOCKER_HOST || '',
+    COMPOSE_PROJECT_NAME: cleanProjectName || 'app',
+  };
+}
 
 export class ManageContainerPowerUseCase {
   constructor(
@@ -68,13 +86,18 @@ export class ManageContainerPowerUseCase {
         };
       }
 
-      const { stdout, stderr } = await execAsync('docker compose restart', {
-        cwd: projectDir,
-        timeout: 120000,
-      });
+      const { stdout, stderr } = await execAsync(
+        'docker compose up -d --force-recreate',
+        {
+          cwd: projectDir,
+          env: getCleanComposeEnv(projectDir),
+          timeout: 180000,
+        }
+      );
+      await domainsService.reloadCaddy().catch(() => null);
       return {
         success: true,
-        output: `Proyecto ${projectName} reiniciado correctamente.\n${stdout}\n${stderr}`.trim(),
+        output: `Proyecto ${projectName} reiniciado y variables .env sincronizadas correctamente.\n${stdout}\n${stderr}`.trim(),
       };
     } catch (error: any) {
       return {
@@ -96,8 +119,10 @@ export class ManageContainerPowerUseCase {
     try {
       const { stdout, stderr } = await execAsync('docker compose up -d', {
         cwd: projectDir,
+        env: getCleanComposeEnv(projectDir),
         timeout: 180000,
       });
+      await domainsService.reloadCaddy().catch(() => null);
       return {
         success: true,
         output:
@@ -130,6 +155,7 @@ export class ManageContainerPowerUseCase {
     try {
       const { stdout, stderr } = await execAsync('docker compose stop', {
         cwd: projectDir,
+        env: getCleanComposeEnv(projectDir),
         timeout: 120000,
       });
       return {
@@ -203,9 +229,11 @@ export class ManageContainerPowerUseCase {
         'docker compose up -d --build --force-recreate',
         {
           cwd: projectDir,
+          env: getCleanComposeEnv(projectDir),
           timeout: 600000,
         }
       );
+      await domainsService.reloadCaddy().catch(() => null);
       return {
         success: true,
         output:
@@ -274,6 +302,7 @@ export class ManageContainerPowerUseCase {
       );
       const { stdout, stderr } = await execAsync('docker compose restart', {
         cwd: projectDir,
+        env: getCleanComposeEnv(projectDir),
         timeout: 120000,
       });
       if (stdout) logs.push(stdout.trim());
