@@ -12,6 +12,7 @@ import { ManageProjectEnvUseCase } from '../../../src/modules/projects/applicati
 import { ManageProjectDbUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-db.use-case';
 import {
   ManageContainerPowerUseCase,
+  extractComposeContainerNames,
   getCleanComposeEnv,
 } from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
 import { ToggleDevModeUseCase } from '../../../src/modules/projects/application/use-cases/toggle-dev-mode.use-case';
@@ -421,4 +422,33 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       else process.env.DB_HOST = prevDbHost;
     }
   });
+
+  it('extractComposeContainerNames extrae container_name del docker-compose.yml y excluye contenedores protegidos de ALpanel', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-compose-'));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'docker-compose.yml'),
+        [
+          'services:',
+          '  db:',
+          '    image: postgres:15-alpine',
+          '    container_name: zapatoqueando-db',
+          '  app:',
+          '    image: zapatoqueando-server:latest',
+          '    container_name: "zapatoqueando-server"',
+          '  panel:',
+          '    image: alpanel',
+          '    container_name: alpanel_server',
+        ].join('\n'),
+        'utf-8'
+      );
+
+      const names = extractComposeContainerNames(tmpDir);
+      expect(names).toEqual(['zapatoqueando-db', 'zapatoqueando-server']);
+      expect(names).not.toContain('alpanel_server');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
+
