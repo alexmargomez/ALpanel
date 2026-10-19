@@ -261,21 +261,11 @@ export class ManageContainerPowerUseCase {
 
       if (appContainer) {
         const cName = appContainer.name;
-        if (fs.existsSync(path.join(projectDir, 'artisan'))) {
-          const { stdout } = await execAsync(
-            `docker exec ${cName} php artisan optimize:clear || true`
-          );
-          if (stdout) logs.push(stdout.trim());
-        } else if (fs.existsSync(path.join(projectDir, 'symfony'))) {
-          const { stdout } = await execAsync(
-            `docker exec ${cName} php symfony cc || true`
-          );
-          if (stdout) logs.push(stdout.trim());
-        } else if (fs.existsSync(path.join(projectDir, 'manage.py'))) {
-          await execAsync(
-            `docker exec ${cName} sh -c "find . -name '*.pyc' -delete" || true`
-          );
-          logs.push('Archivos .pyc y __pycache__ de Django eliminados.');
+        const { stdout } = await execAsync(
+          `docker exec ${cName} sh -c "if [ -f artisan ]; then php artisan optimize:clear; elif [ -f symfony ]; then php symfony cc; elif [ -f manage.py ]; then find . -name '*.pyc' -delete && echo 'Archivos .pyc y __pycache__ de Django eliminados.'; fi" 2>/dev/null || true`
+        );
+        if (stdout && stdout.trim()) {
+          logs.push(stdout.trim());
         }
       }
 
