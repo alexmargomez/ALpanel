@@ -14,14 +14,20 @@ export class ManageDomainsUseCase {
     return this.repository.listRoutes();
   }
 
-  saveRoute(
+  async saveRoute(
     route: Omit<DomainRouteEntity, 'id' | 'createdAt'> & { id?: string }
   ) {
-    return this.repository.saveRoute(route);
+    const saved = await this.repository.saveRoute(route);
+    const allRoutes = await this.repository.listRoutes();
+    await this.proxy.generateCaddyfile(allRoutes);
+    return saved;
   }
 
-  deleteRoute(id: string) {
-    return this.repository.deleteRoute(id);
+  async deleteRoute(id: string) {
+    const ok = await this.repository.deleteRoute(id);
+    const allRoutes = await this.repository.listRoutes();
+    await this.proxy.generateCaddyfile(allRoutes);
+    return ok;
   }
 
   generateCaddyfile(routes?: DomainRouteEntity[]) {
@@ -34,3 +40,5 @@ export class ManageDomainsUseCase {
 }
 
 export const manageDomainsUseCase = new ManageDomainsUseCase();
+export type DomainsService = ManageDomainsUseCase;
+export const domainsService = manageDomainsUseCase;

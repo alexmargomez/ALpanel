@@ -10,23 +10,25 @@ import dotenv from 'dotenv';
 import { initDatabase } from './shared/infrastructure/database/prisma.service';
 import { registerApiRoutes } from './shared/infrastructure/http/routes/api.routes';
 import { hostService } from './shared/infrastructure/services/host-metrics.service';
-import { projectsService } from './modules/projects/projects.service';
-import { domainsService } from './modules/domains/domains.service';
+import { projectsFacadeUseCase } from './modules/projects/application/use-cases/projects-facade.use-case';
+import { manageDomainsUseCase } from './modules/domains/application/use-cases/manage-domains.use-case';
 
 dotenv.config();
 
 const PORT = Number(process.env.PANEL_PORT || 9000);
-const JWT_SECRET = process.env.PANEL_JWT_SECRET || 'alpanel_super_secret_jwt_key_change_in_prod_2026';
+const JWT_SECRET =
+  process.env.PANEL_JWT_SECRET ||
+  'alpanel_super_secret_jwt_key_change_in_prod_2026';
 
 async function bootstrap() {
   // 0. Asegurar nombres limpios de contenedores propios (alpanel_server, alpanel_db, alpanel_caddy)
-  await projectsService.ensureAlpanelContainerNames().catch(() => null);
+  await projectsFacadeUseCase.ensureAlpanelContainerNames().catch(() => null);
 
   // 1. Inicializar Prisma ORM + MariaDB 11 (Esquema, Módulos, Roles, Matriz RBAC y superadmin)
   await initDatabase();
 
   // 2. Sincronizar rutas de dominios desde MariaDB hacia el archivo Caddyfile
-  await domainsService.reloadCaddy().catch(() => null);
+  await manageDomainsUseCase.reloadCaddy().catch(() => null);
 
   const app = Fastify({ logger: false });
 
@@ -53,7 +55,9 @@ async function bootstrap() {
   });
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
-  console.log(`🚀 ALpanel (Arquitectura Modular + Prisma ORM) activo en http://0.0.0.0:${PORT}`);
+  console.log(
+    `🚀 ALpanel (Arquitectura Hexagonal + Prisma ORM) activo en http://0.0.0.0:${PORT}`
+  );
 
   // 5. Canal WebSocket de Telemetría en Tiempo Real
   const io = new SocketIOServer(app.server, {
@@ -75,7 +79,10 @@ async function bootstrap() {
   let isBroadcasting = false;
 
   io.on('connection', (socket) => {
-    Promise.all([hostService.getHostMetrics(), projectsService.listProjects()])
+    Promise.all([
+      hostService.getHostMetrics(),
+      projectsFacadeUseCase.listProjects(),
+    ])
       .then(([host, projects]) => {
         socket.emit('dashboard:update', { host, projects });
       })
@@ -88,7 +95,7 @@ async function bootstrap() {
         try {
           const [host, projects] = await Promise.all([
             hostService.getHostMetrics(),
-            projectsService.listProjects(),
+            projectsFacadeUseCase.listProjects(),
           ]);
           io.emit('dashboard:update', { host, projects });
         } catch {

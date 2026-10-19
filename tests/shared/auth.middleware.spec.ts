@@ -2,7 +2,7 @@ import {
   authenticate,
   requirePermission,
 } from '../../src/shared/infrastructure/http/middlewares/auth.middleware';
-import { permissionsService } from '../../src/modules/permissions/permissions.service';
+import { managePermissionsUseCase } from '../../src/modules/permissions/application/use-cases/manage-permissions.use-case';
 
 function createMockReply() {
   const reply: any = {
@@ -59,7 +59,7 @@ describe('Auth & RBAC Middlewares (authenticate & requirePermission)', () => {
   });
 
   it('requirePermission permite acceso inmediato al rol superadmin sin consultar BD', async () => {
-    const spy = jest.spyOn(permissionsService, 'checkUserPermission');
+    const spy = jest.spyOn(managePermissionsUseCase, 'checkUserPermission');
     const guard = requirePermission('security', 'delete');
     const req: any = {
       user: { id: 1, username: 'admin', role: 'superadmin' },
@@ -72,9 +72,9 @@ describe('Auth & RBAC Middlewares (authenticate & requirePermission)', () => {
     expect(reply.payload).toBeNull();
   });
 
-  it('requirePermission verifica permisos vía permissionsService para roles estándar', async () => {
+  it('requirePermission verifica permisos vía managePermissionsUseCase para roles estándar', async () => {
     jest
-      .spyOn(permissionsService, 'checkUserPermission')
+      .spyOn(managePermissionsUseCase, 'checkUserPermission')
       .mockImplementation(async (userId, mod, act) => {
         return userId === 10 && mod === 'projects' && act === 'deploy';
       });
@@ -93,6 +93,8 @@ describe('Auth & RBAC Middlewares (authenticate & requirePermission)', () => {
     const replyDenied = createMockReply();
     await deniedGuard(req, replyDenied);
     expect(replyDenied.statusCode).toBe(403);
-    expect((replyDenied.payload as any)?.error).toMatch(/Acceso denegado \(403\)/);
+    expect((replyDenied.payload as any)?.error).toMatch(
+      /Acceso denegado \(403\)/
+    );
   });
 });

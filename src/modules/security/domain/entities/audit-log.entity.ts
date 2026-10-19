@@ -1,4 +1,10 @@
-import { AuditLogDto } from '../../security.model';
+export interface AuditLogEntity {
+  id: number;
+  timestamp: string;
+  action: string;
+  target: string;
+  ip: string;
+  status: 'ok' | 'error';
+}
 
-export type AuditLogEntity = AuditLogDto;
-export { AuditLogDto };
+export type AuditLogDto = AuditLogEntity;

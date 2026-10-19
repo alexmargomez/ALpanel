@@ -1,7 +1,7 @@
 import Docker from 'dockerode';
 import fs from 'fs';
 import path from 'path';
-import { HostService } from '../../../../services/host.service';
+import { HostService } from '../../../../shared/infrastructure/services/host-metrics.service';
 import {
   ContainerStatInfo,
   ProjectInfo,

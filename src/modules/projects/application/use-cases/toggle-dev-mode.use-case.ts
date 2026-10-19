@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import { DevModeState } from '../../domain/entities/project.entity';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
-import { DomainsService as ProxyService } from '../../../domains/domains.service';
+import { DomainsService as ProxyService } from '../../../domains/application/use-cases/manage-domains.use-case';
 
 const execAsync = promisify(exec);
 

@@ -1,3 +1,4 @@
+import { discoverModulesAndServices } from '../../../../shared/infrastructure/services/service-registry';
 import { PermissionRepositoryPort } from '../ports/repositories/permission-repository.port';
 import { prismaPermissionRepository } from '../../infrastructure/repositories/prisma-permission.repository';
 
@@ -6,12 +7,24 @@ export class ManagePermissionsUseCase {
     private readonly repository: PermissionRepositoryPort = prismaPermissionRepository
   ) {}
 
+  invalidateCache() {
+    this.repository.invalidateCache?.();
+  }
+
   listModules() {
     return this.repository.listModules();
   }
 
+  getDiscoveredCatalog(forceRescan = false) {
+    return discoverModulesAndServices(forceRescan);
+  }
+
   getRolePermissions(roleId: number) {
     return this.repository.getRolePermissions(roleId);
+  }
+
+  getPermissionsMapForRole(roleCode: string, roleId?: number | null) {
+    return this.repository.getPermissionsMapForRole(roleCode, roleId);
   }
 
   updateRolePermissions(

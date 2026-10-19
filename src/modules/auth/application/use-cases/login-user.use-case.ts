@@ -1,6 +1,7 @@
 import { DomainException } from '../../../../shared/domain/exceptions/domain.exception';
-import { AuthUserProfile } from '../../auth.model';
-import { authService } from '../../auth.service';
+import { AuthRepositoryPort } from '../ports/auth-repository.port';
+import { AuthUserProfile } from '../../domain/entities/auth-profile.entity';
+import { prismaAuthRepository } from '../../infrastructure/repositories/prisma-auth.repository';
 
 export interface LoginRequestDto {
   username: string;
@@ -16,14 +17,22 @@ export class InvalidCredentialsException extends DomainException {
 }
 
 export class LoginUserUseCase {
+  constructor(
+    private readonly repository: AuthRepositoryPort = prismaAuthRepository
+  ) {}
+
   async execute(username: string, passwordPlain: string) {
-    return authService.verifyCredentials(username, passwordPlain);
+    return this.repository.verifyCredentials(username, passwordPlain);
   }
 }
 
 export class GetUserProfileUseCase {
+  constructor(
+    private readonly repository: AuthRepositoryPort = prismaAuthRepository
+  ) {}
+
   async execute(userId: number) {
-    return authService.getUserProfile(userId);
+    return this.repository.getUserProfile(userId);
   }
 }
 

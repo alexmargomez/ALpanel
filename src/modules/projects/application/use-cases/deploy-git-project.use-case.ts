@@ -10,7 +10,7 @@ import {
   getCleanComposeEnv,
   runDockerComposeSafe,
 } from './manage-container-power.use-case';
-import { domainsService } from '../../../domains/domains.service';
+import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 
 const execAsync = promisify(exec);
 
