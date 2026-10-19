@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { projectsService } from '../../projects.service';
-import { hostService } from '../../../../services/host.service';
-import { securityService } from '../../../security/security.service';
+import { projectsService } from '../../application/use-cases/projects-facade.use-case';
+import { hostService } from '../../../../shared/infrastructure/services/host-metrics.service';
+import { manageAuditLogsUseCase } from '../../../security/application/use-cases/manage-audit-logs.use-case';
 import { manageProjectAppUsersUseCase } from '../../application/use-cases/manage-project-app-users.use-case';
 
 export class ProjectsController {
@@ -21,7 +21,7 @@ export class ProjectsController {
     const { name } = request.params as { name: string };
     const body = (request.body || {}) as { containerName?: string };
     const res = await projectsService.restartProject(name, body.containerName);
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'DOCKER_RESTART',
       body.containerName ? `${name}/${body.containerName}` : name,
       request.ip,
@@ -33,7 +33,7 @@ export class ProjectsController {
   async start(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
     const res = await projectsService.startProject(name);
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'DOCKER_START',
       name,
       request.ip,
@@ -45,7 +45,7 @@ export class ProjectsController {
   async stop(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
     const res = await projectsService.stopProject(name);
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'DOCKER_STOP',
       name,
       request.ip,
@@ -57,7 +57,7 @@ export class ProjectsController {
   async rebuild(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
     const res = await projectsService.rebuildProject(name);
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'DOCKER_REBUILD',
       name,
       request.ip,
@@ -69,7 +69,7 @@ export class ProjectsController {
   async clearCache(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
     const res = await projectsService.clearProjectCache(name);
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'CLEAR_CACHE',
       name,
       request.ip,
@@ -82,12 +82,17 @@ export class ProjectsController {
     const { name } = request.params as { name: string };
     try {
       const { filename, sql } = await projectsService.dumpDatabaseSql(name);
-      await securityService.recordAudit('DB_EXPORT_SQL', name, request.ip, 'ok');
+      await manageAuditLogsUseCase.recordAudit(
+        'DB_EXPORT_SQL',
+        name,
+        request.ip,
+        'ok'
+      );
       reply.header('Content-Type', 'application/sql');
       reply.header('Content-Disposition', `attachment; filename="${filename}"`);
       return reply.send(sql);
     } catch (error: any) {
-      await securityService.recordAudit(
+      await manageAuditLogsUseCase.recordAudit(
         'DB_EXPORT_SQL',
         name,
         request.ip,
@@ -124,7 +129,7 @@ export class ProjectsController {
       body.content || '',
       body.restart !== false
     );
-    await securityService.recordAudit(
+    await manageAuditLogsUseCase.recordAudit(
       'ENV_UPDATE',
       name,
       request.ip,
@@ -149,7 +154,7 @@ export class ProjectsController {
     const body = (request.body || {}) as any;
     try {
       const res = await manageProjectAppUsersUseCase.saveProjectUser(name, body);
-      await securityService.recordAudit(
+      await manageAuditLogsUseCase.recordAudit(
         'APP_USER_SAVE',
         `${name}/${body.username || ''}`,
         request.ip,
@@ -157,7 +162,7 @@ export class ProjectsController {
       );
       return res;
     } catch (error: any) {
-      await securityService.recordAudit(
+      await manageAuditLogsUseCase.recordAudit(
         'APP_USER_SAVE',
         name,
         request.ip,
@@ -176,7 +181,7 @@ export class ProjectsController {
         name,
         userId
       );
-      await securityService.recordAudit(
+      await manageAuditLogsUseCase.recordAudit(
         'APP_USER_DELETE',
         `${name}/#${userId}`,
         request.ip,
@@ -184,7 +189,7 @@ export class ProjectsController {
       );
       return res;
     } catch (error: any) {
-      await securityService.recordAudit(
+      await manageAuditLogsUseCase.recordAudit(
         'APP_USER_DELETE',
         `${name}/#${userId}`,
         request.ip,

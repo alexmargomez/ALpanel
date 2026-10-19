@@ -6,7 +6,7 @@ import { ProjectInfo } from '../../domain/entities/project.entity';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 
-import { domainsService } from '../../../domains/domains.service';
+import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 
 const execAsync = promisify(exec);
 

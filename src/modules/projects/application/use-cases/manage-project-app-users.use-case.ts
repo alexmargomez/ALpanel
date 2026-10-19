@@ -3,12 +3,14 @@ import {
   AppUsersOverview,
   ProjectUsersService,
   projectUsersService,
-} from '../../../../services/projects/project-users.service';
+} from '../../infrastructure/adapters/project-app-users.adapter';
 
 export { AppUserRecord, AppUsersOverview };
 
 export class ManageProjectAppUsersUseCase {
-  constructor(private readonly service: ProjectUsersService = projectUsersService) {}
+  constructor(
+    private readonly service: ProjectUsersService = projectUsersService
+  ) {}
 
   async getProjectUsers(projectName: string): Promise<AppUsersOverview> {
     return this.service.getProjectUsers(projectName);

@@ -5,6 +5,7 @@ import {
 } from '../../../domain/entities/permission.entity';
 
 export interface PermissionRepositoryPort {
+  invalidateCache?(): void;
   listModules(): Promise<ModuleDto[]>;
   getRolePermissions(roleId: number): Promise<RolePermissionItemDto[]>;
   getPermissionsMapForRole(

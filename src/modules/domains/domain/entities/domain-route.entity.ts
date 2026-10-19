@@ -1,4 +1,12 @@
-import { DomainRouteDto } from '../../domains.model';
+export interface DomainRouteEntity {
+  id: string;
+  domain: string;
+  projectName: string;
+  frontendTarget: string;
+  apiPathPrefix?: string;
+  backendTarget?: string;
+  sslEnabled: boolean;
+  createdAt: string;
+}
 
-export type DomainRouteEntity = DomainRouteDto;
-export { DomainRouteDto };
+export type DomainRouteDto = DomainRouteEntity;
