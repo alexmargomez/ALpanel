@@ -11,7 +11,6 @@ import { FilesystemDiskAdapter } from '../../infrastructure/adapters/filesystem-
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import { ManageProjectDbUseCase } from './manage-project-db.use-case';
-import { ToggleDevModeUseCase } from './toggle-dev-mode.use-case';
 
 export class ListProjectsUseCase {
   constructor(
@@ -20,7 +19,6 @@ export class ListProjectsUseCase {
     private readonly gitAdapter: GitRepositoryPort,
     private readonly diskAdapter: FilesystemDiskAdapter,
     private readonly dbUseCase: ManageProjectDbUseCase,
-    private readonly devModeUseCase: ToggleDevModeUseCase,
     private readonly projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects',
     private readonly panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel'
   ) {}
@@ -59,14 +57,6 @@ export class ListProjectsUseCase {
       }
     }
 
-    const devState = this.devModeUseCase.getDevModeState();
-    const defaultDevDomain = this.devModeUseCase.resolveDevSubdomain();
-    const devContainerRunning = allContainers.some(
-      (c) =>
-        (c.Names?.[0] || '').replace(/^\//, '') === 'alpanel_dev_app' &&
-        c.State === 'running'
-    );
-
     const containersByProject = new Map<string, Docker.ContainerInfo[]>();
     for (const c of allContainers) {
       const composeProject = (
@@ -75,8 +65,6 @@ export class ListProjectsUseCase {
       const composeWorkingDir =
         c.Labels?.['com.docker.compose.project.working_dir'] || '';
       const rawName = (c.Names?.[0] || '').replace(/^\//, '');
-
-      if (rawName === 'alpanel_dev_app') continue;
 
       let matchedKey = composeProject;
       if (composeWorkingDir) {
@@ -152,9 +140,11 @@ export class ListProjectsUseCase {
         );
 
         const envDict = this.diskAdapter.parseEnvDictionary(projectDir);
-        const domains = this.diskAdapter
-          .extractDomains(projectDir, envDict, this.panelSelfDir)
-          .filter((d) => !d.startsWith('develop.'));
+        const domains = this.diskAdapter.extractDomains(
+          projectDir,
+          envDict,
+          this.panelSelfDir
+        );
 
         const [git, diskBytes, database] = await Promise.all([
           this.gitAdapter.getGitInfo(projectDir),
@@ -167,16 +157,6 @@ export class ListProjectsUseCase {
           ),
         ]);
 
-        const isThisDevActive =
-          devState.active &&
-          Boolean(devState.projectName) &&
-          (devState.projectName!.toLowerCase() === displayName.toLowerCase() ||
-            (ProjectNameVO.isSelfPanel(displayName, this.panelSelfDir) &&
-              ProjectNameVO.isSelfPanel(
-                devState.projectName!,
-                this.panelSelfDir
-              )));
-
         return {
           name: displayName,
           path: projectDir,
@@ -184,16 +164,6 @@ export class ListProjectsUseCase {
           status,
           domains,
           git,
-          devMode: {
-            isActive: isThisDevActive,
-            branch: 'develop',
-            domain: devState.domain || defaultDevDomain,
-            commitHash: isThisDevActive ? devState.commitHash : '-',
-            commitMessage: isThisDevActive ? devState.commitMessage : '-',
-            containerName: 'alpanel_dev_app',
-            status:
-              isThisDevActive && devContainerRunning ? 'running' : 'stopped',
-          },
           resources: {
             cpuPercent: totalCpu,
             memoryBytes: totalMem,

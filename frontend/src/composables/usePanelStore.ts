@@ -144,7 +144,6 @@ export function resolveFrontendServiceCode(
   if (moduleCode === 'domains') return 'domains.manage';
   if (moduleCode === 'users') return 'users.manage';
   if (moduleCode === 'git' && actionOrService === 'create') return 'git.clone';
-  if (moduleCode === 'git' && actionOrService === 'edit') return 'projects.dev_mode';
   if (moduleCode === 'git' && actionOrService === 'deploy') return 'projects.git_pull';
   if (moduleCode === 'security' && actionOrService === 'deploy') return 'services.docker_prune';
   if (moduleCode === 'projects' && actionOrService === 'edit') return 'projects.logs';
@@ -408,8 +407,6 @@ export async function runProjectAction(
     rebuild: `Reconstruyendo Imágenes (Rebuild) — ${projectName}`,
     start: `Iniciando Proyecto — ${projectName}`,
     stop: `Deteniendo Proyecto — ${projectName}`,
-    'dev-activate': `Modo Desarrollador (rama develop) — ${projectName}`,
-    'dev-deactivate': `Apagando Modo Desarrollador — ${projectName}`,
   };
 
   panelStore.modals.console.title = titleMap[action] || `Ejecutando ${action}`;

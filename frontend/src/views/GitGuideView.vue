@@ -70,7 +70,7 @@ CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]`;
       <p class="text-xs text-slate-300 leading-relaxed">
         Para que <strong>ALpanel</strong> detecte automáticamente cualquier proyecto, mida su
         consumo de CPU/RAM, extraiga las credenciales de su Base de Datos y ejecute
-        <strong>Git Pull + Restart (con Rollback automático)</strong> y
+        <strong>Git Pull (con Rollback por conflictos)</strong>, <strong>Rebuild</strong> y
         <strong>Limpieza de Caché</strong> sin chocar puertos, sigue estas 3 reglas simples:
       </p>
 

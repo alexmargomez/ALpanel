@@ -30,7 +30,6 @@ const canViewLogs = computed(() => hasPerm('projects', 'edit'));
 const canViewDb = computed(() => hasPerm('project_db', 'view'));
 const canViewEnv = computed(() => hasPerm('project_env', 'view'));
 const canDeployGitProd = computed(() => hasPerm('git', 'deploy'));
-const canUseDevMode = computed(() => hasPerm('git', 'edit'));
 const canManageAppUsers = computed(() => hasPerm('projects.app_users', 'view'));
 
 function isSelfPanel(projectName: string): boolean {
@@ -279,34 +278,6 @@ function openAppUsersModal(projectName: string): void {
             <i class="fa-solid fa-hammer"></i> Rebuild
           </button>
 
-          <!-- Modo Desarrollador (develop) -->
-          <template v-if="canUseDevMode">
-            <template v-if="p.devMode && p.devMode.isActive">
-              <button
-                @click="runProjectAction(p.name, 'dev-activate')"
-                class="px-3 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 text-xs font-semibold transition flex items-center gap-1.5"
-                title="Sincronizar últimos commits de origin/develop en el entorno de pruebas"
-              >
-                <i class="fa-solid fa-flask"></i> Actualizar Dev (develop)
-              </button>
-              <button
-                @click="runProjectAction(p.name, 'dev-deactivate')"
-                class="px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition flex items-center gap-1.5"
-                title="Apagar Modo Desarrollador y liberar subdominio de pruebas"
-              >
-                <i class="fa-solid fa-power-off"></i> Apagar Modo Dev
-              </button>
-            </template>
-            <button
-              v-else
-              @click="runProjectAction(p.name, 'dev-activate')"
-              class="px-3 py-2 rounded-xl bg-fuchsia-950/60 hover:bg-fuchsia-900/60 text-fuchsia-300 border border-fuchsia-700/50 text-xs font-semibold transition flex items-center gap-1.5"
-              title="Desplegar rama develop de este proyecto en el subdominio de pruebas"
-            >
-              <i class="fa-solid fa-flask"></i> Modo Desarrollador
-            </button>
-          </template>
-
           <span
             v-if="isSelfPanel(p.name)"
             class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 text-xs font-semibold flex items-center gap-1.5"
@@ -329,43 +300,6 @@ function openAppUsersModal(projectName: string): void {
               <i class="fa-solid fa-play"></i> Iniciar
             </button>
           </template>
-        </div>
-
-        <!-- Banner de Modo Desarrollador Activo en esta Tarjeta -->
-        <div
-          v-if="p.devMode && p.devMode.isActive"
-          class="flex flex-wrap items-center justify-between gap-3 bg-fuchsia-950/30 border border-fuchsia-500/40 rounded-xl px-4 py-2.5 text-xs"
-        >
-          <div class="flex flex-wrap items-center gap-2.5">
-            <span
-              class="px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 font-bold text-[11px]"
-            >
-              <i class="fa-solid fa-flask mr-1"></i>MODO DESARROLLADOR ACTIVO
-            </span>
-            <span class="text-slate-300 font-mono">
-              <i class="fa-brands fa-git-alt text-fuchsia-400 mr-1"></i>develop ({{
-                p.devMode.commitHash
-              }})
-            </span>
-            <span class="text-slate-400 truncate max-w-md">{{ p.devMode.commitMessage || '' }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <a
-              :href="`https://${p.devMode.domain}`"
-              target="_blank"
-              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold transition shadow"
-            >
-              <i class="fa-solid fa-lock text-[10px]"></i>
-              https://{{ p.devMode.domain }}
-              <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-            </a>
-            <button
-              @click="openLogsModal(p.name, 'alpanel_dev_app')"
-              class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-fuchsia-200 border border-slate-700"
-            >
-              <i class="fa-solid fa-terminal mr-1"></i>Logs Dev
-            </button>
-          </div>
         </div>
 
         <!-- Lista de Contenedores del Proyecto -->

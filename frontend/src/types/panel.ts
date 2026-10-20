@@ -48,14 +48,6 @@ export interface DatabaseConnectionInfo {
   cliCommand: string;
 }
 
-export interface ProjectDevModeInfo {
-  isActive: boolean;
-  branch: string;
-  commitHash: string;
-  commitMessage: string;
-  domain: string;
-}
-
 export interface ProjectInfo {
   name: string;
   path: string;
@@ -75,7 +67,6 @@ export interface ProjectInfo {
   };
   containers: ContainerStatInfo[];
   database: DatabaseConnectionInfo;
-  devMode?: ProjectDevModeInfo;
 }
 
 export interface DomainRouteItem {
