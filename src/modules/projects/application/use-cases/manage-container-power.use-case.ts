@@ -788,16 +788,32 @@ export class ManageContainerPowerUseCase {
       }
 
       if (isSelfPanel) {
+        const logs: string[] = [];
+        logs.push(
+          `==> Sincronizando archivos descargados de ALpanel en /app y preparando reinicio...`
+        );
+        await execAsync(
+          `rm -rf /app/public/js /app/public/views /app/src /app/dist && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          { timeout: 30000 }
+        ).catch(() => null);
         await this.runtime.ensureAlpanelContainerNames();
+        const buildRes = await execAsync('npm run build', {
+          cwd: '/app',
+          timeout: 120000,
+        }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+        if (buildRes.stdout) logs.push(buildRes.stdout.trim());
         setTimeout(() => {
           exec(
             'docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel',
             () => {}
           );
         }, 1500);
+        logs.push(
+          `==> Reiniciando servicio principal de ALpanel (alpanel_server)...\n✅ Se mantienen activos alpanel_db (MariaDB) y alpanel_caddy (SSL Proxy) sin interrupción.\n🔄 El panel se reconectará automáticamente en 2 segundos.`
+        );
         return {
           success: true,
-          output: `==> Reiniciando servicio principal de ALpanel (alpanel_server)...\n✅ Se mantienen activos alpanel_db (MariaDB) y alpanel_caddy (SSL Proxy) sin interrupción.\n🔄 El panel se reconectará automáticamente en 2 segundos.`,
+          output: logs.join('\n'),
         };
       }
 
