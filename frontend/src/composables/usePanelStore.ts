@@ -404,7 +404,8 @@ export async function runProjectAction(
     pull: `Git Pull (Rama main con Rollback por Conflictos) — ${projectName}`,
     restart: `Reiniciando Docker — ${projectName}`,
     'clear-cache': `Limpiando Caché — ${projectName}`,
-    rebuild: `Reconstruyendo Imágenes (Rebuild) — ${projectName}`,
+    rebuild: `Reconstruyendo Imágenes (Rebuild Seguro) — ${projectName}`,
+    'rebuild-destroy': `Rebuild Destroy (Destrucción y Reconstrucción Total desde Cero) — ${projectName}`,
     start: `Iniciando Proyecto — ${projectName}`,
     stop: `Deteniendo Proyecto — ${projectName}`,
   };

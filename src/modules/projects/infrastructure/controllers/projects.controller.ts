@@ -56,10 +56,38 @@ export class ProjectsController {
 
   async rebuild(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
-    const res = await projectsService.rebuildProject(name);
+    const body = (request.body || {}) as {
+      containerName?: string;
+      serviceName?: string;
+    };
+    const res = await projectsService.rebuildProject(
+      name,
+      body.containerName,
+      body.serviceName
+    );
     await manageAuditLogsUseCase.recordAudit(
       'DOCKER_REBUILD',
+      body.containerName ? `${name}/${body.containerName}` : name,
+      request.ip,
+      res.success ? 'ok' : 'error'
+    );
+    return res;
+  }
+
+  async rebuildDestroy(request: FastifyRequest, _reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as {
+      containerName?: string;
+      serviceName?: string;
+    };
+    const res = await projectsService.rebuildDestroyProject(
       name,
+      body.containerName,
+      body.serviceName
+    );
+    await manageAuditLogsUseCase.recordAudit(
+      'DOCKER_REBUILD_DESTROY',
+      body.containerName ? `${name}/${body.containerName}` : name,
       request.ip,
       res.success ? 'ok' : 'error'
     );

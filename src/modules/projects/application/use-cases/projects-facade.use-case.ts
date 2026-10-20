@@ -149,8 +149,28 @@ export class ProjectsFacadeUseCase {
     return this.powerUseCase.stopProject(projectName);
   }
 
-  async rebuildProject(projectName: string) {
-    return this.powerUseCase.rebuildProject(projectName);
+  async rebuildProject(
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
+  ) {
+    return this.powerUseCase.rebuildProject(
+      projectName,
+      containerName,
+      serviceName
+    );
+  }
+
+  async rebuildDestroyProject(
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
+  ) {
+    return this.powerUseCase.rebuildDestroyProject(
+      projectName,
+      containerName,
+      serviceName
+    );
   }
 
   async clearProjectCache(projectName: string) {
