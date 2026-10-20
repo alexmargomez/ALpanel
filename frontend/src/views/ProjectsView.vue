@@ -215,21 +215,23 @@ function openAppUsersModal(projectName: string): void {
             v-if="canDeployGitProd"
             @click="runProjectAction(p.name, 'pull')"
             class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
-            title="Ejecuta git pull + docker compose restart con Rollback automático si falla"
+            title="Descarga cambios de GitHub (git pull origin main) con Rollback de Git si hay conflictos, sin reiniciar ni destruir Docker"
           >
-            <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull &amp; Restart
+            <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull
           </button>
 
           <template v-if="canDeployProjects">
             <button
               @click="runProjectAction(p.name, 'restart')"
               class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Reinicia los contenedores de aplicación (manteniendo la Base de Datos intacta)"
             >
               <i class="fa-solid fa-rotate"></i> Restart Docker
             </button>
             <button
               @click="runProjectAction(p.name, 'clear-cache')"
               class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Limpia la caché del framework y recarga los contenedores de aplicación sin tocar la Base de Datos"
             >
               <i class="fa-solid fa-broom"></i> Limpiar Caché
             </button>

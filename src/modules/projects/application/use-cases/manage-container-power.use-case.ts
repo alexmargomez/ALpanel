@@ -648,7 +648,7 @@ export async function runDockerComposeSafe(
       env,
       timeout,
     });
-    if (requestedForceRecreate && !requestedBuild && finalArgs.startsWith('up')) {
+    if ((requestedForceRecreate || requestedBuild) && finalArgs.startsWith('up')) {
       const appContainers = extractComposeContainerNames(projectDir).filter(
         (c) => !isDatabaseContainerName(c)
       );

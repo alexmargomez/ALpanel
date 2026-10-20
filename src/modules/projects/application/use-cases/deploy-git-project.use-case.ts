@@ -55,7 +55,7 @@ export class DeployGitProjectUseCase {
       prevHead = headRes.stdout.trim();
 
       logs.push(
-        `==> [1/2] Ejecutando git pull origin main en ${projectName} (HEAD actual: ${
+        `==> Ejecutando git pull origin main en ${projectName} (HEAD actual: ${
           prevHead.slice(0, 7) || 'N/A'
         })...`
       );
@@ -76,7 +76,7 @@ export class DeployGitProjectUseCase {
 
       if (isSelfPanel) {
         logs.push(
-          `\n==> [2/2] Sincronizando código (Vue 3 + TS Frontend & Fastify Backend), Prisma ORM y compilando ALpanel en caliente...`
+          `\n==> Sincronizando código (Vue 3 + TS Frontend & Fastify Backend), Prisma ORM y compilando ALpanel en caliente...`
         );
         await execAsync(
           `rm -rf /app/public/js /app/public/views /app/src /app/dist && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
@@ -108,18 +108,7 @@ export class DeployGitProjectUseCase {
       }
 
       logs.push(
-        `\n==> [2/2] Reiniciando contenedores Docker de producción (${projectName})...`
-      );
-      const restartRes = await runDockerComposeSafe(
-        projectDir,
-        'up -d --build --force-recreate --remove-orphans',
-        300000
-      );
-      await domainsService.reloadCaddy().catch(() => null);
-      if (restartRes.stdout) logs.push(restartRes.stdout.trim());
-      if (restartRes.stderr) logs.push(restartRes.stderr.trim());
-      logs.push(
-        `\n✅ Proyecto ${projectName} (rama main) actualizado y reiniciado exitosamente.`
+        `\n✅ Cambios de GitHub (rama main) descargados exitosamente en ${projectName} (sin reiniciar ni reconstruir contenedores Docker).`
       );
 
       return { success: true, output: logs.join('\n') };
@@ -128,11 +117,11 @@ export class DeployGitProjectUseCase {
         .map((s) => (s || '').trim())
         .filter(Boolean)
         .join('\n');
-      logs.push(`\n❌ Error durante la actualización: ${errorDetails}`);
+      logs.push(`\n❌ Error o conflicto durante git pull: ${errorDetails}`);
       if (prevHead) {
         try {
           logs.push(
-            `⏪ Ejecutando Rollback automático al commit estable ${prevHead.slice(
+            `⏪ Ejecutando Rollback de Git al commit estable ${prevHead.slice(
               0,
               7
             )}...`
@@ -145,19 +134,11 @@ export class DeployGitProjectUseCase {
             )}" 2>/dev/null || true`
           ).catch(() => null);
           this.onInvalidateCache?.(projectDir);
-          if (!isSelfPanel) {
-            await runDockerComposeSafe(
-              projectDir,
-              'up -d --force-recreate --remove-orphans',
-              180000
-            );
-            await domainsService.reloadCaddy().catch(() => null);
-          }
           logs.push(
-            `✅ Rollback completado. El proyecto sigue corriendo en la versión anterior estable.`
+            `✅ Rollback de Git completado. El repositorio y sus contenedores siguen intactos en la versión estable anterior.`
           );
         } catch {
-          logs.push(`⚠️ No se pudo completar el rollback automático.`);
+          logs.push(`⚠️ No se pudo completar el rollback automático de Git.`);
         }
       }
       return { success: false, output: logs.join('\n') };

@@ -402,7 +402,7 @@ export async function runProjectAction(
   body: Record<string, any> = {}
 ): Promise<void> {
   const titleMap: Record<string, string> = {
-    pull: `Git Pull & Restart (Rama main con Rollback Automático) — ${projectName}`,
+    pull: `Git Pull (Rama main con Rollback por Conflictos) — ${projectName}`,
     restart: `Reiniciando Docker — ${projectName}`,
     'clear-cache': `Limpiando Caché — ${projectName}`,
     rebuild: `Reconstruyendo Imágenes (Rebuild) — ${projectName}`,
