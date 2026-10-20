@@ -206,17 +206,109 @@ export function upsertEnvFileVariables(
   return false;
 }
 
+export function normalizeDomainRouteTargets<
+  T extends {
+    domain?: string;
+    projectName?: string;
+    frontendTarget?: string;
+    backendTarget?: string;
+    apiPathPrefix?: string;
+  }
+>(
+  route: T,
+  projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects',
+  panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel'
+): T {
+  const copy = { ...route };
+  const frontLower = (copy.frontendTarget || '').toLowerCase();
+  const backLower = (copy.backendTarget || '').toLowerCase();
+
+  // 1. Si se seleccionaron al revés (ej. backend en Frontend y frontend en Backend), intercambiarlos
+  if (
+    copy.frontendTarget &&
+    copy.backendTarget &&
+    !frontLower.includes('front') &&
+    backLower.includes('front')
+  ) {
+    const tmp = copy.frontendTarget;
+    copy.frontendTarget = copy.backendTarget;
+    copy.backendTarget = tmp;
+    copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+  }
+
+  // 2. Si el proyecto tiene contenedores separados de Frontend y Backend en docker-compose.yml,
+  // pero la ruta quedó apuntando solo a uno de los dos (ej. cuando migró de monolito a separado), autocompletar ambos
+  const projectName = (copy.projectName || '').trim();
+  if (projectName && !ProjectNameVO.isSelfPanel(projectName, panelSelfDir)) {
+    try {
+      const projectDir = new ProjectNameVO(projectName).resolvePath(
+        projectsRoot,
+        panelSelfDir
+      );
+      if (fs.existsSync(projectDir)) {
+        const containerNames = extractComposeContainerNames(projectDir);
+        const frontContainer = containerNames.find((c) =>
+          c.toLowerCase().includes('front')
+        );
+        const backContainer = containerNames.find((c) => {
+          const l = c.toLowerCase();
+          return (
+            !l.includes('front') &&
+            !l.includes('db') &&
+            !l.includes('mariadb') &&
+            !l.includes('mysql') &&
+            !l.includes('postgres') &&
+            !l.includes('redis') &&
+            !l.includes('caddy')
+          );
+        });
+
+        if (frontContainer && backContainer) {
+          const envMap = readEnvMap(projectDir);
+          const frontPort = envMap.FRONTEND_PORT || '5174';
+          const backPort = envMap.BACKEND_PORT || envMap.PORT || '8000';
+
+          const currentFront = (copy.frontendTarget || '').trim();
+          const currentBack = (copy.backendTarget || '').trim();
+
+          if (!currentBack && currentFront.startsWith(`${backContainer}:`)) {
+            copy.backendTarget = currentFront;
+            copy.frontendTarget = `${frontContainer}:${frontPort}`;
+            copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+          } else if (
+            !currentBack &&
+            currentFront.startsWith(`${frontContainer}:`)
+          ) {
+            copy.backendTarget = `${backContainer}:${backPort}`;
+            copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return copy;
+}
+
 export function syncDomainRoutePortsToProjectEnv(
   route: {
     domain?: string;
     projectName?: string;
     frontendTarget?: string;
     backendTarget?: string;
+    apiPathPrefix?: string;
   },
   projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects',
   panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel'
 ): Record<string, string> {
-  const projectName = (route.projectName || '').trim();
+  const normalizedRoute = normalizeDomainRouteTargets(
+    route,
+    projectsRoot,
+    panelSelfDir
+  );
+  const projectName = (normalizedRoute.projectName || '').trim();
   if (!projectName || ProjectNameVO.isSelfPanel(projectName, panelSelfDir)) {
     return {};
   }
@@ -238,9 +330,9 @@ export function syncDomainRoutePortsToProjectEnv(
     return m ? m[1] : null;
   };
 
-  const frontPort = extractPort(route.frontendTarget);
-  const backPort = extractPort(route.backendTarget);
-  const cleanDomain = (route.domain || '')
+  const frontPort = extractPort(normalizedRoute.frontendTarget);
+  const backPort = extractPort(normalizedRoute.backendTarget);
+  const cleanDomain = (normalizedRoute.domain || '')
     .trim()
     .replace(/^https?:\/\//i, '')
     .replace(/\/.*$/, '');
@@ -518,7 +610,9 @@ export async function runDockerComposeSafe(
   composeArgs: string,
   timeout = 180000
 ): Promise<{ stdout: string; stderr: string }> {
-  let finalArgs = composeArgs.trim();
+  const requestedForceRecreate = composeArgs.includes('--force-recreate');
+  const requestedBuild = composeArgs.includes('--build');
+  let finalArgs = composeArgs.replace(/--force-recreate/g, '').replace(/\s+/g, ' ').trim();
   if (finalArgs.startsWith('up') && !finalArgs.includes('--remove-orphans')) {
     finalArgs = `${finalArgs} --remove-orphans`;
   }
@@ -538,15 +632,33 @@ export async function runDockerComposeSafe(
   }
 
   try {
-    return await execAsync(`docker compose ${finalArgs}`, {
+    const upRes = await execAsync(`docker compose ${finalArgs}`, {
       cwd: projectDir,
       env,
       timeout,
     });
+    if (requestedForceRecreate && !requestedBuild && finalArgs.startsWith('up')) {
+      await execAsync('docker compose restart', {
+        cwd: projectDir,
+        env,
+        timeout: 60000,
+      }).catch(() => null);
+    }
+    return upRes;
   } catch (error: any) {
     const errText = `${error?.stderr || ''}\n${error?.stdout || ''}\n${
       error?.message || ''
     }`;
+
+    if (errText.includes('is already in progress')) {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      return await execAsync(`docker compose up -d --remove-orphans`, {
+        cwd: projectDir,
+        env,
+        timeout,
+      });
+    }
+
     if (errText.includes('is already in use by container')) {
       const toRemove = new Set<string>(extractComposeContainerNames(projectDir));
       const conflictRegex =

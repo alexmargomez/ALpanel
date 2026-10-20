@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { ReverseProxyPort } from '../../application/ports/services/reverse-proxy.port';
 import { DomainRouteEntity } from '../../domain/entities/domain-route.entity';
 import { prismaDomainRouteRepository } from '../repositories/prisma-domain-route.repository';
+import { normalizeDomainRouteTargets } from '../../../projects/application/use-cases/manage-container-power.use-case';
 
 const execAsync = promisify(exec);
 
@@ -22,7 +23,8 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
   }
 
   async generateCaddyfile(routes?: DomainRouteEntity[]): Promise<string> {
-    const list = routes || (await prismaDomainRouteRepository.listRoutes());
+    const rawList = routes || (await prismaDomainRouteRepository.listRoutes());
+    const list = rawList.map((r) => normalizeDomainRouteTargets(r));
     const blocks: string[] = [
       '# Archivo autogenerado por ALpanel (Prisma ORM)',
       '# Enruta múltiples dominios (Frontend + Backend) con HTTPS automático',
@@ -54,7 +56,8 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
   }
 
   async reloadCaddy(): Promise<{ success: boolean; output: string }> {
-    const routes = await prismaDomainRouteRepository.listRoutes();
+    const rawRoutes = await prismaDomainRouteRepository.listRoutes();
+    const routes = rawRoutes.map((r) => normalizeDomainRouteTargets(r));
     const caddyfileContent = await this.generateCaddyfile(routes);
     try {
       for (const r of routes) {
