@@ -11,24 +11,18 @@ import {
   showToast,
 } from '../composables/usePanelStore';
 import { formatBytes } from '../services/api';
-import type { ContainerStatInfo, ProjectInfo } from '../types/panel';
+import type { ProjectInfo } from '../types/panel';
 
 const confirmDestroyModal = reactive<{
   open: boolean;
   projectName: string;
-  containers: ContainerStatInfo[];
-  selectedTarget: string; // '__ALL__' or container.name
 }>({
   open: false,
   projectName: '',
-  containers: [],
-  selectedTarget: '__ALL__',
 });
 
-function openRebuildDestroyModal(project: ProjectInfo, containerName = '__ALL__'): void {
+function openRebuildDestroyModal(project: ProjectInfo): void {
   confirmDestroyModal.projectName = project.name;
-  confirmDestroyModal.containers = project.containers || [];
-  confirmDestroyModal.selectedTarget = containerName || '__ALL__';
   confirmDestroyModal.open = true;
 }
 
@@ -38,19 +32,9 @@ function closeRebuildDestroyModal(): void {
 
 async function confirmAndRunRebuildDestroy(): Promise<void> {
   const projectName = confirmDestroyModal.projectName;
-  const target = confirmDestroyModal.selectedTarget;
   confirmDestroyModal.open = false;
   if (!projectName) return;
-
-  if (target && target !== '__ALL__') {
-    const matched = confirmDestroyModal.containers.find((c) => c.name === target);
-    await runProjectAction(projectName, 'rebuild-destroy', {
-      containerName: target,
-      serviceName: matched?.serviceName || '',
-    });
-  } else {
-    await runProjectAction(projectName, 'rebuild-destroy');
-  }
+  await runProjectAction(projectName, 'rebuild-destroy');
 }
 
 const filteredProjects = computed<ProjectInfo[]>(() => {
@@ -320,7 +304,7 @@ function openAppUsersModal(projectName: string): void {
 
           <button
             v-if="canStopRebuildServer && !isSelfPanel(p.name)"
-            @click="openRebuildDestroyModal(p, '__ALL__')"
+            @click="openRebuildDestroyModal(p)"
             class="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-700/60 text-xs font-semibold transition flex items-center gap-1.5"
             title="Último recurso: Destruir todo (contenedores, imágenes, caché y volúmenes) y reconstruir desde cero con migraciones limpias"
           >
@@ -410,27 +394,6 @@ function openAppUsersModal(projectName: string): void {
                 <i class="fa-solid fa-rotate"></i> Restart
               </button>
               <button
-                v-if="canStopRebuildServer && !isSelfPanel(p.name)"
-                @click="
-                  runProjectAction(p.name, 'rebuild', {
-                    containerName: c.name,
-                    serviceName: c.serviceName,
-                  })
-                "
-                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300 text-[11px]"
-                title="Reconstruir este contenedor sin caché conservando sus volúmenes"
-              >
-                <i class="fa-solid fa-hammer"></i> Rebuild
-              </button>
-              <button
-                v-if="canStopRebuildServer && !isSelfPanel(p.name)"
-                @click="openRebuildDestroyModal(p, c.name)"
-                class="px-2 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 text-[11px]"
-                title="Destruir y reconstruir desde cero este contenedor y sus volúmenes"
-              >
-                <i class="fa-solid fa-skull-crossbones"></i> Destroy
-              </button>
-              <button
                 v-if="canViewLogs"
                 @click="openLogsModal(p.name, c.name)"
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]"
@@ -468,40 +431,18 @@ function openAppUsersModal(projectName: string): void {
           </button>
         </div>
 
-        <div class="p-5 space-y-4 text-xs text-slate-300">
+        <div class="p-5 space-y-3 text-xs text-slate-300">
           <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3.5 space-y-1.5">
             <p class="font-bold text-rose-300">
               ⚠️ ADVERTENCIA DE DESTRUCCIÓN Y RECONSTRUCCIÓN TOTAL (ÚLTIMO RECURSO)
             </p>
             <p class="leading-relaxed text-slate-300">
-              Estás a punto de apagar y <strong>destruir por completo</strong> el entorno de
+              Estás a punto de apagar y <strong>destruir por completo</strong> todo el proyecto
               <strong class="text-white">{{ confirmDestroyModal.projectName }}</strong>. Esta
-              acción eliminará contenedores, imágenes, caché de compilación y
-              <strong class="text-rose-300">volúmenes de datos</strong>, y volverá a montar todo y
-              correr las <strong>migraciones desde cero</strong> como recién instalado.
+              acción eliminará todos sus contenedores, imágenes, caché de compilación y
+              <strong class="text-rose-300">volúmenes de Base de Datos</strong>, y volverá a montar
+              todo y ejecutar las <strong>migraciones desde cero</strong> como recién instalado.
             </p>
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Alcance de la Destrucción y Reconstrucción:
-            </label>
-            <select
-              v-model="confirmDestroyModal.selectedTarget"
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-            >
-              <option value="__ALL__">
-                🔥 Todo el Proyecto ({{ confirmDestroyModal.projectName }}) — Contenedores, BD,
-                Volúmenes y Migraciones desde cero
-              </option>
-              <option
-                v-for="c in confirmDestroyModal.containers"
-                :key="c.name"
-                :value="c.name"
-              >
-                🎯 Solo el contenedor: {{ c.name }} ({{ c.role.toUpperCase() }})
-              </option>
-            </select>
           </div>
         </div>
 
