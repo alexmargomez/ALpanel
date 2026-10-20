@@ -58,6 +58,33 @@ export function extractComposeContainerNames(projectDir: string): string[] {
   return Array.from(names);
 }
 
+export function isDatabaseContainerName(name: string): boolean {
+  return /\b(db|mariadb|mysql|postgres|postgresql|mongo)\b|[_-](db|mariadb|mysql|postgres)/i.test(
+    name
+  );
+}
+
+async function resolveExistingDbComposeProject(
+  projectDir: string
+): Promise<string | null> {
+  const dbCandidates = extractComposeContainerNames(projectDir).filter((c) =>
+    isDatabaseContainerName(c)
+  );
+  for (const dbName of dbCandidates) {
+    try {
+      const { stdout } = await execAsync(
+        `docker inspect "${dbName}" --format '{{index .Config.Labels "com.docker.compose.project"}}'`,
+        { timeout: 5000 }
+      );
+      const proj = (stdout || '').trim();
+      if (proj) return proj;
+    } catch {
+      // Container does not exist yet
+    }
+  }
+  return null;
+}
+
 async function reconcileProjectComposeContainers(
   projectDir: string,
   expectedComposeProject: string
@@ -90,43 +117,20 @@ async function reconcileProjectComposeContainers(
       continue;
     }
 
+    // NUNCA detener ni eliminar contenedores de Base de Datos para preservar intactos los datos y el uptime
+    if (isDatabaseContainerName(containerName)) {
+      continue;
+    }
+
     try {
       const { stdout } = await execAsync(
         `docker inspect "${containerName}" --format '{{index .Config.Labels "com.docker.compose.project"}}||{{.Config.Image}}||{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}},{{end}}{{end}}'`,
         { timeout: 10000 }
       );
-      const [currentProjectRaw, imageRaw, mountsRaw] = stdout.trim().split('||');
+      const [currentProjectRaw] = stdout.trim().split('||');
       const currentProject = (currentProjectRaw || '').trim();
-      const image = (imageRaw || '').trim();
-      const mounts = (mountsRaw || '')
-        .split(',')
-        .map((m) => m.trim())
-        .filter(Boolean);
 
-      if (currentProject !== expectedComposeProject) {
-        await execAsync(`docker stop "${containerName}" 2>/dev/null || true`, {
-          timeout: 20000,
-        }).catch(() => null);
-
-        if (currentProject && image && mounts.length > 0) {
-          for (const volName of mounts) {
-            if (volName.startsWith(`${currentProject}_`)) {
-              const suffix = volName.slice(currentProject.length + 1);
-              const targetVol = `${expectedComposeProject}_${suffix}`;
-              if (targetVol !== volName) {
-                await execAsync(
-                  `docker volume create "${targetVol}" >/dev/null 2>&1 || true`,
-                  { timeout: 10000 }
-                ).catch(() => null);
-                await execAsync(
-                  `docker run --rm --entrypoint sh -v "${volName}:/from:ro" -v "${targetVol}:/to" "${image}" -c 'if [ -z "$(ls -A /to 2>/dev/null)" ] && [ -n "$(ls -A /from 2>/dev/null)" ]; then cp -a /from/. /to/; fi' 2>/dev/null || true`,
-                  { timeout: 60000 }
-                ).catch(() => null);
-              }
-            }
-          }
-        }
-
+      if (currentProject && currentProject !== expectedComposeProject) {
         await execAsync(`docker rm -f "${containerName}" 2>/dev/null || true`, {
           timeout: 15000,
         }).catch(() => null);
@@ -612,7 +616,10 @@ export async function runDockerComposeSafe(
 ): Promise<{ stdout: string; stderr: string }> {
   const requestedForceRecreate = composeArgs.includes('--force-recreate');
   const requestedBuild = composeArgs.includes('--build');
-  let finalArgs = composeArgs.replace(/--force-recreate/g, '').replace(/\s+/g, ' ').trim();
+  let finalArgs = composeArgs
+    .replace(/--force-recreate/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (finalArgs.startsWith('up') && !finalArgs.includes('--remove-orphans')) {
     finalArgs = `${finalArgs} --remove-orphans`;
   }
@@ -621,10 +628,14 @@ export async function runDockerComposeSafe(
     await autoAssignAndPersistProjectPorts(projectDir);
   }
 
+  const existingDbProject = await resolveExistingDbComposeProject(projectDir);
   const env = {
     ...getCleanComposeEnv(projectDir),
     ...readEnvMap(projectDir),
   };
+  if (existingDbProject) {
+    env.COMPOSE_PROJECT_NAME = existingDbProject;
+  }
   const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
 
   if (finalArgs.startsWith('up')) {
@@ -637,12 +648,15 @@ export async function runDockerComposeSafe(
       env,
       timeout,
     });
-    if (requestedForceRecreate && !requestedBuild && finalArgs.startsWith('up')) {
-      await execAsync('docker compose restart', {
-        cwd: projectDir,
-        env,
-        timeout: 60000,
-      }).catch(() => null);
+    if ((requestedForceRecreate || requestedBuild) && finalArgs.startsWith('up')) {
+      const appContainers = extractComposeContainerNames(projectDir).filter(
+        (c) => !isDatabaseContainerName(c)
+      );
+      for (const appC of appContainers) {
+        await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
+          timeout: 45000,
+        }).catch(() => null);
+      }
     }
     return upRes;
   } catch (error: any) {
@@ -660,13 +674,17 @@ export async function runDockerComposeSafe(
     }
 
     if (errText.includes('is already in use by container')) {
-      const toRemove = new Set<string>(extractComposeContainerNames(projectDir));
+      const toRemove = new Set<string>();
       const conflictRegex =
         /The container name "\/([^"]+)" is already in use/g;
       let match: RegExpExecArray | null;
       while ((match = conflictRegex.exec(errText)) !== null) {
         const cName = match[1].trim();
-        if (cName && !PROTECTED_PANEL_CONTAINERS.has(cName)) {
+        if (
+          cName &&
+          !PROTECTED_PANEL_CONTAINERS.has(cName) &&
+          !isDatabaseContainerName(cName)
+        ) {
           toRemove.add(cName);
         }
       }
@@ -867,7 +885,9 @@ export class ManageContainerPowerUseCase {
   }
 
   async rebuildProject(
-    projectName: string
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
   ): Promise<{ success: boolean; output: string }> {
     const projectDir = new ProjectNameVO(projectName).resolvePath(
       this.projectsRoot,
@@ -919,23 +939,326 @@ export class ManageContainerPowerUseCase {
         };
       }
 
+      const existingDbProject = await resolveExistingDbComposeProject(projectDir);
+      const env = {
+        ...getCleanComposeEnv(projectDir),
+        ...readEnvMap(projectDir),
+      };
+      if (existingDbProject) {
+        env.COMPOSE_PROJECT_NAME = existingDbProject;
+      }
+
+      if (containerName || serviceName) {
+        const cleanContainer = (containerName || '').replace(/[^a-zA-Z0-9._-]/g, '');
+        let targetService = (serviceName || '').replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!targetService && cleanContainer) {
+          const { stdout: svcOut } = await execAsync(
+            `docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "${cleanContainer}" 2>/dev/null || true`
+          ).catch(() => ({ stdout: '' }));
+          targetService = svcOut.trim();
+        }
+        const logs: string[] = [];
+        logs.push(
+          `==> [1/2] Reconstruyendo imagen sin caché para [${targetService || cleanContainer}] (conservando volúmenes de datos)...`
+        );
+        if (targetService) {
+          const buildRes = await execAsync(
+            `docker compose build --no-cache "${targetService}"`,
+            { cwd: projectDir, env, timeout: 600000 }
+          ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+          if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+          if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+
+          logs.push(
+            `\n==> [2/2] Recreando contenedor [${cleanContainer || targetService}] sin afectar los demás servicios...`
+          );
+          const upRes = await execAsync(
+            `docker compose up -d --no-deps --force-recreate "${targetService}"`,
+            { cwd: projectDir, env, timeout: 180000 }
+          );
+          if (upRes.stdout) logs.push(upRes.stdout.trim());
+          if (upRes.stderr) logs.push(upRes.stderr.trim());
+        } else if (cleanContainer) {
+          await execAsync(`docker restart "${cleanContainer}"`, { timeout: 60000 });
+        }
+        await domainsService.reloadCaddy().catch(() => null);
+        logs.push(
+          `\n✅ Rebuild de [${cleanContainer || targetService}] completado conservando sus volúmenes.`
+        );
+        return { success: true, output: logs.join('\n') };
+      }
+
+      const logs: string[] = [];
+      logs.push(
+        `==> [1/2] Reconstruyendo imágenes de aplicación sin caché en ${projectName} (conservando Base de Datos y sus volúmenes)...`
+      );
+      const buildRes = await execAsync(`docker compose build --no-cache`, {
+        cwd: projectDir,
+        env,
+        timeout: 600000,
+      }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+      if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+      if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+
+      logs.push(
+        `\n==> [2/2] Actualizando contenedores de aplicación (manteniendo Base de Datos intacta)...`
+      );
       const { stdout, stderr } = await runDockerComposeSafe(
         projectDir,
         'up -d --build --force-recreate',
         600000
       );
       await domainsService.reloadCaddy().catch(() => null);
+      if (stdout) logs.push(stdout.trim());
+      if (stderr) logs.push(stderr.trim());
+      logs.push(
+        `\n✅ Rebuild de ${projectName} completado exitosamente (Base de Datos conservada).`
+      );
       return {
         success: true,
-        output:
-          [stdout, stderr].filter(Boolean).join('\n').trim() ||
-          `Rebuild de ${projectName} completado.`,
+        output: logs.join('\n').trim(),
       };
     } catch (error: any) {
       return {
         success: false,
         output:
           error?.stderr || error?.message || 'Error en rebuild del proyecto',
+      };
+    }
+  }
+
+  async rebuildDestroyProject(
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
+  ): Promise<{ success: boolean; output: string }> {
+    if (ProjectNameVO.isSelfPanel(projectName, this.panelSelfDir)) {
+      return {
+        success: false,
+        output:
+          'Por seguridad no puedes ejecutar Rebuild Destroy sobre ALpanel porque destruiría el panel principal y su base de datos.',
+      };
+    }
+
+    const projectDir = new ProjectNameVO(projectName).resolvePath(
+      this.projectsRoot,
+      this.panelSelfDir
+    );
+    this.onInvalidateCache?.(projectDir);
+    const logs: string[] = [];
+
+    try {
+      const existingDbProject = await resolveExistingDbComposeProject(projectDir);
+      const env = {
+        ...getCleanComposeEnv(projectDir),
+        ...readEnvMap(projectDir),
+      };
+      if (existingDbProject) {
+        env.COMPOSE_PROJECT_NAME = existingDbProject;
+      }
+
+      if (containerName || serviceName) {
+        const cleanContainer = (containerName || '').replace(/[^a-zA-Z0-9._-]/g, '');
+        let targetService = (serviceName || '').replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!targetService && cleanContainer) {
+          const { stdout: svcOut } = await execAsync(
+            `docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "${cleanContainer}" 2>/dev/null || true`
+          ).catch(() => ({ stdout: '' }));
+          targetService = svcOut.trim();
+        }
+
+        const mountedVolumes: string[] = [];
+        if (cleanContainer) {
+          const { stdout: volOut } = await execAsync(
+            `docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "${cleanContainer}" 2>/dev/null || true`
+          ).catch(() => ({ stdout: '' }));
+          for (const v of volOut.trim().split(/\s+/).filter(Boolean)) {
+            if (!v.includes('alpanel') && !v.includes('caddy')) {
+              mountedVolumes.push(v);
+            }
+          }
+        }
+
+        logs.push(
+          `==> [1/4] Destruyendo contenedor [${cleanContainer || targetService}] y limpiando su estado...`
+        );
+        if (targetService) {
+          await execAsync(
+            `docker compose rm -f -s -v "${targetService}" 2>/dev/null || true`,
+            { cwd: projectDir, env, timeout: 60000 }
+          ).catch(() => null);
+        }
+        if (cleanContainer) {
+          await execAsync(`docker rm -f -v "${cleanContainer}" 2>/dev/null || true`, {
+            timeout: 30000,
+          }).catch(() => null);
+        }
+        for (const volName of mountedVolumes) {
+          logs.push(`   -> Eliminando volumen de datos asociado: ${volName}`);
+          await execAsync(`docker volume rm -f "${volName}" 2>/dev/null || true`, {
+            timeout: 30000,
+          }).catch(() => null);
+        }
+
+        logs.push(
+          `\n==> [2/4] Reconstruyendo desde cero sin caché el servicio [${targetService || cleanContainer}]...`
+        );
+        if (targetService) {
+          const buildRes = await execAsync(
+            `docker compose build --no-cache "${targetService}"`,
+            { cwd: projectDir, env, timeout: 600000 }
+          ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+          if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+          if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+
+          logs.push(
+            `\n==> [3/5] Montando nuevamente el contenedor [${cleanContainer || targetService}] limpio desde cero...`
+          );
+          const upRes = await execAsync(
+            `docker compose up -d --no-deps --force-recreate "${targetService}"`,
+            { cwd: projectDir, env, timeout: 180000 }
+          );
+          if (upRes.stdout) logs.push(upRes.stdout.trim());
+          if (upRes.stderr) logs.push(upRes.stderr.trim());
+        }
+
+        if (
+          isDatabaseContainerName(cleanContainer || targetService) ||
+          !(cleanContainer || targetService).toLowerCase().includes('frontend')
+        ) {
+          logs.push(
+            `\n==> [4/5] Ejecutando migraciones de Base de Datos desde cero...`
+          );
+          if (isDatabaseContainerName(cleanContainer || targetService)) {
+            await new Promise((resolve) => setTimeout(resolve, 6000));
+          }
+          const appCandidates = extractComposeContainerNames(projectDir).filter(
+            (c) =>
+              !isDatabaseContainerName(c) &&
+              !c.toLowerCase().includes('frontend') &&
+              !c.toLowerCase().includes('nginx') &&
+              !c.toLowerCase().includes('vue')
+          );
+          for (const appC of appCandidates) {
+            const { stdout: migOut, stderr: migErr } = await execAsync(
+              `docker exec "${appC}" sh -c "if [ -f manage.py ]; then python manage.py makemigrations --noinput && python manage.py migrate --noinput; elif [ -f artisan ]; then php artisan migrate:fresh --seed --force; elif [ -f prisma/schema.prisma ]; then npx prisma db push --accept-data-loss; fi" 2>/dev/null || true`,
+              { timeout: 120000 }
+            ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+            if (migOut && migOut.trim()) logs.push(migOut.trim());
+            if (migErr && migErr.trim()) logs.push(migErr.trim());
+          }
+        }
+
+        logs.push(`\n==> [5/5] Recargando proxy SSL (Caddy)...`);
+        await domainsService.reloadCaddy().catch(() => null);
+        logs.push(
+          `\n✅ Rebuild Destroy de [${cleanContainer || targetService}] completado desde cero.`
+        );
+        return { success: true, output: logs.join('\n') };
+      }
+
+      const composeContainers = extractComposeContainerNames(projectDir);
+      const allProjectVolumes = new Set<string>();
+      for (const cName of composeContainers) {
+        const { stdout: volOut } = await execAsync(
+          `docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "${cName}" 2>/dev/null || true`
+        ).catch(() => ({ stdout: '' }));
+        for (const v of volOut.trim().split(/\s+/).filter(Boolean)) {
+          if (!v.includes('alpanel') && !v.includes('caddy')) {
+            allProjectVolumes.add(v);
+          }
+        }
+      }
+
+      logs.push(
+        `==> [1/5] Apagando y destruyendo TODOS los contenedores, imágenes locales, redes y volúmenes de ${projectName} (docker compose down -v --rmi local --remove-orphans)...`
+      );
+      const downRes = await execAsync(
+        `docker compose down -v --rmi local --remove-orphans`,
+        { cwd: projectDir, env, timeout: 300000 }
+      ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+      if (downRes.stdout) logs.push(downRes.stdout.trim());
+      if (downRes.stderr) logs.push(downRes.stderr.trim());
+
+      for (const cName of composeContainers) {
+        await execAsync(`docker rm -f -v "${cName}" 2>/dev/null || true`, {
+          timeout: 20000,
+        }).catch(() => null);
+      }
+      for (const volName of allProjectVolumes) {
+        logs.push(`   -> Eliminando volumen de datos: ${volName}`);
+        await execAsync(`docker volume rm -f "${volName}" 2>/dev/null || true`, {
+          timeout: 30000,
+        }).catch(() => null);
+      }
+
+      logs.push(
+        `\n==> [2/5] Limpiando archivos temporales y caché (__pycache__, .pyc)...`
+      );
+      await execAsync(
+        `find "${projectDir}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true`
+      ).catch(() => null);
+
+      await autoAssignAndPersistProjectPorts(projectDir);
+      const updatedEnv = {
+        ...getCleanComposeEnv(projectDir),
+        ...readEnvMap(projectDir),
+      };
+
+      logs.push(
+        `\n==> [3/5] Reconstruyendo todas las imágenes desde cero sin caché (docker compose build --no-cache)...`
+      );
+      const buildRes = await execAsync(`docker compose build --no-cache`, {
+        cwd: projectDir,
+        env: updatedEnv,
+        timeout: 600000,
+      }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+      if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+      if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+
+      logs.push(
+        `\n==> [4/5] Montando todo el proyecto ${projectName} de nuevo desde cero (docker compose up -d --force-recreate)...`
+      );
+      const upRes = await execAsync(
+        `docker compose up -d --force-recreate --remove-orphans`,
+        { cwd: projectDir, env: updatedEnv, timeout: 300000 }
+      );
+      if (upRes.stdout) logs.push(upRes.stdout.trim());
+      if (upRes.stderr) logs.push(upRes.stderr.trim());
+
+      logs.push(
+        `\n==> [5/5] Ejecutando migraciones de Base de Datos desde cero...`
+      );
+      const appCandidates = composeContainers.filter(
+        (c) =>
+          !isDatabaseContainerName(c) &&
+          !c.toLowerCase().includes('frontend') &&
+          !c.toLowerCase().includes('nginx') &&
+          !c.toLowerCase().includes('vue')
+      );
+      for (const appC of appCandidates) {
+        const { stdout: migOut, stderr: migErr } = await execAsync(
+          `docker exec "${appC}" sh -c "if [ -f manage.py ]; then python manage.py makemigrations --noinput && python manage.py migrate --noinput; elif [ -f artisan ]; then php artisan migrate:fresh --seed --force; elif [ -f prisma/schema.prisma ]; then npx prisma db push --accept-data-loss; fi" 2>/dev/null || true`,
+          { timeout: 120000 }
+        ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+        if (migOut && migOut.trim()) logs.push(migOut.trim());
+        if (migErr && migErr.trim()) logs.push(migErr.trim());
+      }
+
+      await domainsService.reloadCaddy().catch(() => null);
+      logs.push(
+        `\n✅ Rebuild Destroy de ${projectName} completado. Todo el entorno y la Base de Datos fueron destruidos, migrados y montados desde cero.`
+      );
+      return { success: true, output: logs.join('\n') };
+    } catch (error: any) {
+      logs.push(
+        `\n❌ Error durante Rebuild Destroy: ${
+          error?.stderr || error?.message || 'Error desconocido'
+        }`
+      );
+      return {
+        success: false,
+        output: logs.join('\n'),
       };
     }
   }
@@ -989,15 +1312,16 @@ export class ManageContainerPowerUseCase {
       }
 
       logs.push(
-        '==> Reiniciando contenedores de aplicación para recargar memoria...'
+        '==> Reiniciando contenedores de aplicación (manteniendo Base de Datos activa sin interrupción)...'
       );
-      const { stdout, stderr } = await execAsync('docker compose restart', {
-        cwd: projectDir,
-        env: getCleanComposeEnv(projectDir),
-        timeout: 120000,
-      });
-      if (stdout) logs.push(stdout.trim());
-      if (stderr) logs.push(stderr.trim());
+      const appContainers = extractComposeContainerNames(projectDir).filter(
+        (c) => !isDatabaseContainerName(c)
+      );
+      for (const appC of appContainers) {
+        await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
+          timeout: 60000,
+        }).catch(() => null);
+      }
       logs.push(`✅ Caché limpiada y servicios de ${projectName} recargados.`);
 
       return { success: true, output: logs.join('\n') };

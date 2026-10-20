@@ -2,11 +2,9 @@ import {
   HostService as SystemService,
   hostService,
 } from '../../../../shared/infrastructure/services/host-metrics.service';
-import { DomainsService as ProxyService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import {
   ContainerStatInfo,
   DatabaseConnectionInfo,
-  DevModeState,
   ProjectInfo,
 } from '../../domain/entities/project.entity';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
@@ -17,11 +15,9 @@ import { ManageProjectDbUseCase } from './manage-project-db.use-case';
 import { ManageProjectEnvUseCase } from './manage-project-env.use-case';
 import { ManageContainerPowerUseCase } from './manage-container-power.use-case';
 import { DeployGitProjectUseCase } from './deploy-git-project.use-case';
-import { ToggleDevModeUseCase } from './toggle-dev-mode.use-case';
 import { ListProjectsUseCase } from './list-projects.use-case';
 
 export {
-  DevModeState,
   ContainerStatInfo,
   DatabaseConnectionInfo,
   ProjectInfo,
@@ -38,7 +34,6 @@ export class ProjectsFacadeUseCase {
   private readonly envUseCase: ManageProjectEnvUseCase;
   private readonly powerUseCase: ManageContainerPowerUseCase;
   private readonly deployUseCase: DeployGitProjectUseCase;
-  private readonly devModeUseCase: ToggleDevModeUseCase;
   private readonly listUseCase: ListProjectsUseCase;
 
   constructor(systemService: SystemService) {
@@ -70,19 +65,12 @@ export class ProjectsFacadeUseCase {
       this.panelSelfDir,
       invalidateAll
     );
-    this.devModeUseCase = new ToggleDevModeUseCase(
-      dockerodeRuntimeAdapter,
-      this.projectsRoot,
-      this.panelSelfDir,
-      () => this.invalidateProjectCache()
-    );
     this.listUseCase = new ListProjectsUseCase(
       systemService,
       dockerodeRuntimeAdapter,
       gitCliAdapter,
       filesystemDiskAdapter,
       this.dbUseCase,
-      this.devModeUseCase,
       this.projectsRoot,
       this.panelSelfDir
     );
@@ -149,22 +137,6 @@ export class ProjectsFacadeUseCase {
     return this.deployUseCase.cloneNewProject(payload);
   }
 
-  getDevModeState(): DevModeState {
-    return this.devModeUseCase.getDevModeState();
-  }
-
-  resolveDevSubdomain(): string {
-    return this.devModeUseCase.resolveDevSubdomain();
-  }
-
-  async activateDevMode(projectName: string, proxyService: ProxyService) {
-    return this.devModeUseCase.activateDevMode(projectName, proxyService);
-  }
-
-  async deactivateDevMode(proxyService: ProxyService) {
-    return this.devModeUseCase.deactivateDevMode(proxyService);
-  }
-
   async restartProject(projectName: string, containerName?: string) {
     return this.powerUseCase.restartProject(projectName, containerName);
   }
@@ -177,8 +149,28 @@ export class ProjectsFacadeUseCase {
     return this.powerUseCase.stopProject(projectName);
   }
 
-  async rebuildProject(projectName: string) {
-    return this.powerUseCase.rebuildProject(projectName);
+  async rebuildProject(
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
+  ) {
+    return this.powerUseCase.rebuildProject(
+      projectName,
+      containerName,
+      serviceName
+    );
+  }
+
+  async rebuildDestroyProject(
+    projectName: string,
+    containerName?: string,
+    serviceName?: string
+  ) {
+    return this.powerUseCase.rebuildDestroyProject(
+      projectName,
+      containerName,
+      serviceName
+    );
   }
 
   async clearProjectCache(projectName: string) {

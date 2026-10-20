@@ -21,30 +21,6 @@ export class GitController {
     return res;
   }
 
-  async activateDev(request: FastifyRequest, _reply: FastifyReply) {
-    const { name } = request.params as { name: string };
-    const res = await manageGitUseCase.activateDevMode(name);
-    await manageAuditLogsUseCase.recordAudit(
-      'DEV_MODE_ACTIVATE',
-      `${name} (develop)`,
-      request.ip,
-      res.success ? 'ok' : 'error'
-    );
-    return res;
-  }
-
-  async deactivateDev(request: FastifyRequest, _reply: FastifyReply) {
-    const { name } = request.params as { name: string };
-    const res = await manageGitUseCase.deactivateDevMode();
-    await manageAuditLogsUseCase.recordAudit(
-      'DEV_MODE_DEACTIVATE',
-      name,
-      request.ip,
-      res.success ? 'ok' : 'error'
-    );
-    return res;
-  }
-
   async clone(request: FastifyRequest, _reply: FastifyReply) {
     const body = request.body as CloneProjectPayload;
     const res = await manageGitUseCase.cloneProject(body);

@@ -1,15 +1,3 @@
-export interface DevModeState {
-  active: boolean;
-  projectName: string | null;
-  branch: string;
-  commitHash: string;
-  commitMessage: string;
-  domain: string;
-  containerName: string;
-  internalTarget: string;
-  activatedAt: string | null;
-}
-
 export interface ContainerStatInfo {
   id: string;
   name: string;
@@ -56,15 +44,6 @@ export interface ProjectInfo {
     commitMessage: string;
     remoteUrl: string;
     behindCount: number;
-  };
-  devMode: {
-    isActive: boolean;
-    branch: string;
-    domain: string;
-    commitHash: string;
-    commitMessage: string;
-    containerName: string;
-    status: 'running' | 'stopped';
   };
   resources: {
     cpuPercent: number;

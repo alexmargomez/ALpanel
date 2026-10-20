@@ -17,7 +17,6 @@ import {
   syncDomainRoutePortsToProjectEnv,
   upsertEnvFileVariables,
 } from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
-import { ToggleDevModeUseCase } from '../../../src/modules/projects/application/use-cases/toggle-dev-mode.use-case';
 import { ListProjectsUseCase } from '../../../src/modules/projects/application/use-cases/list-projects.use-case';
 import { FilesystemDiskAdapter } from '../../../src/modules/projects/infrastructure/adapters/filesystem-disk.adapter';
 import { DockerodeRuntimeAdapter } from '../../../src/modules/projects/infrastructure/adapters/dockerode-runtime.adapter';
@@ -219,42 +218,6 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     expect(stopRes.output).toMatch(/no puedes detener ALpanel/i);
   });
 
-  it('ToggleDevModeUseCase resuelve el subdominio develop desde domains.json y lee dev-mode.json', () => {
-    const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-devdata-'));
-    const prevDataDir = process.env.PANEL_DATA_DIR;
-    const prevDevSub = process.env.DEV_SUBDOMAIN;
-    process.env.PANEL_DATA_DIR = tmpData;
-    delete process.env.DEV_SUBDOMAIN;
-
-    try {
-      fs.writeFileSync(
-        path.join(tmpData, 'domains.json'),
-        JSON.stringify([{ domain: 'panel.integraweb.com.co' }]),
-        'utf-8'
-      );
-
-      const runtime = new InMemoryContainerRuntimeMock();
-      const devModeUseCase = new ToggleDevModeUseCase(
-        runtime,
-        '/opt/projects',
-        '/opt/alpanel'
-      );
-
-      expect(devModeUseCase.resolveDevSubdomain()).toBe(
-        'develop.integraweb.com.co'
-      );
-
-      const defaultState = devModeUseCase.getDevModeState();
-      expect(defaultState.active).toBe(false);
-      expect(defaultState.domain).toBe('develop.integraweb.com.co');
-    } finally {
-      if (prevDataDir === undefined) delete process.env.PANEL_DATA_DIR;
-      else process.env.PANEL_DATA_DIR = prevDataDir;
-      if (prevDevSub !== undefined) process.env.DEV_SUBDOMAIN = prevDevSub;
-      fs.rmSync(tmpData, { recursive: true, force: true });
-    }
-  });
-
   it('ListProjectsUseCase descubre proyectos, agrega métricas y ordena ALpanel primero', async () => {
     const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-list-'));
     const projectsRoot = path.join(tmpBase, 'projects');
@@ -293,11 +256,6 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     jest.spyOn(diskAdapter, 'getDirectoryDiskSize').mockResolvedValue(4096);
 
     const dbUseCase = new ManageProjectDbUseCase(runtime, panelSelfDir);
-    const devModeUseCase = new ToggleDevModeUseCase(
-      runtime,
-      projectsRoot,
-      panelSelfDir
-    );
     const hostServiceMock: any = {
       getPublicIp: jest.fn().mockResolvedValue('198.51.100.25'),
     };
@@ -308,7 +266,6 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       gitMock,
       diskAdapter,
       dbUseCase,
-      devModeUseCase,
       projectsRoot,
       panelSelfDir
     );

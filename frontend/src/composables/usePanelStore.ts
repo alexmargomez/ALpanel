@@ -144,7 +144,6 @@ export function resolveFrontendServiceCode(
   if (moduleCode === 'domains') return 'domains.manage';
   if (moduleCode === 'users') return 'users.manage';
   if (moduleCode === 'git' && actionOrService === 'create') return 'git.clone';
-  if (moduleCode === 'git' && actionOrService === 'edit') return 'projects.dev_mode';
   if (moduleCode === 'git' && actionOrService === 'deploy') return 'projects.git_pull';
   if (moduleCode === 'security' && actionOrService === 'deploy') return 'services.docker_prune';
   if (moduleCode === 'projects' && actionOrService === 'edit') return 'projects.logs';
@@ -402,14 +401,13 @@ export async function runProjectAction(
   body: Record<string, any> = {}
 ): Promise<void> {
   const titleMap: Record<string, string> = {
-    pull: `Git Pull & Restart (Rama main con Rollback Automático) — ${projectName}`,
+    pull: `Git Pull (Rama main con Rollback por Conflictos) — ${projectName}`,
     restart: `Reiniciando Docker — ${projectName}`,
     'clear-cache': `Limpiando Caché — ${projectName}`,
-    rebuild: `Reconstruyendo Imágenes (Rebuild) — ${projectName}`,
+    rebuild: `Reconstruyendo Imágenes (Rebuild Seguro) — ${projectName}`,
+    'rebuild-destroy': `Rebuild Destroy (Destrucción y Reconstrucción Total desde Cero) — ${projectName}`,
     start: `Iniciando Proyecto — ${projectName}`,
     stop: `Deteniendo Proyecto — ${projectName}`,
-    'dev-activate': `Modo Desarrollador (rama develop) — ${projectName}`,
-    'dev-deactivate': `Apagando Modo Desarrollador — ${projectName}`,
   };
 
   panelStore.modals.console.title = titleMap[action] || `Ejecutando ${action}`;

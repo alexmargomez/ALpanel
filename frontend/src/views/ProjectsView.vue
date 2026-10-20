@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, reactive } from 'vue';
 import {
   apiFetch,
   hasPerm,
@@ -11,7 +11,47 @@ import {
   showToast,
 } from '../composables/usePanelStore';
 import { formatBytes } from '../services/api';
-import type { ProjectInfo } from '../types/panel';
+import type { ContainerStatInfo, ProjectInfo } from '../types/panel';
+
+const confirmDestroyModal = reactive<{
+  open: boolean;
+  projectName: string;
+  containers: ContainerStatInfo[];
+  selectedTarget: string; // '__ALL__' or container.name
+}>({
+  open: false,
+  projectName: '',
+  containers: [],
+  selectedTarget: '__ALL__',
+});
+
+function openRebuildDestroyModal(project: ProjectInfo, containerName = '__ALL__'): void {
+  confirmDestroyModal.projectName = project.name;
+  confirmDestroyModal.containers = project.containers || [];
+  confirmDestroyModal.selectedTarget = containerName || '__ALL__';
+  confirmDestroyModal.open = true;
+}
+
+function closeRebuildDestroyModal(): void {
+  confirmDestroyModal.open = false;
+}
+
+async function confirmAndRunRebuildDestroy(): Promise<void> {
+  const projectName = confirmDestroyModal.projectName;
+  const target = confirmDestroyModal.selectedTarget;
+  confirmDestroyModal.open = false;
+  if (!projectName) return;
+
+  if (target && target !== '__ALL__') {
+    const matched = confirmDestroyModal.containers.find((c) => c.name === target);
+    await runProjectAction(projectName, 'rebuild-destroy', {
+      containerName: target,
+      serviceName: matched?.serviceName || '',
+    });
+  } else {
+    await runProjectAction(projectName, 'rebuild-destroy');
+  }
+}
 
 const filteredProjects = computed<ProjectInfo[]>(() => {
   const q = (panelStore.projectSearchQuery || '').toLowerCase().trim();
@@ -30,7 +70,6 @@ const canViewLogs = computed(() => hasPerm('projects', 'edit'));
 const canViewDb = computed(() => hasPerm('project_db', 'view'));
 const canViewEnv = computed(() => hasPerm('project_env', 'view'));
 const canDeployGitProd = computed(() => hasPerm('git', 'deploy'));
-const canUseDevMode = computed(() => hasPerm('git', 'edit'));
 const canManageAppUsers = computed(() => hasPerm('projects.app_users', 'view'));
 
 function isSelfPanel(projectName: string): boolean {
@@ -215,21 +254,23 @@ function openAppUsersModal(projectName: string): void {
             v-if="canDeployGitProd"
             @click="runProjectAction(p.name, 'pull')"
             class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
-            title="Ejecuta git pull + docker compose restart con Rollback automático si falla"
+            title="Descarga cambios de GitHub (git pull origin main) con Rollback de Git si hay conflictos, sin reiniciar ni destruir Docker"
           >
-            <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull &amp; Restart
+            <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull
           </button>
 
           <template v-if="canDeployProjects">
             <button
               @click="runProjectAction(p.name, 'restart')"
               class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Reinicia los contenedores de aplicación (manteniendo la Base de Datos intacta)"
             >
               <i class="fa-solid fa-rotate"></i> Restart Docker
             </button>
             <button
               @click="runProjectAction(p.name, 'clear-cache')"
               class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Limpia la caché del framework y recarga los contenedores de aplicación sin tocar la Base de Datos"
             >
               <i class="fa-solid fa-broom"></i> Limpiar Caché
             </button>
@@ -272,38 +313,19 @@ function openAppUsersModal(projectName: string): void {
             v-if="canStopRebuildServer"
             @click="runProjectAction(p.name, 'rebuild')"
             class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Reconstruir imágenes Docker (docker compose up -d --build)"
+            title="Reconstruir imágenes sin caché (--no-cache) conservando intactos los datos de la Base de Datos"
           >
             <i class="fa-solid fa-hammer"></i> Rebuild
           </button>
 
-          <!-- Modo Desarrollador (develop) -->
-          <template v-if="canUseDevMode">
-            <template v-if="p.devMode && p.devMode.isActive">
-              <button
-                @click="runProjectAction(p.name, 'dev-activate')"
-                class="px-3 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 text-xs font-semibold transition flex items-center gap-1.5"
-                title="Sincronizar últimos commits de origin/develop en el entorno de pruebas"
-              >
-                <i class="fa-solid fa-flask"></i> Actualizar Dev (develop)
-              </button>
-              <button
-                @click="runProjectAction(p.name, 'dev-deactivate')"
-                class="px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition flex items-center gap-1.5"
-                title="Apagar Modo Desarrollador y liberar subdominio de pruebas"
-              >
-                <i class="fa-solid fa-power-off"></i> Apagar Modo Dev
-              </button>
-            </template>
-            <button
-              v-else
-              @click="runProjectAction(p.name, 'dev-activate')"
-              class="px-3 py-2 rounded-xl bg-fuchsia-950/60 hover:bg-fuchsia-900/60 text-fuchsia-300 border border-fuchsia-700/50 text-xs font-semibold transition flex items-center gap-1.5"
-              title="Desplegar rama develop de este proyecto en el subdominio de pruebas"
-            >
-              <i class="fa-solid fa-flask"></i> Modo Desarrollador
-            </button>
-          </template>
+          <button
+            v-if="canStopRebuildServer && !isSelfPanel(p.name)"
+            @click="openRebuildDestroyModal(p, '__ALL__')"
+            class="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-700/60 text-xs font-semibold transition flex items-center gap-1.5"
+            title="Último recurso: Destruir todo (contenedores, imágenes, caché y volúmenes) y reconstruir desde cero con migraciones limpias"
+          >
+            <i class="fa-solid fa-skull-crossbones"></i> Rebuild Destroy
+          </button>
 
           <span
             v-if="isSelfPanel(p.name)"
@@ -327,43 +349,6 @@ function openAppUsersModal(projectName: string): void {
               <i class="fa-solid fa-play"></i> Iniciar
             </button>
           </template>
-        </div>
-
-        <!-- Banner de Modo Desarrollador Activo en esta Tarjeta -->
-        <div
-          v-if="p.devMode && p.devMode.isActive"
-          class="flex flex-wrap items-center justify-between gap-3 bg-fuchsia-950/30 border border-fuchsia-500/40 rounded-xl px-4 py-2.5 text-xs"
-        >
-          <div class="flex flex-wrap items-center gap-2.5">
-            <span
-              class="px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 font-bold text-[11px]"
-            >
-              <i class="fa-solid fa-flask mr-1"></i>MODO DESARROLLADOR ACTIVO
-            </span>
-            <span class="text-slate-300 font-mono">
-              <i class="fa-brands fa-git-alt text-fuchsia-400 mr-1"></i>develop ({{
-                p.devMode.commitHash
-              }})
-            </span>
-            <span class="text-slate-400 truncate max-w-md">{{ p.devMode.commitMessage || '' }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <a
-              :href="`https://${p.devMode.domain}`"
-              target="_blank"
-              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold transition shadow"
-            >
-              <i class="fa-solid fa-lock text-[10px]"></i>
-              https://{{ p.devMode.domain }}
-              <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-            </a>
-            <button
-              @click="openLogsModal(p.name, 'alpanel_dev_app')"
-              class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-fuchsia-200 border border-slate-700"
-            >
-              <i class="fa-solid fa-terminal mr-1"></i>Logs Dev
-            </button>
-          </div>
         </div>
 
         <!-- Lista de Contenedores del Proyecto -->
@@ -425,6 +410,27 @@ function openAppUsersModal(projectName: string): void {
                 <i class="fa-solid fa-rotate"></i> Restart
               </button>
               <button
+                v-if="canStopRebuildServer && !isSelfPanel(p.name)"
+                @click="
+                  runProjectAction(p.name, 'rebuild', {
+                    containerName: c.name,
+                    serviceName: c.serviceName,
+                  })
+                "
+                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300 text-[11px]"
+                title="Reconstruir este contenedor sin caché conservando sus volúmenes"
+              >
+                <i class="fa-solid fa-hammer"></i> Rebuild
+              </button>
+              <button
+                v-if="canStopRebuildServer && !isSelfPanel(p.name)"
+                @click="openRebuildDestroyModal(p, c.name)"
+                class="px-2 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 text-[11px]"
+                title="Destruir y reconstruir desde cero este contenedor y sus volúmenes"
+              >
+                <i class="fa-solid fa-skull-crossbones"></i> Destroy
+              </button>
+              <button
                 v-if="canViewLogs"
                 @click="openLogsModal(p.name, c.name)"
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]"
@@ -434,6 +440,87 @@ function openAppUsersModal(projectName: string): void {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Confirmación de Seguridad: Rebuild Destroy -->
+    <div
+      v-if="confirmDestroyModal.open"
+      class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+      @click.self="closeRebuildDestroyModal"
+    >
+      <div
+        class="bg-slate-900 border border-rose-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+      >
+        <div
+          class="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-rose-950/30"
+        >
+          <div class="flex items-center gap-2.5 text-rose-400 font-bold text-sm">
+            <i class="fa-solid fa-triangle-exclamation text-base"></i>
+            <span>¿Seguro que quieres ejecutar Rebuild Destroy?</span>
+          </div>
+          <button
+            @click="closeRebuildDestroyModal"
+            class="text-slate-400 hover:text-white text-sm px-2 py-1 rounded-lg"
+          >
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="p-5 space-y-4 text-xs text-slate-300">
+          <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3.5 space-y-1.5">
+            <p class="font-bold text-rose-300">
+              ⚠️ ADVERTENCIA DE DESTRUCCIÓN Y RECONSTRUCCIÓN TOTAL (ÚLTIMO RECURSO)
+            </p>
+            <p class="leading-relaxed text-slate-300">
+              Estás a punto de apagar y <strong>destruir por completo</strong> el entorno de
+              <strong class="text-white">{{ confirmDestroyModal.projectName }}</strong>. Esta
+              acción eliminará contenedores, imágenes, caché de compilación y
+              <strong class="text-rose-300">volúmenes de datos</strong>, y volverá a montar todo y
+              correr las <strong>migraciones desde cero</strong> como recién instalado.
+            </p>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Alcance de la Destrucción y Reconstrucción:
+            </label>
+            <select
+              v-model="confirmDestroyModal.selectedTarget"
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+            >
+              <option value="__ALL__">
+                🔥 Todo el Proyecto ({{ confirmDestroyModal.projectName }}) — Contenedores, BD,
+                Volúmenes y Migraciones desde cero
+              </option>
+              <option
+                v-for="c in confirmDestroyModal.containers"
+                :key="c.name"
+                :value="c.name"
+              >
+                🎯 Solo el contenedor: {{ c.name }} ({{ c.role.toUpperCase() }})
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div
+          class="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800 bg-slate-950/60"
+        >
+          <button
+            @click="closeRebuildDestroyModal"
+            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmAndRunRebuildDestroy"
+            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30"
+          >
+            <i class="fa-solid fa-skull-crossbones"></i>
+            Sí, destruir y reconstruir desde cero
+          </button>
         </div>
       </div>
     </div>

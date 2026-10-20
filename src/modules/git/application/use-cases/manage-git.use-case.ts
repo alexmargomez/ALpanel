@@ -1,5 +1,4 @@
 import { projectsFacadeUseCase } from '../../../projects/application/use-cases/projects-facade.use-case';
-import { manageDomainsUseCase } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { CloneProjectPayload } from '../../domain/entities/git-clone.entity';
 
 export class ManageGitUseCase {
@@ -9,17 +8,6 @@ export class ManageGitUseCase {
 
   async pullAndRestart(projectName: string) {
     return projectsFacadeUseCase.gitPullAndRestart(projectName);
-  }
-
-  async activateDevMode(projectName: string) {
-    return projectsFacadeUseCase.activateDevMode(
-      projectName,
-      manageDomainsUseCase
-    );
-  }
-
-  async deactivateDevMode() {
-    return projectsFacadeUseCase.deactivateDevMode(manageDomainsUseCase);
   }
 
   async cloneProject(payload: CloneProjectPayload) {

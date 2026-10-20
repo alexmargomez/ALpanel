@@ -209,7 +209,13 @@ export async function initDatabase(): Promise<void> {
 
   await prisma.module
     .deleteMany({
-      where: { code: { in: ['project_db', 'project_env'] } },
+      where: { code: { in: ['project_db', 'project_env', 'projects.dev_mode'] } },
+    })
+    .catch(() => null);
+
+  await prisma.domainRoute
+    .deleteMany({
+      where: { id: 'route-dev-mode' },
     })
     .catch(() => null);
 
@@ -262,7 +268,7 @@ export async function initDatabase(): Promise<void> {
         {
           code: 'developer',
           name: 'Desarrollador',
-          description: 'Modo Desarrollador (develop), reinicio de contenedores, logs y lectura/edición de proyectos',
+          description: 'Despliegue con Git Pull, reinicio de contenedores, logs y lectura de proyectos',
         },
         {
           code: 'viewer',

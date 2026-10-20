@@ -1,5 +1,4 @@
 export {
-  DevModeState,
   ContainerStatInfo,
   DatabaseConnectionInfo,
   ProjectInfo,

@@ -256,8 +256,6 @@ export class PrismaPermissionRepository implements PermissionRepositoryPort {
     if (moduleCode === 'domains') return 'domains.manage';
     if (moduleCode === 'users') return 'users.manage';
     if (moduleCode === 'git' && actionOrService === 'create') return 'git.clone';
-    if (moduleCode === 'git' && actionOrService === 'edit')
-      return 'projects.dev_mode';
     if (moduleCode === 'git' && actionOrService === 'deploy')
       return 'projects.git_pull';
     if (moduleCode === 'security' && actionOrService === 'deploy')
