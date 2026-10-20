@@ -58,6 +58,33 @@ export function extractComposeContainerNames(projectDir: string): string[] {
   return Array.from(names);
 }
 
+export function isDatabaseContainerName(name: string): boolean {
+  return /\b(db|mariadb|mysql|postgres|postgresql|mongo)\b|[_-](db|mariadb|mysql|postgres)/i.test(
+    name
+  );
+}
+
+async function resolveExistingDbComposeProject(
+  projectDir: string
+): Promise<string | null> {
+  const dbCandidates = extractComposeContainerNames(projectDir).filter((c) =>
+    isDatabaseContainerName(c)
+  );
+  for (const dbName of dbCandidates) {
+    try {
+      const { stdout } = await execAsync(
+        `docker inspect "${dbName}" --format '{{index .Config.Labels "com.docker.compose.project"}}'`,
+        { timeout: 5000 }
+      );
+      const proj = (stdout || '').trim();
+      if (proj) return proj;
+    } catch {
+      // Container does not exist yet
+    }
+  }
+  return null;
+}
+
 async function reconcileProjectComposeContainers(
   projectDir: string,
   expectedComposeProject: string
@@ -90,43 +117,20 @@ async function reconcileProjectComposeContainers(
       continue;
     }
 
+    // NUNCA detener ni eliminar contenedores de Base de Datos para preservar intactos los datos y el uptime
+    if (isDatabaseContainerName(containerName)) {
+      continue;
+    }
+
     try {
       const { stdout } = await execAsync(
         `docker inspect "${containerName}" --format '{{index .Config.Labels "com.docker.compose.project"}}||{{.Config.Image}}||{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}},{{end}}{{end}}'`,
         { timeout: 10000 }
       );
-      const [currentProjectRaw, imageRaw, mountsRaw] = stdout.trim().split('||');
+      const [currentProjectRaw] = stdout.trim().split('||');
       const currentProject = (currentProjectRaw || '').trim();
-      const image = (imageRaw || '').trim();
-      const mounts = (mountsRaw || '')
-        .split(',')
-        .map((m) => m.trim())
-        .filter(Boolean);
 
-      if (currentProject !== expectedComposeProject) {
-        await execAsync(`docker stop "${containerName}" 2>/dev/null || true`, {
-          timeout: 20000,
-        }).catch(() => null);
-
-        if (currentProject && image && mounts.length > 0) {
-          for (const volName of mounts) {
-            if (volName.startsWith(`${currentProject}_`)) {
-              const suffix = volName.slice(currentProject.length + 1);
-              const targetVol = `${expectedComposeProject}_${suffix}`;
-              if (targetVol !== volName) {
-                await execAsync(
-                  `docker volume create "${targetVol}" >/dev/null 2>&1 || true`,
-                  { timeout: 10000 }
-                ).catch(() => null);
-                await execAsync(
-                  `docker run --rm --entrypoint sh -v "${volName}:/from:ro" -v "${targetVol}:/to" "${image}" -c 'if [ -z "$(ls -A /to 2>/dev/null)" ] && [ -n "$(ls -A /from 2>/dev/null)" ]; then cp -a /from/. /to/; fi' 2>/dev/null || true`,
-                  { timeout: 60000 }
-                ).catch(() => null);
-              }
-            }
-          }
-        }
-
+      if (currentProject && currentProject !== expectedComposeProject) {
         await execAsync(`docker rm -f "${containerName}" 2>/dev/null || true`, {
           timeout: 15000,
         }).catch(() => null);
@@ -612,7 +616,10 @@ export async function runDockerComposeSafe(
 ): Promise<{ stdout: string; stderr: string }> {
   const requestedForceRecreate = composeArgs.includes('--force-recreate');
   const requestedBuild = composeArgs.includes('--build');
-  let finalArgs = composeArgs.replace(/--force-recreate/g, '').replace(/\s+/g, ' ').trim();
+  let finalArgs = composeArgs
+    .replace(/--force-recreate/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (finalArgs.startsWith('up') && !finalArgs.includes('--remove-orphans')) {
     finalArgs = `${finalArgs} --remove-orphans`;
   }
@@ -621,10 +628,14 @@ export async function runDockerComposeSafe(
     await autoAssignAndPersistProjectPorts(projectDir);
   }
 
+  const existingDbProject = await resolveExistingDbComposeProject(projectDir);
   const env = {
     ...getCleanComposeEnv(projectDir),
     ...readEnvMap(projectDir),
   };
+  if (existingDbProject) {
+    env.COMPOSE_PROJECT_NAME = existingDbProject;
+  }
   const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
 
   if (finalArgs.startsWith('up')) {
@@ -638,11 +649,14 @@ export async function runDockerComposeSafe(
       timeout,
     });
     if (requestedForceRecreate && !requestedBuild && finalArgs.startsWith('up')) {
-      await execAsync('docker compose restart', {
-        cwd: projectDir,
-        env,
-        timeout: 60000,
-      }).catch(() => null);
+      const appContainers = extractComposeContainerNames(projectDir).filter(
+        (c) => !isDatabaseContainerName(c)
+      );
+      for (const appC of appContainers) {
+        await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
+          timeout: 45000,
+        }).catch(() => null);
+      }
     }
     return upRes;
   } catch (error: any) {
@@ -660,13 +674,17 @@ export async function runDockerComposeSafe(
     }
 
     if (errText.includes('is already in use by container')) {
-      const toRemove = new Set<string>(extractComposeContainerNames(projectDir));
+      const toRemove = new Set<string>();
       const conflictRegex =
         /The container name "\/([^"]+)" is already in use/g;
       let match: RegExpExecArray | null;
       while ((match = conflictRegex.exec(errText)) !== null) {
         const cName = match[1].trim();
-        if (cName && !PROTECTED_PANEL_CONTAINERS.has(cName)) {
+        if (
+          cName &&
+          !PROTECTED_PANEL_CONTAINERS.has(cName) &&
+          !isDatabaseContainerName(cName)
+        ) {
           toRemove.add(cName);
         }
       }
@@ -989,15 +1007,16 @@ export class ManageContainerPowerUseCase {
       }
 
       logs.push(
-        '==> Reiniciando contenedores de aplicación para recargar memoria...'
+        '==> Reiniciando contenedores de aplicación (manteniendo Base de Datos activa sin interrupción)...'
       );
-      const { stdout, stderr } = await execAsync('docker compose restart', {
-        cwd: projectDir,
-        env: getCleanComposeEnv(projectDir),
-        timeout: 120000,
-      });
-      if (stdout) logs.push(stdout.trim());
-      if (stderr) logs.push(stderr.trim());
+      const appContainers = extractComposeContainerNames(projectDir).filter(
+        (c) => !isDatabaseContainerName(c)
+      );
+      for (const appC of appContainers) {
+        await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
+          timeout: 60000,
+        }).catch(() => null);
+      }
       logs.push(`✅ Caché limpiada y servicios de ${projectName} recargados.`);
 
       return { success: true, output: logs.join('\n') };
