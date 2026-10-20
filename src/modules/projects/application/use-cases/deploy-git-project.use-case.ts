@@ -74,41 +74,8 @@ export class DeployGitProjectUseCase {
       logs.push(pullRes.stdout.trim() || 'Already up to date.');
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
 
-      if (isSelfPanel) {
-        logs.push(
-          `\n==> Sincronizando código (Vue 3 + TS Frontend & Fastify Backend), Prisma ORM y compilando ALpanel en caliente...`
-        );
-        await execAsync(
-          `rm -rf /app/public/js /app/public/views /app/src /app/dist && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
-          { timeout: 30000 }
-        );
-        await this.runtime.ensureAlpanelContainerNames();
-        await execAsync('npm install --no-audit --no-fund', {
-          cwd: '/app',
-          timeout: 120000,
-        }).catch(() => null);
-        const buildRes = await execAsync('npm run build', {
-          cwd: '/app',
-          timeout: 120000,
-        });
-        if (buildRes.stdout) logs.push(buildRes.stdout.trim());
-        logs.push(`\n✅ ALpanel actualizado exitosamente (rama main).`);
-        logs.push(
-          `🔄 Reiniciando el proceso de ALpanel (alpanel_server) en segundo plano en 1.5s (sin afectar MariaDB ni Caddy SSL)...`
-        );
-
-        setTimeout(() => {
-          exec(
-            'docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel',
-            () => {}
-          );
-        }, 1500);
-
-        return { success: true, output: logs.join('\n') };
-      }
-
       logs.push(
-        `\n✅ Cambios de GitHub (rama main) descargados exitosamente en ${projectName} (sin reiniciar ni reconstruir contenedores Docker).`
+        `\n✅ Cambios de GitHub (rama main) descargados exitosamente en ${projectName} (sin reiniciar contenedores; usa "Restart Docker" o "Rebuild" cuando desees aplicar reinicio).`
       );
 
       return { success: true, output: logs.join('\n') };

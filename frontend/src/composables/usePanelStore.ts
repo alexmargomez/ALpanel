@@ -426,7 +426,7 @@ export async function runProjectAction(
     panelStore.modals.console.output = res.output || 'Comando finalizado.';
     if (
       ['serverpanel', 'alpanel'].includes(projectName.toLowerCase()) &&
-      ['pull', 'restart', 'rebuild'].includes(action)
+      ['restart', 'rebuild'].includes(action)
     ) {
       setTimeout(() => {
         refreshAll().catch(() => {});
