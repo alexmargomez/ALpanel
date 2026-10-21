@@ -1,11 +1,13 @@
 import { reactive } from 'vue';
 import type {
   AuditLogItem,
+  BatchIngestEngineStatus,
   DiscoveredCatalog,
   DomainRouteItem,
   HostMetrics,
   PanelTab,
   ProjectInfo,
+  RateLimitShieldStatus,
   RoleItem,
   RolePermissionEntry,
   UserItem,
@@ -95,6 +97,8 @@ export const panelStore = reactive({
   expandedPermRoleIds: [] as number[],
   highlightedPermRoleId: null as number | null,
   auditLogs: [] as AuditLogItem[],
+  securityShield: null as RateLimitShieldStatus | null,
+  securityIngest: null as BatchIngestEngineStatus | null,
   toast: {
     visible: false,
     message: 'Listo',
@@ -350,8 +354,14 @@ export async function loadPermissionsModule(): Promise<void> {
 }
 
 export async function loadAuditLogs(): Promise<void> {
-  const data = await apiFetch<{ logs: AuditLogItem[] }>('/api/audit');
+  const data = await apiFetch<{
+    logs: AuditLogItem[];
+    shield?: RateLimitShieldStatus;
+    ingest?: BatchIngestEngineStatus;
+  }>('/api/audit');
   panelStore.auditLogs = data.logs || [];
+  if (data.shield) panelStore.securityShield = data.shield;
+  if (data.ingest) panelStore.securityIngest = data.ingest;
 }
 
 export async function switchTab(tab: PanelTab): Promise<void> {

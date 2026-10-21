@@ -12,6 +12,7 @@ import { registerApiRoutes } from './shared/infrastructure/http/routes/api.route
 import { hostService } from './shared/infrastructure/services/host-metrics.service';
 import { projectsFacadeUseCase } from './modules/projects/application/use-cases/projects-facade.use-case';
 import { manageDomainsUseCase } from './modules/domains/application/use-cases/manage-domains.use-case';
+import { manageAuditLogsUseCase } from './modules/security/application/use-cases/manage-audit-logs.use-case';
 
 dotenv.config();
 
@@ -35,6 +36,33 @@ async function bootstrap() {
   await app.register(fastifyCors, { origin: true, credentials: true });
   await app.register(fastifyCookie);
   await app.register(fastifyJwt, { secret: JWT_SECRET });
+
+  // 2.5 Middleware en Memoria Volátil (< 1ms): Rate-Limiting Dinámico por CPU & Escudo DDoS
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/api/')) return;
+    const decision = manageAuditLogsUseCase.evaluateRequest(
+      request.ip,
+      request.url
+    );
+    reply.header('X-RateLimit-Limit', String(decision.effectiveCapacity));
+    reply.header('X-RateLimit-Remaining', String(decision.remainingTokens));
+    reply.header('X-RateLimit-Mode', decision.protectionMode);
+    reply.header('X-Shield-Latency-Ms', String(decision.latencyMs));
+
+    if (
+      !decision.allowed &&
+      !request.url.startsWith('/api/security/') &&
+      !request.url.startsWith('/api/audit') &&
+      !request.url.startsWith('/api/auth/me')
+    ) {
+      return reply.code(429).send({
+        error: `Tráfico mitigado por Escudo DDoS / Token Bucket (${decision.reason}). Reintenta en ${decision.retryAfterSec}s.`,
+        reason: decision.reason,
+        retryAfterSec: decision.retryAfterSec,
+        latencyMs: decision.latencyMs,
+      });
+    }
+  });
 
   // 3. Registrar Enrutador Maestro de Módulos Hexagonales (Domain / Application / Infrastructure)
   await registerApiRoutes(app);
@@ -84,6 +112,10 @@ async function bootstrap() {
       projectsFacadeUseCase.listProjects(),
     ])
       .then(([host, projects]) => {
+        manageAuditLogsUseCase.updateLiveHostLoad(
+          host.cpu.usagePercent,
+          host.memory.usagePercent
+        );
         socket.emit('dashboard:update', { host, projects });
       })
       .catch(() => null);
@@ -97,6 +129,10 @@ async function bootstrap() {
             hostService.getHostMetrics(),
             projectsFacadeUseCase.listProjects(),
           ]);
+          manageAuditLogsUseCase.updateLiveHostLoad(
+            host.cpu.usagePercent,
+            host.memory.usagePercent
+          );
           io.emit('dashboard:update', { host, projects });
         } catch {
           // Ignorar errores transitorios de Docker
