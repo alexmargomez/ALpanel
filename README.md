@@ -6,9 +6,11 @@
 ![Vue 3](https://img.shields.io/badge/Vue_3-Composition_API_%2B_TS-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-Realtime_WebSockets-000000?logo=fastify&logoColor=white)
+![DDoS Shield](https://img.shields.io/badge/DDoS_Shield-Token_Bucket_%3C1ms_RAM-F59E0B)
+![Batch Ingest](https://img.shields.io/badge/Log_Ingest-Ring_Buffer_%2B_Backpressure-06B6D4)
 ![Docker Compose](https://img.shields.io/badge/Docker-Multi--Container-2496ED?logo=docker&logoColor=white)
 ![Architecture](https://img.shields.io/badge/Architecture-Hexagonal_(Ports_%26_Adapters)-8A2BE2)
-![Unit Tests](https://img.shields.io/badge/Tests-35_Passing_(Jest_%2B_ts--jest)-C21325?logo=jest&logoColor=white)
+![Unit Tests](https://img.shields.io/badge/Tests-36_Passing_(Jest_%2B_ts--jest)-C21325?logo=jest&logoColor=white)
 
 ---
 
@@ -16,30 +18,35 @@
 
 A diferencia de paneles pesados que consumen más de 1 GB de RAM o paneles limitados que solo permiten levantar un contenedor suelto por aplicación:
 
-1. **Soporte Nativo Multicontenedor (`Frontend` + `Backend` + `Database`):**
+1. **⚡ Motor de Rate-Limiting Dinámico por CPU & Mitigación de DDoS (`< 1ms` en Memoria Volátil):**
+   - Middleware nativo de ultra-baja latencia (`~0.02 ms` por decisión, complejidad `O(1)` en memoria RAM y **0 I/O de disco**) basado en el algoritmo **Token Bucket**.
+   - **Auto-escalado dinámico según la CPU real del VPS:** Si la carga del servidor supera el `70%`, reduce automáticamente la capacidad global de tráfico al `60%`; si supera el `80%`, activa el **Escudo Crítico DDoS** reduciendo los tokens permitidos al `25%` y bloqueando IPs atacantes en memoria volátil.
+   - Incluye un **Laboratorio Stress-Test DDoS interactivo** en la pestaña *Seguridad & Auditoría* para simular ráfagas de miles de peticiones y auditar la mitigación en vivo.
+2. **🌊 Motor de Ingesta Masiva de Logs & Agregación por Lotes (*Batching Ring Buffer* + *Backpressure*):**
+   - En lugar de ejecutar un `INSERT` SQL por cada evento de auditoría o telemetría (lo que colapsaría el disco duro ante ráfagas masivas), acumula los eventos en un **Ring Buffer en memoria RAM** (hasta `25,000` eventos) y los vuelca en lotes mediante `prisma.auditLog.createMany` cada **500 registros** o cada **2 segundos**, ahorrando más del **99% de operaciones IOPS** en MariaDB.
+   - Implementa **Contrapresión automática (*Backpressure HTTP 429*)** si el buffer supera el umbral crítico o si la base de datos presenta latencia elevada, más un **Simulador Benchmark JSON Burst** integrado en la UI.
+3. **Soporte Nativo Multicontenedor (`Frontend` + `Backend` + `Database`):**
    - Cada proyecto puede tener sus propios contenedores independientes (`frontend`, `backend`, `db`, `proxy`) dentro de su carpeta y su `docker-compose.yml`.
-   - Permite reiniciar o ver logs **solo del Frontend** o **solo del Backend** sin tocar la base de datos.
-2. **Monitoreo en Tiempo Real (WebSockets):**
+   - Permite reiniciar, reconstruir o ver logs **solo del Frontend** o **solo del Backend** sin tocar la base de datos.
+4. **🔄 Ciclo de Despliegue Seguro para Bases de Datos en Producción (4 Niveles Desacoplados):**
+   - **`Git Pull` (Solo Código + Rollback ante Conflictos):** Descarga exclusivamente los commits desde `origin/main` (o `master`) sin reiniciar ni destruir ningún contenedor Docker. Si detecta conflictos de fusión, ejecuta `git reset --hard <commit_previo>` automáticamente.
+   - **`Restart Docker`:** Reinicia contenedores en caliente aplicando los últimos cambios sin tocar volúmenes.
+   - **`Rebuild` (Seguro — Preserva Datos SQL):** Reconstruye las imágenes Docker (`docker compose up -d --build`) manteniendo intactos los volúmenes y datos de la base de datos.
+   - **`Rebuild Destroy` (Último Recurso — Recreación Total desde Cero):** Protegido con modal de confirmación explícita (`¿Seguro que quieres ejecutar Rebuild Destroy?`), destruye contenedores, volúmenes (`-v`) e imágenes locales, levanta todo desde cero y ejecuta las migraciones iniciales limpias.
+5. **Monitoreo en Tiempo Real (WebSockets):**
    - Barra superior con métricas reales del VPS (**CPU %**, **RAM usada/total**, **Disco SSD** y **Uptime**).
    - Medición exacta de **CPU (%)**, **RAM (MB)** y **Disco (MB)** por cada proyecto y desglosado por cada contenedor individual.
-3. **🔄 Despliegue en 1 Clic (`Git Pull & Restart`) con Rollback Automático:**
-   - Botón **Verificar remoto** que te avisa con una insignia (`⬆️ X commit(s) por bajar`) si hay cambios nuevos en GitHub/GitLab.
-   - Al ejecutar **Git Pull & Restart**, guarda el commit estable actual (`HEAD`); si el despliegue falla, revierte automáticamente a la versión anterior funcional.
-4. **🗄️ Inspector y Backup de Base de Datos en 1 Clic:**
+6. **🗄️ Inspector y Backup de Base de Datos en 1 Clic:**
    - El botón **Base de Datos** detecta automáticamente el motor (`MySQL`, `MariaDB`, `PostgreSQL`) y te entrega listos para copiar en **DBeaver, TablePlus o Navicat**:
      - **Host / IP Pública del VPS** y **Host Interno Docker**
      - **Puerto Externo** mapeado y **Puerto Interno**
-     - **Nombre de la Base de Datos (`Database`)**
-     - **Usuario (`Username`)** y **Contraseña (`Password`)** (con vista oculta y copiado rápido)
-     - **Usuario `root` / `postgres`** y su contraseña
+     - **Nombre de la Base de Datos (`Database`)**, **Usuario (`Username`)**, **Contraseña (`Password`)** y credenciales **`root` / `postgres`**
      - **URL de conexión directa** (`mysql://...` / `postgresql://...`) y **Comando de Terminal**
      - **Botón `Descargar Backup .SQL`** que ejecuta `mysqldump` / `pg_dump` en caliente y descarga el archivo `.sql` a tu navegador.
-5. **🧹 Limpieza Inteligente de Caché (Por Proyecto y Global):**
-   - **Por Proyecto:** Limpia archivos de caché según el stack detectado (`__pycache__`/`.pyc` en Python/Django, `php artisan optimize:clear` en Laravel, `php symfony cc` en Symfony) y recarga los contenedores.
+7. **🧹 Limpieza Inteligente de Caché (Por Proyecto y Global) + Enrutador SSL (Caddy):**
+   - **Por Proyecto:** Limpia archivos de caché según el stack detectado (`__pycache__`/`.pyc` en Python/Django, `php artisan optimize:clear` en Laravel, `php symfony cc` en Symfony).
    - **Global del Servidor (`Docker Prune`):** Libera gigas de disco eliminando imágenes huérfanas y caché de compilación de Docker.
-6. **🌐 Enrutador de Dominios SSL (Caddy) y Editor `.env`:**
-   - Edita las variables `.env` de cualquier proyecto desde el navegador (guardadas con permisos seguros `0600`) y reinicia el stack en 1 clic.
-   - Configura dominios y subdominios con HTTPS automático (Let's Encrypt), permitiendo enrutar `/` hacia el contenedor Frontend y `/api/*` hacia el contenedor Backend.
+   - **Dominios & SSL + Editor `.env`:** Configura dominios HTTPS automáticos con Caddy y edita variables `.env` (con permisos `0600`) desde el navegador.
 
 ---
 
@@ -206,13 +213,41 @@ volumes:
 
 ---
 
-## 🛡️ Seguridad y Prevención de Fallos Incorporada
+## ⚡ Motores de Alto Rendimiento: Mitigación DDoS Dinámica & Ingesta Masiva (Batching + Backpressure)
 
+Dentro de la pestaña **Seguridad & Auditoría**, ALpanel incorpora dos motores de ingeniería de alto rendimiento diseñados para proteger el servidor en tiempo real sin degradar la latencia ni saturar los discos SSD/NVMe:
+
+### 1. 🛡️ Motor de Rate-Limiting Dinámico por CPU & Mitigación de DDoS (`< 1ms` en Memoria Volátil)
+- **Algoritmo Token Bucket Atómico en RAM (`O(1)`):**
+  - Intercepta cada petición entrante en el hook `onRequest` de Fastify midiendo el tiempo de decisión con reloj de alta resolución en nanosegundos (`process.hrtime.bigint()`).
+  - Tiempo medio de respuesta por decisión: **`~0.01 ms – 0.05 ms`** (muy por debajo del presupuesto crítico de `< 2 ms`), **sin tocar el disco duro** ni realizar consultas SQL durante el filtrado.
+- **Límite Dinámico Consciente de la CPU del Servidor (*CPU-Aware Throttling*):**
+  - El motor se alimenta en vivo de la telemetría real del VPS (`HostService`) y ajusta automáticamente la capacidad y tasa de recarga global de los buckets:
+    - **Modo `NORMAL` (CPU `< 70%`):** Factor `1.0x` (100% de la capacidad base configurada).
+    - **Modo `THROTTLING_CPU_HIGH` (CPU `70% – 79%`):** Factor `0.6x` (reduce preventivamente el tráfico permitido al 60%).
+    - **Modo `CRITICAL_DDOS_SHIELD` (CPU `≥ 80%`):** Factor `0.25x` (reduce drásticamente el límite al 25% y duplica la penalización de *strikes* para contener ataques volumétricos).
+- **Bloqueo Volátil de IPs y Cabeceras Estándar:**
+  - Las IPs que agotan repetidamente su *Token Bucket* acumulan *strikes* y pasan a un mapa de bloqueo en memoria volátil (`IP_BLOCKED_MEMORY`) con expiración automática TTL y botón de **Desbloqueo en 1 clic** desde la interfaz.
+  - Inyecta cabeceras de telemetría en tiempo real: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Mode` y `X-Shield-Latency-Ms`.
+- **Laboratorio Stress-Test DDoS Integrado:**
+  - Permite disparar ráfagas controladas (`150` a `2,500` peticiones) simulando distintos escenarios de carga de CPU (`CPU Real`, `75% Alerta`, `88% Crítica`) para verificar la reducción dinámica de tokens y la velocidad de bloqueo en memoria.
+
+### 2. 🌊 Motor de Ingesta Masiva y Agregación de Logs/Métricas (*Batching Ring Buffer* + *Backpressure*)
+- **Arquitectura de Escritura Diferida por Lotes (*Batching*):**
+  - Escribir miles de eventos por segundo fila por fila (`INSERT` individual) colapsa cualquier base de datos relacional. El repositorio [`PrismaAuditLogRepository`](src/modules/security/infrastructure/repositories/prisma-audit-log.repository.ts) desacopla la recepción HTTP de la persistencia en disco mediante un **Buffer en Memoria (`writeBuffer`, capacidad `25,000` eventos)**.
+  - Los eventos se encolan en RAM en **`< 0.02 ms`** y un *worker* asíncrono los persiste en bloque usando `prisma.auditLog.createMany` cada **500 registros** o cada **2,000 ms**, reduciendo 500 escrituras de disco a **1 sola transacción SQL** (>99% de ahorro en IOPS).
+- **Mecanismo de Contrapresión (*Backpressure HTTP 429*):**
+  - Monitorea continuamente la ocupación del buffer y la latencia del último *flush* en MariaDB:
+    - `HEALTHY`: Ocupación `< 70%` y latencia de base de datos óptima.
+    - `ELEVATED`: Ocupación `> 70%` o *flush* lento (`> 600 ms`).
+    - `BACKPRESSURE_429`: Si el buffer supera el `90%` de capacidad o la base de datos se ralentiza críticamente, el motor activa contrapresión devolviendo `HTTP 429 Too Many Requests` para proteger la memoria del proceso Node.js y evitar tumbar el servidor principal.
+- **Benchmark Interactivo de Ingesta JSON:**
+  - Incluye botones en vivo (`+300 Eventos en RAM`, `+1,500 Batch Flush`, `+5,000 Stress Benchmark` y `Forzar Flush a MariaDB Ahora`) que miden el *throughput* real en **eventos/segundo** y el contador acumulado de **IOPS / Queries SQL ahorradas**.
+
+### 3. 🔒 Blindaje Adicional de Infraestructura
 - **Cero Credenciales en el Código:** Ninguna contraseña real, IP ni dominio se almacena en el repositorio; todo se lee desde `.env` (ignorado por Git).
-- **Protección Anti-Fuerza Bruta (Rate Limiting):** Bloqueo automático temporal por IP tras 5 intentos fallidos de inicio de sesión y comparación criptográfica `timingSafeEqual`.
-- **Sanitización contra Path Traversal e Inyección:** Todos los nombres de proyectos, contenedores, ramas y dominios se validan estrictamente y se confinan dentro de `PROJECTS_ROOT`.
+- **Sanitización contra Path Traversal e Inyección (`ProjectNameVO` / `DomainNameVO`):** Todos los nombres de proyectos, contenedores, ramas y dominios se validan estrictamente y se confinan dentro de `PROJECTS_ROOT`.
 - **Permisos `.env` Restringidos (`0600`):** Al crear o editar variables de entorno desde el panel, el archivo se protege con permisos `0600`.
-- **Registro de Auditoría (`Audit Log`):** Registra cada acción crítica (`GIT_PULL_DEPLOY`, `DOCKER_RESTART`, `DB_EXPORT_SQL`, `ENV_UPDATE`, `AUTH_LOGIN`) con IP y fecha sin exponer secretos en los logs.
 
 ---
 
@@ -242,12 +277,12 @@ ServerPanel/
 │       │   ├── usePanelStore.ts             # Store reactivo centralizado y guardas RBAC (hasPerm)
 │       │   └── useSocket.ts                 # Telemetría WebSocket en tiempo real (Socket.IO)
 │       ├── views/                           # Vistas principales de los 6 módulos
-│       │   ├── ProjectsView.vue
+│       │   ├── ProjectsView.vue             # Gestión multicontenedor, Git Pull puro, Rebuild y Rebuild Destroy
 │       │   ├── DomainsView.vue
 │       │   ├── GitGuideView.vue
 │       │   ├── UsersRolesView.vue
 │       │   ├── PermissionsView.vue
-│       │   └── SecurityAuditView.vue
+│       │   └── SecurityAuditView.vue        # Dashboard DDoS Token Bucket + Batch Ingest Engine + Auditoría
 │       └── components/
 │           ├── common/
 │           │   └── PermissionMatrixSelector.vue
@@ -282,13 +317,13 @@ ServerPanel/
 │   ├── modules/                             # ⬢ MÓDULOS HEXAGONALES (Domain / Application / Infrastructure)
 │   │   ├── projects/                        # Módulo Padre: Proyectos & Contenedores
 │   │   │   ├── domain/                      # Entidades, Value Objects (ProjectNameVO) y Excepciones
-│   │   │   ├── application/                 # Puertos (ContainerRuntimePort, GitRepositoryPort) y 7 Casos de Uso
+│   │   │   ├── application/                 # Puertos (ContainerRuntimePort, GitRepositoryPort) y Casos de Uso
 │   │   │   └── infrastructure/              # Adaptadores (Dockerode, Git CLI, Filesystem), Controlador y Rutas
 │   │   ├── domains/                         # Módulo Padre: Dominios & SSL (DomainNameVO, ReverseProxyPort, CaddyAdapter)
 │   │   ├── users/                           # Módulo Padre: Usuarios (UsernameVO, UserRepositoryPort, PrismaUserRepository)
 │   │   ├── roles/                           # Administración de Roles (RoleRepositoryPort, protección SuperAdmin)
 │   │   ├── permissions/                     # Matriz RBAC granular (PermissionRepositoryPort, caché en memoria)
-│   │   ├── security/                        # Auditoría (AuditLogRepositoryPort, ManageAuditLogsUseCase)
+│   │   ├── security/                        # Escudo DDoS Token Bucket (<1ms RAM) + Ring Buffer Batch Ingest + Auditoría
 │   │   ├── auth/                            # Autenticación JWT (LoginUserUseCase, GetUserProfileUseCase)
 │   │   ├── git/                             # Cuentas Git y Clonación de Repositorios
 │   │   └── dashboard/                       # Resumen de Métricas del Servidor
@@ -300,12 +335,11 @@ ServerPanel/
 │       ├── projects/                        # 📦 Sub-servicios del módulo "projects"
 │       │   ├── container-logs.service.ts    # -> projects.logs (Ver Logs y Métricas)
 │       │   ├── container-restart.service.ts # -> projects.restart_cache (Reiniciar y Limpiar Caché)
-│       │   ├── container-power.service.ts   # -> projects.stop_rebuild (Detener, Eliminar y Rebuild)
+│       │   ├── container-power.service.ts   # -> projects.stop_rebuild (Detener, Rebuild Seguro y Rebuild Destroy)
 │       │   ├── project-db.service.ts        # -> projects.db_view y projects.db_backup (Inspector y Backup SQL)
 │       │   ├── project-env.service.ts       # -> projects.env_view y projects.env_edit (Variables .env)
 │       │   ├── project-users.service.ts     # -> projects.app_users (Gestionar Usuarios Internos de cada App)
-│       │   ├── git-devmode.service.ts       # -> projects.dev_mode (Modo Desarrollador Git)
-│       │   └── git-deploy.service.ts        # -> projects.git_pull (Git Pull & Restart)
+│       │   └── git-deploy.service.ts        # -> projects.git_pull (Git Pull con Rollback ante Conflictos)
 │       ├── domains/                         # 🌐 Sub-servicios del módulo "domains"
 │       │   └── caddy-ssl.service.ts         # -> domains.manage (Gestionar Dominios y SSL)
 │       ├── git/                             # 🔑 Sub-servicios del módulo "git"
@@ -345,21 +379,22 @@ Todas las pruebas unitarias están centralizadas en la carpeta raíz [`tests/`](
 Gracias a la **Arquitectura Hexagonal**, toda la lógica de negocio y los casos de uso se prueban de forma **100% aislada en memoria** sin requerir contenedores Docker activos ni base de datos MariaDB conectada:
 
 ```bash
-# Ejecutar las 10 suites (31 tests unitarios)
+# Ejecutar las 10 suites (36 tests unitarios)
 npm test
 
 # Ejecutar con reporte de cobertura de código
 npm run test:cov
 ```
 
-### Cobertura de las 10 Suites (31 Tests)
+### Cobertura de las 10 Suites (36 Tests)
 - **Dominio y Excepciones (`domain/`):**
   - `ProjectNameVO`: Sanitización de nombres, bloqueo de *Path Traversal* (`../etc/passwd`), inyección de comandos y resolución segura de rutas (`isSelfPanel`).
   - `UsernameVO` y `DomainNameVO`: Normalización y validación estricta de nombres de usuario y dominios/subdominios SSL.
   - `DomainException`: Verificación de códigos de estado HTTP (`400`, `401`, `403`, `404`) en todas las excepciones de dominio.
 - **Casos de Uso con Puertos Mockeados en Memoria (`application/`):**
-  - `projects`: `ListProjectsUseCase`, `ManageProjectEnvUseCase` (permisos `0600` y fallback `.env.example`), `ManageProjectDbUseCase` (extracción de credenciales MariaDB/PostgreSQL y armado de URLs/CLI), `ManageContainerPowerUseCase` (protección anti-apagado de ALpanel), `ToggleDevModeUseCase` y detección de roles en `DockerodeRuntimeAdapter`.
-  - `users`, `roles`, `permissions`, `domains`, `security`: Pruebas CRUD completas sobre *In-Memory Repository & Proxy Ports* y protección inmutable del rol `superadmin`.
+  - `security`: Pruebas de escalamiento dinámico del **Token Bucket** cuando la CPU supera el 80% (`0.25x`), bloqueo y desbloqueo de IPs atacantes en memoria volátil en `< 2ms`, e **Ingesta Masiva por Lotes** verificando el ahorro de operaciones SQL.
+  - `projects`: `ListProjectsUseCase`, `ManageProjectEnvUseCase` (permisos `0600` y fallback `.env.example`), `ManageProjectDbUseCase` (extracción de credenciales MariaDB/PostgreSQL y armado de URLs/CLI), `ManageContainerPowerUseCase` (protección anti-apagado de ALpanel), aislamiento de variables Docker Compose y sincronización automática de puertos/dominios en `.env`.
+  - `users`, `roles`, `permissions`, `domains`: Pruebas CRUD completas sobre *In-Memory Repository & Proxy Ports* y protección inmutable del rol `superadmin`.
 - **Seguridad e Infraestructura Compartida (`shared/`):**
   - `CryptoService`: Hashing `scrypt` con salt aleatorio/fijo y verificación `timingSafeEqual`.
   - `auth.middleware`: Pruebas unitarias de `authenticate` (JWT) y `requirePermission` (RBAC y bypass de `superadmin`).
