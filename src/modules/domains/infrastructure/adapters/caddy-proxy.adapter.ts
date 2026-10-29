@@ -31,27 +31,34 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
       '',
     ];
 
+    const sanitizeToken = (val?: string) =>
+      (val || '').replace(/[\r\n{}#;"'`$\\]/g, '').trim();
+
     for (const r of list) {
-      blocks.push(`${r.domain} {`);
-      if (
-        r.apiPathPrefix &&
-        r.backendTarget &&
-        r.backendTarget !== r.frontendTarget
-      ) {
-        blocks.push(`    handle ${r.apiPathPrefix} {`);
-        blocks.push(`        reverse_proxy ${r.backendTarget}`);
+      const safeDomain = sanitizeToken(r.domain);
+      const safePrefix = sanitizeToken(r.apiPathPrefix || '');
+      const safeFront = sanitizeToken(r.frontendTarget);
+      const safeBack = sanitizeToken(r.backendTarget || '');
+      if (!safeDomain || !safeFront) continue;
+
+      blocks.push(`${safeDomain} {`);
+      if (safePrefix && safeBack && safeBack !== safeFront) {
+        blocks.push(`    handle ${safePrefix} {`);
+        blocks.push(`        reverse_proxy ${safeBack}`);
         blocks.push(`    }`);
         blocks.push(`    handle {`);
-        blocks.push(`        reverse_proxy ${r.frontendTarget}`);
+        blocks.push(`        reverse_proxy ${safeFront}`);
         blocks.push(`    }`);
       } else {
-        blocks.push(`    reverse_proxy ${r.frontendTarget}`);
+        blocks.push(`    reverse_proxy ${safeFront}`);
       }
       blocks.push(`}\n`);
     }
 
     const content = blocks.join('\n');
-    fs.writeFileSync(this.caddyfilePath, content, 'utf-8');
+    const tmpPath = `${this.caddyfilePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    fs.renameSync(tmpPath, this.caddyfilePath);
     return content;
   }
 

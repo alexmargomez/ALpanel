@@ -10,7 +10,7 @@ export class ProjectNameVO {
 
   constructor(rawName: string) {
     const clean = (rawName || '').replace(/[^a-zA-Z0-9._-]/g, '');
-    if (!clean || clean !== rawName) {
+    if (!clean || clean !== rawName || clean === '.' || clean === '..') {
       throw new InvalidProjectNameException(rawName);
     }
     this.value = clean;
@@ -26,8 +26,10 @@ export class ProjectNameVO {
     if (ProjectNameVO.isSelfPanel(this.value, panelSelfDir) && fs.existsSync(panelSelfDir)) {
       return path.resolve(panelSelfDir);
     }
-    const resolved = path.resolve(projectsRoot, this.value);
-    if (!resolved.startsWith(path.resolve(projectsRoot))) {
+    const rootResolved = path.resolve(projectsRoot);
+    const resolved = path.resolve(rootResolved, this.value);
+    const rel = path.relative(rootResolved, resolved);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
       throw new ProjectAccessDeniedException();
     }
     return resolved;

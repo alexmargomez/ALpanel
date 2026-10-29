@@ -36,8 +36,10 @@ export class ManageProjectEnvUseCase {
       this.panelSelfDir
     );
     const envPath = path.join(projectDir, '.env');
-    fs.writeFileSync(envPath, content, 'utf-8');
-    fs.chmodSync(envPath, 0o600);
+    const tmpPath = `${envPath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
+    fs.chmodSync(tmpPath, 0o600);
+    fs.renameSync(tmpPath, envPath);
     if (this.onInvalidateCache) {
       this.onInvalidateCache(projectDir);
     }
@@ -47,7 +49,7 @@ export class ManageProjectEnvUseCase {
     }
     return {
       success: true,
-      output: 'Archivo .env guardado correctamente (permisos 0600).',
+      output: 'Archivo .env guardado de forma atómica correctamente (permisos 0600).',
     };
   }
 }

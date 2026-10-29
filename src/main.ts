@@ -31,7 +31,7 @@ async function bootstrap() {
   // 2. Sincronizar rutas de dominios desde MariaDB hacia el archivo Caddyfile
   await manageDomainsUseCase.reloadCaddy().catch(() => null);
 
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, trustProxy: true });
 
   await app.register(fastifyCors, { origin: true, credentials: true });
   await app.register(fastifyCookie);
