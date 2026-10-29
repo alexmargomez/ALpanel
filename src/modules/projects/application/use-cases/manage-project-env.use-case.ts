@@ -37,9 +37,18 @@ export class ManageProjectEnvUseCase {
     );
     const envPath = path.join(projectDir, '.env');
     const tmpPath = `${envPath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
-    fs.chmodSync(tmpPath, 0o600);
-    fs.renameSync(tmpPath, envPath);
+    try {
+      fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
+      fs.chmodSync(tmpPath, 0o600);
+      fs.renameSync(tmpPath, envPath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {
+        // Ignore cleanup error
+      }
+      throw err;
+    }
     if (this.onInvalidateCache) {
       this.onInvalidateCache(projectDir);
     }

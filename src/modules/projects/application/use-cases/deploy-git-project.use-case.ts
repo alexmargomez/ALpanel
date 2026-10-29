@@ -232,12 +232,21 @@ export class DeployGitProjectUseCase {
 
         const envFile = path.join(targetDir, '.env');
         const tmpEnvFile = `${envFile}.${process.pid}.${Date.now()}.tmp`;
-        fs.writeFileSync(tmpEnvFile, finalEnvContent + '\n', {
-          encoding: 'utf-8',
-          mode: 0o600,
-        });
-        fs.chmodSync(tmpEnvFile, 0o600);
-        fs.renameSync(tmpEnvFile, envFile);
+        try {
+          fs.writeFileSync(tmpEnvFile, finalEnvContent + '\n', {
+            encoding: 'utf-8',
+            mode: 0o600,
+          });
+          fs.chmodSync(tmpEnvFile, 0o600);
+          fs.renameSync(tmpEnvFile, envFile);
+        } catch (err) {
+          try {
+            if (fs.existsSync(tmpEnvFile)) fs.unlinkSync(tmpEnvFile);
+          } catch {
+            // Ignore cleanup error
+          }
+          throw err;
+        }
         logs.push('==> Archivo .env creado atómicamente con permisos restringidos (0600).');
       }
 

@@ -56,9 +56,18 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
     }
 
     const content = blocks.join('\n');
-    const tmpPath = `${this.caddyfilePath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, content, 'utf-8');
-    fs.renameSync(tmpPath, this.caddyfilePath);
+    const tmpPath = `${this.caddyfilePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, content, 'utf-8');
+      fs.renameSync(tmpPath, this.caddyfilePath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {
+        // Ignore cleanup error
+      }
+      throw err;
+    }
     return content;
   }
 
