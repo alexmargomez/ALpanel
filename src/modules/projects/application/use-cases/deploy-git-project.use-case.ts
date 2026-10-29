@@ -34,7 +34,7 @@ export class DeployGitProjectUseCase {
     const gitDir = path.join(projectDir, '.git');
     const hooksDir = path.join(gitDir, 'hooks');
     await execAsync(
-      `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && chmod -R a-wx "${hooksDir}" 2>/dev/null || true`
+      `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && find "${hooksDir}" -type f -exec chmod a-wx {} + 2>/dev/null || true`
     ).catch(() => null);
   }
 

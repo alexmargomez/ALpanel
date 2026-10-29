@@ -17,7 +17,7 @@ export class GitCliAdapter implements GitRepositoryPort {
     const gitDir = path.join(panelSelfDir, '.git');
     if (fs.existsSync(gitDir)) {
       exec(
-        `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && chmod -R a-wx "${path.join(gitDir, 'hooks')}" 2>/dev/null || true`,
+        `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && find "${path.join(gitDir, 'hooks')}" -type f -exec chmod a-wx {} + 2>/dev/null || true`,
         () => {}
       );
     }
@@ -35,7 +35,7 @@ export class GitCliAdapter implements GitRepositoryPort {
     const gitDir = path.join(projectDir, '.git');
     if (fs.existsSync(gitDir)) {
       await execAsync(
-        `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && chmod -R a-wx "${path.join(gitDir, 'hooks')}" 2>/dev/null || true`
+        `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && find "${path.join(gitDir, 'hooks')}" -type f -exec chmod a-wx {} + 2>/dev/null || true`
       ).catch(() => null);
     }
   }

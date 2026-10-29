@@ -121,16 +121,15 @@ export class ManageAuditLogsUseCase {
   private static readonly MAX_BLOCKED_IPS = 5000;
 
   private pruneExpiredMemoryEntries(nowMs: number): void {
-    // Evicción O(1) amortizada desde la cabeza del Map (orden de inserción/LRU)
-    while (this.blockedIps.size > 0) {
-      const firstEntry = this.blockedIps.entries().next().value;
-      if (!firstEntry) break;
-      const [ip, rec] = firstEntry;
-      if (nowMs >= rec.expiresAtMs || this.blockedIps.size > ManageAuditLogsUseCase.MAX_BLOCKED_IPS) {
+    for (const [ip, rec] of this.blockedIps.entries()) {
+      if (nowMs >= rec.expiresAtMs) {
         this.blockedIps.delete(ip);
-      } else {
-        break;
       }
+    }
+    while (this.blockedIps.size >= ManageAuditLogsUseCase.MAX_BLOCKED_IPS) {
+      const oldestBlocked = this.blockedIps.keys().next().value;
+      if (oldestBlocked === undefined) break;
+      this.blockedIps.delete(oldestBlocked);
     }
 
     while (this.buckets.size >= ManageAuditLogsUseCase.MAX_TRACKED_BUCKETS) {
