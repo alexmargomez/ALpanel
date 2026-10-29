@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
+import { GitRepoUrlVO } from '../../domain/value-objects/git-repo-url.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import {
@@ -131,21 +132,21 @@ export class DeployGitProjectUseCase {
       };
     }
 
-    if (!/^https?:\/\/|^git@|^ssh:\/\//.test(payload.repoUrl.trim())) {
-      return { success: false, output: 'URL de repositorio Git inválida.' };
+    let safeRepoUrl: string;
+    let safeBranch: string;
+    try {
+      safeRepoUrl = new GitRepoUrlVO(payload.repoUrl).value;
+      safeBranch = GitRepoUrlVO.sanitizeBranch(payload.branch);
+    } catch (err: any) {
+      return { success: false, output: err?.message || 'URL de repositorio Git inválida.' };
     }
 
     const logs: string[] = [];
     try {
-      const branchArg = payload.branch
-        ? `-b ${payload.branch.replace(/[^a-zA-Z0-9._/-]/g, '')}`
-        : '';
-      logs.push(`==> Clonando ${payload.repoUrl} en ${targetDir}...`);
+      const branchArg = safeBranch ? `-b "${safeBranch}"` : '';
+      logs.push(`==> Clonando ${safeRepoUrl} en ${targetDir}...`);
       const cloneRes = await execAsync(
-        `git clone ${branchArg} "${payload.repoUrl.replace(
-          /"/g,
-          ''
-        )}" "${targetDir}"`,
+        `git clone ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
         { timeout: 180000 }
       );
       await execAsync(
