@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
+import { GitRepoUrlVO } from '../../domain/value-objects/git-repo-url.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import {
@@ -15,6 +16,12 @@ import { domainsService } from '../../../domains/application/use-cases/manage-do
 const execAsync = promisify(exec);
 
 export class DeployGitProjectUseCase {
+  /**
+   * Mutex en memoria por proyecto para impedir colisiones en .git/index.lock
+   * cuando dos administradores solicitan despliegue simultáneo del mismo proyecto.
+   */
+  private static readonly activeDeployments = new Set<string>();
+
   constructor(
     private readonly gitAdapter: GitRepositoryPort,
     private readonly runtime: ContainerRuntimePort,
@@ -22,6 +29,14 @@ export class DeployGitProjectUseCase {
     private readonly panelSelfDir = process.env.PANEL_SELF_PATH || '/opt/alpanel',
     private readonly onInvalidateCache?: (projectDir?: string) => void
   ) {}
+
+  private async hardenGitDirPermissions(projectDir: string): Promise<void> {
+    const gitDir = path.join(projectDir, '.git');
+    const hooksDir = path.join(gitDir, 'hooks');
+    await execAsync(
+      `chmod -R u+rwX,go+rX "${gitDir}" 2>/dev/null && find "${hooksDir}" -type f -exec chmod a-wx {} + 2>/dev/null || true`
+    ).catch(() => null);
+  }
 
   async checkProjectUpdates(projectName: string): Promise<{
     success: boolean;
@@ -40,16 +55,23 @@ export class DeployGitProjectUseCase {
   async gitPullAndRestart(
     projectName: string
   ): Promise<{ success: boolean; output: string }> {
-    const projectDir = new ProjectNameVO(projectName).resolvePath(
-      this.projectsRoot,
-      this.panelSelfDir
-    );
-    const isSelfPanel = ProjectNameVO.isSelfPanel(projectName, this.panelSelfDir);
+    const cleanVo = new ProjectNameVO(projectName);
+    const projectDir = cleanVo.resolvePath(this.projectsRoot, this.panelSelfDir);
+    const lockKey = cleanVo.value.toLowerCase();
+
+    if (DeployGitProjectUseCase.activeDeployments.has(lockKey)) {
+      return {
+        success: false,
+        output: `⏳ Ya existe una operación de despliegue en curso para '${cleanVo.value}'. Espera a que termine para evitar corrupción en .git/index.lock.`,
+      };
+    }
+
+    DeployGitProjectUseCase.activeDeployments.add(lockKey);
     const logs: string[] = [];
     let prevHead = '';
 
     try {
-      const headRes = await execAsync('git rev-parse HEAD', {
+      const headRes = await execAsync('git -c core.hooksPath=/dev/null rev-parse HEAD', {
         cwd: projectDir,
       }).catch(() => ({ stdout: '' }));
       prevHead = headRes.stdout.trim();
@@ -59,17 +81,18 @@ export class DeployGitProjectUseCase {
           prevHead.slice(0, 7) || 'N/A'
         })...`
       );
-      await execAsync('git fetch origin && git checkout main', {
-        cwd: projectDir,
-        timeout: 30000,
-      }).catch(() => null);
-      const pullRes = await execAsync('git pull origin main', {
+      await execAsync(
+        'git -c core.hooksPath=/dev/null fetch origin && git -c core.hooksPath=/dev/null checkout main',
+        {
+          cwd: projectDir,
+          timeout: 30000,
+        }
+      ).catch(() => null);
+      const pullRes = await execAsync('git -c core.hooksPath=/dev/null pull origin main', {
         cwd: projectDir,
         timeout: 60000,
       });
-      await execAsync(
-        `chmod -R a+rwX "${path.join(projectDir, '.git')}" 2>/dev/null || true`
-      ).catch(() => null);
+      await this.hardenGitDirPermissions(projectDir);
       this.onInvalidateCache?.(projectDir);
       logs.push(pullRes.stdout.trim() || 'Already up to date.');
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
@@ -93,13 +116,10 @@ export class DeployGitProjectUseCase {
               7
             )}...`
           );
-          await execAsync(`git reset --hard ${prevHead}`, { cwd: projectDir });
-          await execAsync(
-            `chmod -R a+rwX "${path.join(
-              projectDir,
-              '.git'
-            )}" 2>/dev/null || true`
-          ).catch(() => null);
+          await execAsync(`git -c core.hooksPath=/dev/null reset --hard ${prevHead}`, {
+            cwd: projectDir,
+          });
+          await this.hardenGitDirPermissions(projectDir);
           this.onInvalidateCache?.(projectDir);
           logs.push(
             `✅ Rollback de Git completado. El repositorio y sus contenedores siguen intactos en la versión estable anterior.`
@@ -109,6 +129,8 @@ export class DeployGitProjectUseCase {
         }
       }
       return { success: false, output: logs.join('\n') };
+    } finally {
+      DeployGitProjectUseCase.activeDeployments.delete(lockKey);
     }
   }
 
@@ -131,26 +153,33 @@ export class DeployGitProjectUseCase {
       };
     }
 
-    if (!/^https?:\/\/|^git@|^ssh:\/\//.test(payload.repoUrl.trim())) {
-      return { success: false, output: 'URL de repositorio Git inválida.' };
+    let safeRepoUrl: string;
+    let safeBranch: string;
+    try {
+      safeRepoUrl = new GitRepoUrlVO(payload.repoUrl).value;
+      safeBranch = GitRepoUrlVO.sanitizeBranch(payload.branch);
+    } catch (err: any) {
+      return { success: false, output: err?.message || 'URL de repositorio Git inválida.' };
     }
 
+    const lockKey = cleanName.toLowerCase();
+    if (DeployGitProjectUseCase.activeDeployments.has(lockKey)) {
+      return {
+        success: false,
+        output: `⏳ Ya existe una clonación en curso para '${cleanName}'.`,
+      };
+    }
+
+    DeployGitProjectUseCase.activeDeployments.add(lockKey);
     const logs: string[] = [];
     try {
-      const branchArg = payload.branch
-        ? `-b ${payload.branch.replace(/[^a-zA-Z0-9._/-]/g, '')}`
-        : '';
-      logs.push(`==> Clonando ${payload.repoUrl} en ${targetDir}...`);
+      const branchArg = safeBranch ? `-b "${safeBranch}"` : '';
+      logs.push(`==> Clonando ${safeRepoUrl} en ${targetDir}...`);
       const cloneRes = await execAsync(
-        `git clone ${branchArg} "${payload.repoUrl.replace(
-          /"/g,
-          ''
-        )}" "${targetDir}"`,
+        `git -c core.hooksPath=/dev/null clone ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
         { timeout: 180000 }
       );
-      await execAsync(
-        `chmod -R a+rwX "${path.join(targetDir, '.git')}" 2>/dev/null || true`
-      ).catch(() => null);
+      await this.hardenGitDirPermissions(targetDir);
       this.onInvalidateCache?.();
       if (cloneRes.stdout) logs.push(cloneRes.stdout.trim());
       if (cloneRes.stderr) logs.push(cloneRes.stderr.trim());
@@ -202,9 +231,23 @@ export class DeployGitProjectUseCase {
         }
 
         const envFile = path.join(targetDir, '.env');
-        fs.writeFileSync(envFile, finalEnvContent + '\n', 'utf-8');
-        fs.chmodSync(envFile, 0o600);
-        logs.push('==> Archivo .env creado con permisos restringidos (0600).');
+        const tmpEnvFile = `${envFile}.${process.pid}.${Date.now()}.tmp`;
+        try {
+          fs.writeFileSync(tmpEnvFile, finalEnvContent + '\n', {
+            encoding: 'utf-8',
+            mode: 0o600,
+          });
+          fs.chmodSync(tmpEnvFile, 0o600);
+          fs.renameSync(tmpEnvFile, envFile);
+        } catch (err) {
+          try {
+            if (fs.existsSync(tmpEnvFile)) fs.unlinkSync(tmpEnvFile);
+          } catch {
+            // Ignore cleanup error
+          }
+          throw err;
+        }
+        logs.push('==> Archivo .env creado atómicamente con permisos restringidos (0600).');
       }
 
       if (
@@ -231,6 +274,8 @@ export class DeployGitProjectUseCase {
     } catch (error: any) {
       logs.push(`❌ Error: ${error?.stderr || error?.message}`);
       return { success: false, output: logs.join('\n') };
+    } finally {
+      DeployGitProjectUseCase.activeDeployments.delete(lockKey);
     }
   }
 }

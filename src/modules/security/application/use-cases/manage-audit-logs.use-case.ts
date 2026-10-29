@@ -117,18 +117,25 @@ export class ManageAuditLogsUseCase {
     };
   }
 
+  private static readonly MAX_TRACKED_BUCKETS = 5000;
+  private static readonly MAX_BLOCKED_IPS = 5000;
+
   private pruneExpiredMemoryEntries(nowMs: number): void {
     for (const [ip, rec] of this.blockedIps.entries()) {
       if (nowMs >= rec.expiresAtMs) {
         this.blockedIps.delete(ip);
       }
     }
-    if (this.buckets.size > 5000) {
-      for (const [ip, b] of this.buckets.entries()) {
-        if (nowMs - b.lastRefillMs > 120000) {
-          this.buckets.delete(ip);
-        }
-      }
+    while (this.blockedIps.size >= ManageAuditLogsUseCase.MAX_BLOCKED_IPS) {
+      const oldestBlocked = this.blockedIps.keys().next().value;
+      if (oldestBlocked === undefined) break;
+      this.blockedIps.delete(oldestBlocked);
+    }
+
+    while (this.buckets.size >= ManageAuditLogsUseCase.MAX_TRACKED_BUCKETS) {
+      const oldestIp = this.buckets.keys().next().value;
+      if (oldestIp === undefined) break;
+      this.buckets.delete(oldestIp);
     }
   }
 
@@ -198,10 +205,10 @@ export class ManageAuditLogsUseCase {
       }
     }
 
-    // 2. Algoritmo Token Bucket en memoria volátil (O(1))
+    // 2. Algoritmo Token Bucket en memoria volátil con cota dura O(1) LRU (MAX_TRACKED_BUCKETS = 5000)
     let bucket = this.buckets.get(ip);
     if (!bucket) {
-      if (this.buckets.size > 5000) {
+      if (this.buckets.size >= ManageAuditLogsUseCase.MAX_TRACKED_BUCKETS) {
         this.pruneExpiredMemoryEntries(nowMs);
       }
       bucket = {
@@ -211,6 +218,9 @@ export class ManageAuditLogsUseCase {
       };
       this.buckets.set(ip, bucket);
     } else {
+      // Actualizar orden LRU en O(1)
+      this.buckets.delete(ip);
+      this.buckets.set(ip, bucket);
       const elapsedSec = Math.max(0, (nowMs - bucket.lastRefillMs) / 1000);
       if (elapsedSec > 0) {
         bucket.tokens = Math.min(

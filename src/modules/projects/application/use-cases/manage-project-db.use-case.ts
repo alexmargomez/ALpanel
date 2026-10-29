@@ -176,11 +176,12 @@ export class ManageProjectDbUseCase {
     const isPg = db.engine.toLowerCase().includes('postgres');
     const container = db.containerName.replace(/[^a-zA-Z0-9._-]/g, '');
     const dbName = db.database.replace(/[^a-zA-Z0-9._-]/g, '');
+    const rootUser = db.rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootPass = db.rootPassword.replace(/'/g, "'\\''");
 
     const cmd = isPg
-      ? `docker exec -e PGPASSWORD='${rootPass}' ${container} pg_dump -U ${db.rootUsername} ${dbName}`
-      : `docker exec ${container} sh -c "(command -v mariadb-dump >/dev/null 2>&1 && mariadb-dump -u ${db.rootUsername} -p'${rootPass}' ${dbName}) || mysqldump -u ${db.rootUsername} -p'${rootPass}' ${dbName}"`;
+      ? `docker exec -e PGPASSWORD='${rootPass}' ${container} pg_dump -U ${rootUser} ${dbName}`
+      : `docker exec ${container} sh -c "(command -v mariadb-dump >/dev/null 2>&1 && mariadb-dump -u ${rootUser} -p'${rootPass}' ${dbName}) || mysqldump -u ${rootUser} -p'${rootPass}' ${dbName}"`;
 
     const { stdout } = await execAsync(cmd, {
       maxBuffer: 50 * 1024 * 1024,
