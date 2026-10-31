@@ -205,17 +205,34 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     expect(mariaDb.cliCommand).toMatch(/mysql -h 203\.0\.113\.10 -P 3307/);
   });
 
-  it('ManageContainerPowerUseCase impide detener el contenedor principal de ALpanel por seguridad', async () => {
+  it('ManageContainerPowerUseCase impide detener o eliminar el contenedor principal de ALpanel por seguridad y elimina proyectos alojados', async () => {
+    const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-del-'));
+    const projDir = path.join(tmpBase, 'demo_delete_app');
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.writeFileSync(path.join(projDir, 'README.md'), '# demo', 'utf-8');
+
     const runtime = new InMemoryContainerRuntimeMock();
     const powerUseCase = new ManageContainerPowerUseCase(
       runtime,
-      '/opt/projects',
+      tmpBase,
       '/opt/alpanel'
     );
 
-    const stopRes = await powerUseCase.stopProject('alpanel');
-    expect(stopRes.success).toBe(false);
-    expect(stopRes.output).toMatch(/no puedes detener ALpanel/i);
+    try {
+      const stopRes = await powerUseCase.stopProject('alpanel');
+      expect(stopRes.success).toBe(false);
+      expect(stopRes.output).toMatch(/no puedes detener ALpanel/i);
+
+      const delSelfRes = await powerUseCase.deleteProject('alpanel');
+      expect(delSelfRes.success).toBe(false);
+      expect(delSelfRes.output).toMatch(/eliminar el proyecto principal ALpanel/i);
+
+      const delProjRes = await powerUseCase.deleteProject('demo_delete_app');
+      expect(delProjRes.success).toBe(true);
+      expect(fs.existsSync(projDir)).toBe(false);
+    } finally {
+      fs.rmSync(tmpBase, { recursive: true, force: true });
+    }
   });
 
   it('ListProjectsUseCase descubre proyectos, agrega métricas y ordena ALpanel primero', async () => {

@@ -173,6 +173,10 @@ export class ProjectsFacadeUseCase {
     );
   }
 
+  async deleteProject(projectName: string) {
+    return this.powerUseCase.deleteProject(projectName);
+  }
+
   async clearProjectCache(projectName: string) {
     return this.powerUseCase.clearProjectCache(projectName, () =>
       this.listProjects()

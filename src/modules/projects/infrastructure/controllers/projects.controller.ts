@@ -94,6 +94,21 @@ export class ProjectsController {
     return res;
   }
 
+  async deleteProject(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const res = await projectsService.deleteProject(name);
+    await manageAuditLogsUseCase.recordAudit(
+      'PROJECT_DELETE',
+      name,
+      request.ip,
+      res.success ? 'ok' : 'error'
+    );
+    if (!res.success) {
+      return reply.code(400).send({ error: res.output, output: res.output });
+    }
+    return res;
+  }
+
   async clearCache(request: FastifyRequest, _reply: FastifyReply) {
     const { name } = request.params as { name: string };
     const res = await projectsService.clearProjectCache(name);

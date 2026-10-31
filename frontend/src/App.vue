@@ -2,6 +2,7 @@
 import { onMounted } from 'vue';
 import {
   apiFetch,
+  applyTheme,
   hasPerm,
   panelStore,
   refreshAll,
@@ -92,6 +93,7 @@ async function bootstrapSession(): Promise<void> {
 }
 
 onMounted(() => {
+  applyTheme();
   registerUnauthorizedHandler(logout);
   bootstrapSession();
 });

@@ -2,6 +2,7 @@ body {
   background-color: #0B0F19;
   color: #F3F4F6;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -17,3 +18,159 @@ body {
   background: #374151;
   border-radius: 3px;
 }
+
+/* ==========================================================================
+   MODO DÍA (LIGHT MODE) — ALpanel Global Theme Overrides
+   ========================================================================== */
+html.light-mode body {
+  background-color: #F1F5F9;
+  color: #0F172A;
+}
+
+html.light-mode .scrollbar-thin::-webkit-scrollbar-track {
+  background: #E2E8F0;
+}
+
+html.light-mode .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+}
+
+/* Fondos de tarjetas, headers, contenedores e inputs */
+html.light-mode .bg-slate-900,
+html.light-mode .bg-slate-900\/90,
+html.light-mode .bg-slate-900\/80,
+html.light-mode .bg-slate-900\/70,
+html.light-mode .bg-slate-900\/60 {
+  background-color: #FFFFFF !important;
+}
+
+html.light-mode .bg-slate-950,
+html.light-mode .bg-slate-950\/90,
+html.light-mode .bg-slate-950\/80,
+html.light-mode .bg-slate-950\/70,
+html.light-mode .bg-slate-950\/60,
+html.light-mode .bg-slate-950\/50 {
+  background-color: #F8FAFC !important;
+}
+
+/* Mantener backdrop oscuro en modales superpuestos */
+html.light-mode .fixed.inset-0.bg-slate-950\/85,
+html.light-mode .fixed.inset-0.bg-slate-950\/80 {
+  background-color: rgba(15, 23, 42, 0.55) !important;
+}
+
+html.light-mode .bg-slate-800,
+html.light-mode .bg-slate-800\/80,
+html.light-mode .bg-slate-800\/60 {
+  background-color: #F1F5F9 !important;
+}
+
+html.light-mode .hover\:bg-slate-700:hover,
+html.light-mode .hover\:bg-slate-800:hover {
+  background-color: #E2E8F0 !important;
+}
+
+/* Gradiente de Login en Modo Día */
+html.light-mode .from-slate-950.via-slate-900.to-indigo-950 {
+  background-image: linear-gradient(to bottom right, #EEF2FF, #F8FAFC, #E0E7FF) !important;
+}
+
+/* Bordes y divisores */
+html.light-mode .border-slate-800,
+html.light-mode .border-slate-800\/80,
+html.light-mode .border-slate-800\/60,
+html.light-mode .border-slate-700,
+html.light-mode .border-slate-700\/80 {
+  border-color: #CBD5E1 !important;
+}
+
+html.light-mode .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #E2E8F0 !important;
+}
+
+/* Tipografía y contraste de textos (preservando botones sólidos con bg-indigo/rose/emerald/amber) */
+html.light-mode .text-white:not(.bg-indigo-600):not(.bg-indigo-500):not(.bg-rose-600):not(.bg-rose-500):not(.bg-emerald-600):not(.bg-emerald-500):not(.bg-amber-600) {
+  color: #0F172A !important;
+}
+
+html.light-mode .bg-indigo-600,
+html.light-mode .bg-indigo-600 .text-white,
+html.light-mode .bg-rose-600,
+html.light-mode .bg-rose-600 .text-white,
+html.light-mode .bg-emerald-600,
+html.light-mode .bg-emerald-600 .text-white {
+  color: #FFFFFF !important;
+}
+
+html.light-mode .text-slate-200 {
+  color: #1E293B !important;
+}
+
+html.light-mode .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light-mode .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light-mode .text-slate-500 {
+  color: #64748B !important;
+}
+
+/* Colores de acento optimizados para fondo claro */
+html.light-mode .text-indigo-300,
+html.light-mode .text-indigo-400 {
+  color: #4F46E5 !important;
+}
+
+html.light-mode .text-emerald-300,
+html.light-mode .text-emerald-400 {
+  color: #059669 !important;
+}
+
+html.light-mode .text-amber-300,
+html.light-mode .text-amber-400 {
+  color: #D97706 !important;
+}
+
+html.light-mode .text-rose-300,
+html.light-mode .text-rose-400 {
+  color: #E11D48 !important;
+}
+
+html.light-mode .text-cyan-300,
+html.light-mode .text-cyan-400 {
+  color: #0891B2 !important;
+}
+
+html.light-mode .text-sky-300,
+html.light-mode .text-sky-400 {
+  color: #0284C7 !important;
+}
+
+html.light-mode .text-purple-300,
+html.light-mode .text-purple-400 {
+  color: #7C3AED !important;
+}
+
+/* Fondos semánticos suaves en Modo Día */
+html.light-mode .bg-rose-950\/60,
+html.light-mode .bg-rose-950\/50,
+html.light-mode .bg-rose-950\/40,
+html.light-mode .bg-rose-950\/30 {
+  background-color: #FFE4E6 !important;
+}
+
+html.light-mode .bg-emerald-950\/60,
+html.light-mode .bg-emerald-950\/40,
+html.light-mode .bg-emerald-950\/30 {
+  background-color: #D1FAE5 !important;
+}
+
+/* Sombras suaves en Modo Día */
+html.light-mode .shadow-xl,
+html.light-mode .shadow-2xl {
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04) !important;
+}
+

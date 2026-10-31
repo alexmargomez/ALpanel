@@ -65,6 +65,7 @@ function loadCachedUser(): UserItem | null {
 }
 
 export const panelStore = reactive({
+  theme: (localStorage.getItem('alpanel_theme') === 'light' ? 'light' : 'dark') as 'dark' | 'light',
   authToken: localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token') || '',
   currentUser: loadCachedUser() as UserItem | null,
   activeTab: 'projects' as PanelTab,
@@ -121,6 +122,28 @@ export const panelStore = reactive({
     appUsers: { open: false, projectName: '' } as AppUsersModalState,
   },
 });
+
+export function applyTheme(theme: 'dark' | 'light' = panelStore.theme): void {
+  panelStore.theme = theme;
+  try {
+    localStorage.setItem('alpanel_theme', theme);
+  } catch {
+    // Ignore storage quota errors
+  }
+  const root = document.documentElement;
+  if (theme === 'light') {
+    root.classList.add('light-mode');
+    root.classList.remove('dark');
+  } else {
+    root.classList.remove('light-mode');
+    root.classList.add('dark');
+  }
+}
+
+export function toggleTheme(): void {
+  const next = panelStore.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+}
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -416,6 +439,7 @@ export async function runProjectAction(
     'clear-cache': `Limpiando Caché — ${projectName}`,
     rebuild: `Reconstruyendo Imágenes (Rebuild Seguro) — ${projectName}`,
     'rebuild-destroy': `Rebuild Destroy (Destrucción y Reconstrucción Total desde Cero) — ${projectName}`,
+    delete: `Eliminando Proyecto del Servidor — ${projectName}`,
     start: `Iniciando Proyecto — ${projectName}`,
     stop: `Deteniendo Proyecto — ${projectName}`,
   };

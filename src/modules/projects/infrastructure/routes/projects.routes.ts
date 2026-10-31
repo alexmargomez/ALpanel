@@ -48,6 +48,18 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
     (req, reply) => projectsController.rebuildDestroy(req, reply)
   );
 
+  app.post(
+    '/api/projects/:name/delete',
+    { preHandler: [authenticate, requirePermission('projects', 'delete')] },
+    (req, reply) => projectsController.deleteProject(req, reply)
+  );
+
+  app.delete(
+    '/api/projects/:name',
+    { preHandler: [authenticate, requirePermission('projects', 'delete')] },
+    (req, reply) => projectsController.deleteProject(req, reply)
+  );
+
   app.get(
     '/api/projects/:name/db-dump',
     { preHandler: [authenticate, requirePermission('project_db', 'deploy')] },
