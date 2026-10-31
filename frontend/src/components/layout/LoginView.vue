@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { panelStore } from '../../composables/usePanelStore';
+import { panelStore, toggleTheme } from '../../composables/usePanelStore';
 
 const emit = defineEmits<{
   (e: 'login-success'): void;
@@ -47,16 +47,28 @@ async function handleSubmit(): Promise<void> {
     <div
       class="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-8 backdrop-blur"
     >
-      <div class="flex items-center gap-3 mb-6">
-        <div
-          class="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 text-2xl"
+      <div class="flex items-center justify-between gap-3 mb-6">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 text-2xl"
+          >
+            <i class="fa-solid fa-bolt"></i>
+          </div>
+          <div>
+            <h1 class="text-xl font-bold text-white">ALpanel</h1>
+            <p class="text-xs text-slate-400">Orquestador Modular • Vue 3 + TypeScript + Prisma ORM</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          @click="toggleTheme"
+          class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5 shrink-0"
+          :class="panelStore.theme === 'light' ? 'text-amber-500' : 'text-indigo-300'"
+          :title="panelStore.theme === 'light' ? 'Cambiar a Modo Noche' : 'Cambiar a Modo Día'"
         >
-          <i class="fa-solid fa-bolt"></i>
-        </div>
-        <div>
-          <h1 class="text-xl font-bold text-white">ALpanel</h1>
-          <p class="text-xs text-slate-400">Orquestador Modular • Vue 3 + TypeScript + Prisma ORM</p>
-        </div>
+          <i class="fa-solid" :class="panelStore.theme === 'light' ? 'fa-sun' : 'fa-moon'"></i>
+          <span>{{ panelStore.theme === 'light' ? 'Día' : 'Noche' }}</span>
+        </button>
       </div>
 
       <form @submit.prevent="handleSubmit" class="space-y-4">

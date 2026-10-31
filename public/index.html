@@ -9,6 +9,18 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="stylesheet" href="/css/panel.css" />
   <script>
+    (function () {
+      try {
+        var savedTheme = localStorage.getItem('alpanel_theme');
+        if (savedTheme === 'light') {
+          document.documentElement.classList.add('light-mode');
+          document.documentElement.classList.remove('dark');
+        } else {
+          document.documentElement.classList.remove('light-mode');
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
     tailwind.config = {
       darkMode: 'class',
       theme: {

@@ -7,6 +7,7 @@ import {
   pruneServerDocker,
   refreshAll,
   switchTab,
+  toggleTheme,
 } from '../../composables/usePanelStore';
 import { formatBytes, formatUptime } from '../../services/api';
 import type { PanelTab } from '../../types/panel';
@@ -114,6 +115,15 @@ function openClone(): void {
           <i class="fa-solid fa-broom"></i>
           <span class="hidden sm:inline">Limpiar Caché Docker</span>
           <span class="sm:hidden">Caché</span>
+        </button>
+        <button
+          @click="toggleTheme"
+          class="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+          :class="panelStore.theme === 'light' ? 'text-amber-500' : 'text-indigo-300'"
+          :title="panelStore.theme === 'light' ? 'Cambiar a Modo Noche (Oscuro)' : 'Cambiar a Modo Día (Claro)'"
+        >
+          <i class="fa-solid" :class="panelStore.theme === 'light' ? 'fa-sun' : 'fa-moon'"></i>
+          <span class="hidden sm:inline">{{ panelStore.theme === 'light' ? 'Modo Día' : 'Modo Noche' }}</span>
         </button>
         <button
           @click="refreshAll"

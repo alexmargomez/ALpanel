@@ -21,6 +21,14 @@ const confirmDestroyModal = reactive<{
   projectName: '',
 });
 
+const confirmDeleteModal = reactive<{
+  open: boolean;
+  projectName: string;
+}>({
+  open: false,
+  projectName: '',
+});
+
 function openRebuildDestroyModal(project: ProjectInfo): void {
   confirmDestroyModal.projectName = project.name;
   confirmDestroyModal.open = true;
@@ -35,6 +43,22 @@ async function confirmAndRunRebuildDestroy(): Promise<void> {
   confirmDestroyModal.open = false;
   if (!projectName) return;
   await runProjectAction(projectName, 'rebuild-destroy');
+}
+
+function openDeleteProjectModal(project: ProjectInfo): void {
+  confirmDeleteModal.projectName = project.name;
+  confirmDeleteModal.open = true;
+}
+
+function closeDeleteProjectModal(): void {
+  confirmDeleteModal.open = false;
+}
+
+async function confirmAndRunDeleteProject(): Promise<void> {
+  const projectName = confirmDeleteModal.projectName;
+  confirmDeleteModal.open = false;
+  if (!projectName) return;
+  await runProjectAction(projectName, 'delete');
 }
 
 const filteredProjects = computed<ProjectInfo[]>(() => {
@@ -317,22 +341,29 @@ function openAppUsersModal(projectName: string): void {
           >
             <i class="fa-solid fa-shield-halved"></i> Panel Principal
           </span>
-          <template v-else-if="canStopRebuildServer">
+          <div v-else-if="canStopRebuildServer" class="ml-auto flex items-center gap-2">
             <button
               v-if="p.status === 'running'"
               @click="runProjectAction(p.name, 'stop')"
-              class="ml-auto px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5"
+              class="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5"
             >
               <i class="fa-solid fa-stop"></i> Detener
             </button>
             <button
               v-else
               @click="runProjectAction(p.name, 'start')"
-              class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-800/60 text-xs font-semibold transition flex items-center gap-1.5"
+              class="px-3 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-800/60 text-xs font-semibold transition flex items-center gap-1.5"
             >
               <i class="fa-solid fa-play"></i> Iniciar
             </button>
-          </template>
+            <button
+              @click="openDeleteProjectModal(p)"
+              class="px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-semibold transition flex items-center gap-1.5"
+              :title="`Eliminar por completo el proyecto ${p.name} del servidor`"
+            >
+              <i class="fa-solid fa-trash-can"></i> Eliminar
+            </button>
+          </div>
         </div>
 
         <!-- Lista de Contenedores del Proyecto -->
@@ -461,6 +492,65 @@ function openAppUsersModal(projectName: string): void {
           >
             <i class="fa-solid fa-skull-crossbones"></i>
             Sí, destruir y reconstruir desde cero
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Confirmación de Seguridad: Eliminar Proyecto Definitivamente -->
+    <div
+      v-if="confirmDeleteModal.open"
+      class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+      @click.self="closeDeleteProjectModal"
+    >
+      <div
+        class="bg-slate-900 border border-rose-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+      >
+        <div
+          class="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-rose-950/30"
+        >
+          <div class="flex items-center gap-2.5 text-rose-400 font-bold text-sm">
+            <i class="fa-solid fa-trash-can text-base"></i>
+            <span>¿Eliminar proyecto definitivamente del servidor?</span>
+          </div>
+          <button
+            @click="closeDeleteProjectModal"
+            class="text-slate-400 hover:text-white text-sm px-2 py-1 rounded-lg"
+          >
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="p-5 space-y-3 text-xs text-slate-300">
+          <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3.5 space-y-1.5">
+            <p class="font-bold text-rose-300">
+              🚨 ACCIÓN IRREVERSIBLE — ELIMINACIÓN PERMANENTE DEL SERVIDOR
+            </p>
+            <p class="leading-relaxed text-slate-300">
+              Estás a punto de <strong>eliminar por completo</strong> el proyecto
+              <strong class="text-white">{{ confirmDeleteModal.projectName }}</strong> del servidor.
+              Esta acción apagará y borrará todos sus contenedores Docker, volúmenes de Base de
+              Datos, rutas de dominio SSL en Caddy y la carpeta completa
+              <code class="text-rose-300">{{ panelStore.projectsRoot }}/{{ confirmDeleteModal.projectName }}</code>.
+            </p>
+          </div>
+        </div>
+
+        <div
+          class="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800 bg-slate-950/60"
+        >
+          <button
+            @click="closeDeleteProjectModal"
+            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmAndRunDeleteProject"
+            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30"
+          >
+            <i class="fa-solid fa-trash-can"></i>
+            Sí, eliminar proyecto del servidor
           </button>
         </div>
       </div>

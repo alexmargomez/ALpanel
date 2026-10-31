@@ -1369,4 +1369,127 @@ export class ManageContainerPowerUseCase {
       );
     }
   }
+
+  async deleteProject(
+    projectName: string
+  ): Promise<{ success: boolean; output: string }> {
+    if (ProjectNameVO.isSelfPanel(projectName, this.panelSelfDir)) {
+      return {
+        success: false,
+        output: '⛔ Por seguridad no se permite eliminar el proyecto principal ALpanel.',
+      };
+    }
+
+    let projectDir: string;
+    try {
+      projectDir = new ProjectNameVO(projectName).resolvePath(
+        this.projectsRoot,
+        this.panelSelfDir
+      );
+    } catch (err: any) {
+      return {
+        success: false,
+        output: err?.message || 'Nombre de proyecto inválido.',
+      };
+    }
+
+    const resolvedRoot = path.resolve(this.projectsRoot);
+    const resolvedTarget = path.resolve(projectDir);
+    if (!resolvedTarget.startsWith(resolvedRoot + path.sep)) {
+      return {
+        success: false,
+        output: '⛔ Ruta de proyecto fuera del directorio raíz permitido.',
+      };
+    }
+
+    if (!fs.existsSync(resolvedTarget)) {
+      return {
+        success: false,
+        output: `El proyecto "${projectName}" no existe en ${resolvedTarget}.`,
+      };
+    }
+
+    const logs: string[] = [];
+    const env = {
+      ...getCleanComposeEnv(resolvedTarget),
+      ...readEnvMap(resolvedTarget),
+    };
+
+    try {
+      const composeContainers = extractComposeContainerNames(resolvedTarget);
+      const allProjectVolumes = new Set<string>();
+      for (const cName of composeContainers) {
+        if (PROTECTED_PANEL_CONTAINERS.has(cName)) continue;
+        const { stdout: volOut } = await execAsync(
+          `docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "${cName}" 2>/dev/null || true`
+        ).catch(() => ({ stdout: '' }));
+        for (const v of volOut.trim().split(/\s+/).filter(Boolean)) {
+          if (!v.includes('alpanel') && !v.includes('caddy')) {
+            allProjectVolumes.add(v);
+          }
+        }
+      }
+
+      logs.push(
+        `==> [1/4] Deteniendo y eliminando contenedores, redes, imágenes locales y volúmenes de ${projectName}...`
+      );
+      if (
+        fs.existsSync(path.join(resolvedTarget, 'docker-compose.yml')) ||
+        fs.existsSync(path.join(resolvedTarget, 'docker-compose.yaml'))
+      ) {
+        const downRes = await execAsync(
+          `docker compose down -v --rmi local --remove-orphans`,
+          { cwd: resolvedTarget, env, timeout: 180000 }
+        ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+        if (downRes.stdout) logs.push(downRes.stdout.trim());
+        if (downRes.stderr) logs.push(downRes.stderr.trim());
+      }
+
+      for (const cName of composeContainers) {
+        if (PROTECTED_PANEL_CONTAINERS.has(cName)) continue;
+        await execAsync(`docker rm -f -v "${cName}" 2>/dev/null || true`, {
+          timeout: 20000,
+        }).catch(() => null);
+      }
+
+      for (const volName of allProjectVolumes) {
+        logs.push(`   -> Eliminando volumen de datos: ${volName}`);
+        await execAsync(`docker volume rm -f "${volName}" 2>/dev/null || true`, {
+          timeout: 30000,
+        }).catch(() => null);
+      }
+
+      logs.push(`==> [2/4] Desvinculando dominios SSL asociados en Caddy...`);
+      try {
+        const routes = await domainsService.listRoutes();
+        const matchingRoutes = routes.filter(
+          (r) => (r.projectName || '').toLowerCase() === projectName.toLowerCase()
+        );
+        for (const route of matchingRoutes) {
+          await domainsService.deleteRoute(route.id);
+          logs.push(`   -> Dominio eliminado: ${route.domain}`);
+        }
+        if (matchingRoutes.length > 0) {
+          await domainsService.reloadCaddy().catch(() => null);
+        }
+      } catch {
+        // Ignore domain cleanup error
+      }
+
+      logs.push(`==> [3/4] Eliminando carpeta del proyecto (${resolvedTarget})...`);
+      fs.rmSync(resolvedTarget, { recursive: true, force: true });
+
+      logs.push(`==> [4/4] Refrescando catálogo de proyectos en ALpanel...`);
+      this.onInvalidateCache?.(resolvedTarget);
+      logs.push(`\n🗑️ Proyecto "${projectName}" eliminado completamente del servidor.`);
+      return { success: true, output: logs.join('\n') };
+    } catch (error: any) {
+      logs.push(
+        `\n❌ Error eliminando el proyecto ${projectName}: ${
+          error?.stderr || error?.message || 'Error desconocido'
+        }`
+      );
+      return { success: false, output: logs.join('\n') };
+    }
+  }
 }
