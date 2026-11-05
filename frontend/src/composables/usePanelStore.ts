@@ -53,6 +53,22 @@ interface AppUsersModalState {
   projectName: string;
 }
 
+interface CronjobsModalState {
+  open: boolean;
+  projectName: string;
+}
+
+interface TerminalModalState {
+  open: boolean;
+  projectName: string;
+  containerName: string;
+}
+
+interface ErdModalState {
+  open: boolean;
+  projectName: string;
+}
+
 function loadCachedUser(): UserItem | null {
   try {
     const token = localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token');
@@ -120,6 +136,9 @@ export const panelStore = reactive({
     user: { open: false, userId: null } as UserModalState,
     role: { open: false, roleId: null } as RoleModalState,
     appUsers: { open: false, projectName: '' } as AppUsersModalState,
+    cronjobs: { open: false, projectName: '' } as CronjobsModalState,
+    terminal: { open: false, projectName: '', containerName: '' } as TerminalModalState,
+    erd: { open: false, projectName: '' } as ErdModalState,
   },
 });
 
@@ -537,3 +556,20 @@ export async function pruneServerDocker(): Promise<void> {
     panelStore.modals.console.output = `❌ Error: ${err.message}`;
   }
 }
+
+export function openCronjobsModal(projectName: string): void {
+  panelStore.modals.cronjobs.projectName = projectName;
+  panelStore.modals.cronjobs.open = true;
+}
+
+export function openTerminalModal(projectName: string, containerName = ''): void {
+  panelStore.modals.terminal.projectName = projectName;
+  panelStore.modals.terminal.containerName = containerName;
+  panelStore.modals.terminal.open = true;
+}
+
+export function openErdModal(projectName: string): void {
+  panelStore.modals.erd.projectName = projectName;
+  panelStore.modals.erd.open = true;
+}
+

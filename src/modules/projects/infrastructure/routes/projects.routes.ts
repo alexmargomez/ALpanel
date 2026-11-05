@@ -116,4 +116,40 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
     },
     (req, reply) => projectsController.deleteAppUser(req, reply)
   );
+
+  app.get(
+    '/api/projects/:name/db-erd',
+    { preHandler: [authenticate, requirePermission('project_db', 'view')] },
+    (req, reply) => projectsController.dbErd(req, reply)
+  );
+
+  app.get(
+    '/api/projects/:name/cronjobs',
+    { preHandler: [authenticate, requirePermission('projects', 'view')] },
+    (req, reply) => projectsController.getCronjobs(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/cronjobs',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.saveCronjob(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/cronjobs/:cronId/run',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.runCronjobNow(req, reply)
+  );
+
+  app.delete(
+    '/api/projects/:name/cronjobs/:cronId',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.deleteCronjob(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/terminal',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.executeTerminal(req, reply)
+  );
 }

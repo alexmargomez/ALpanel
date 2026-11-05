@@ -243,6 +243,135 @@ export class ProjectsController {
       });
     }
   }
+
+  async dbErd(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    try {
+      const schema = await projectsService.inspectProjectErd(name);
+      await manageAuditLogsUseCase.recordAudit(
+        'DB_ERD_INSPECT',
+        name,
+        request.ip,
+        'ok'
+      );
+      return schema;
+    } catch (error: any) {
+      await manageAuditLogsUseCase.recordAudit(
+        'DB_ERD_INSPECT',
+        name,
+        request.ip,
+        'error'
+      );
+      return reply.code(400).send({
+        error:
+          error?.message ||
+          'Error inspeccionando modelo DER / ERD de la base de datos',
+      });
+    }
+  }
+
+  async getCronjobs(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    try {
+      const cronjobs = projectsService.listProjectCronjobs(name);
+      return { cronjobs };
+    } catch (error: any) {
+      return reply.code(400).send({
+        error: error?.message || 'Error consultando cronjobs del proyecto',
+      });
+    }
+  }
+
+  async saveCronjob(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as any;
+    try {
+      const cronjob = await projectsService.saveProjectCronjob(name, body);
+      await manageAuditLogsUseCase.recordAudit(
+        'CRONJOB_SAVE',
+        `${name}/${cronjob.name}`,
+        request.ip,
+        'ok'
+      );
+      return { cronjob };
+    } catch (error: any) {
+      await manageAuditLogsUseCase.recordAudit(
+        'CRONJOB_SAVE',
+        name,
+        request.ip,
+        'error'
+      );
+      return reply.code(400).send({
+        error: error?.message || 'Error guardando cronjob del proyecto',
+      });
+    }
+  }
+
+  async deleteCronjob(request: FastifyRequest, reply: FastifyReply) {
+    const { name, cronId } = request.params as {
+      name: string;
+      cronId: string;
+    };
+    try {
+      const res = projectsService.deleteProjectCronjob(name, cronId);
+      await manageAuditLogsUseCase.recordAudit(
+        'CRONJOB_DELETE',
+        `${name}/${cronId}`,
+        request.ip,
+        'ok'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({
+        error: error?.message || 'Error eliminando cronjob del proyecto',
+      });
+    }
+  }
+
+  async runCronjobNow(request: FastifyRequest, reply: FastifyReply) {
+    const { name, cronId } = request.params as {
+      name: string;
+      cronId: string;
+    };
+    try {
+      const cronjob = await projectsService.runProjectCronjobNow(name, cronId);
+      await manageAuditLogsUseCase.recordAudit(
+        'CRONJOB_EXEC',
+        `${name}/${cronjob.name}`,
+        request.ip,
+        cronjob.lastStatus === 'ok' ? 'ok' : 'error'
+      );
+      return { cronjob };
+    } catch (error: any) {
+      return reply.code(400).send({
+        error: error?.message || 'Error ejecutando cronjob del proyecto',
+      });
+    }
+  }
+
+  async executeTerminal(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as {
+      targetType?: 'container' | 'host';
+      containerName?: string;
+      command: string;
+      cwd?: string;
+    };
+    try {
+      const res = await projectsService.executeTerminalCommand(name, body);
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_TERMINAL_EXEC',
+        `${name} (${res.targetLabel}): ${(body.command || '').slice(0, 80)}`,
+        request.ip,
+        res.success ? 'ok' : 'error'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({
+        error: error?.message || 'Error ejecutando comando en terminal',
+      });
+    }
+  }
 }
 
 export const projectsController = new ProjectsController();

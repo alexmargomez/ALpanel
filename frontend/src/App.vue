@@ -30,6 +30,9 @@ import CloneProjectModal from './components/modals/CloneProjectModal.vue';
 import UserModal from './components/modals/UserModal.vue';
 import RoleModal from './components/modals/RoleModal.vue';
 import AppUsersModal from './components/modals/AppUsersModal.vue';
+import CronjobsModal from './components/modals/CronjobsModal.vue';
+import TerminalModal from './components/modals/TerminalModal.vue';
+import DbErdModal from './components/modals/DbErdModal.vue';
 
 function logout(): void {
   panelStore.authToken = '';
@@ -122,6 +125,9 @@ onMounted(() => {
     <UserModal />
     <RoleModal />
     <AppUsersModal />
+    <CronjobsModal />
+    <TerminalModal />
+    <DbErdModal />
   </div>
 
   <ToastNotification />

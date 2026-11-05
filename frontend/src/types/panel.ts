@@ -249,5 +249,70 @@ export interface BatchIngestSimulationResult {
   message: string;
 }
 
+export interface ProjectCronjob {
+  id: string;
+  projectName: string;
+  name: string;
+  schedule: string;
+  targetType: 'container' | 'host';
+  containerName: string;
+  command: string;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastStatus: 'idle' | 'running' | 'ok' | 'error';
+  lastOutput: string;
+  lastDurationMs: number;
+  createdAt: string;
+}
+
+export interface TerminalExecResult {
+  success: boolean;
+  output: string;
+  cwd: string;
+  targetLabel: string;
+  durationMs: number;
+  exitCode: number;
+}
+
+export interface ErdColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  isUnique: boolean;
+  defaultValue: string | null;
+  extra: string;
+}
+
+export interface ErdTableInfo {
+  name: string;
+  engine: string;
+  rowCount: number;
+  columns: ErdColumnInfo[];
+}
+
+export interface ErdRelationInfo {
+  id: string;
+  constraintName: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  deleteRule: string;
+  updateRule: string;
+  isImplicit?: boolean;
+}
+
+export interface ProjectErdSchema {
+  projectName: string;
+  databaseName: string;
+  engine: string;
+  source: 'live_db' | 'prisma_schema' | 'sql_schema';
+  tables: ErdTableInfo[];
+  relations: ErdRelationInfo[];
+  mermaidCode: string;
+}
+
 export type PanelTab = 'projects' | 'domains' | 'guide' | 'users' | 'permissions' | 'audit';
 
