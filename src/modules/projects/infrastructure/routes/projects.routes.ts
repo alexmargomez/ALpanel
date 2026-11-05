@@ -152,4 +152,22 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
     (req, reply) => projectsController.executeTerminal(req, reply)
   );
+
+  app.get(
+    '/api/projects/:name/microservices',
+    { preHandler: [authenticate, requirePermission('projects', 'view')] },
+    (req, reply) => projectsController.getMicroservices(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/microservices',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.saveMicroservices(req, reply)
+  );
+
+  app.post(
+    '/api/projects/detect-microservices',
+    { preHandler: [authenticate, requirePermission('git', 'create')] },
+    (req, reply) => projectsController.detectRemoteMicroservices(req, reply)
+  );
 }

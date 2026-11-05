@@ -4,4 +4,5 @@ export interface CloneProjectPayload {
   branch?: string;
   envContent?: string;
   autoStart?: boolean;
+  selectedMicroservices?: string[];
 }

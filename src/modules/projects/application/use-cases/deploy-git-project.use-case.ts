@@ -12,6 +12,7 @@ import {
   runDockerComposeSafe,
 } from './manage-container-power.use-case';
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
+import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
 
 const execAsync = promisify(exec);
 
@@ -140,6 +141,7 @@ export class DeployGitProjectUseCase {
     branch?: string;
     envContent?: string;
     autoStart?: boolean;
+    selectedMicroservices?: string[];
   }): Promise<{ success: boolean; output: string }> {
     const cleanName = new ProjectNameVO(payload.name).value;
     const targetDir = new ProjectNameVO(cleanName).resolvePath(
@@ -248,6 +250,34 @@ export class DeployGitProjectUseCase {
           throw err;
         }
         logs.push('==> Archivo .env creado atómicamente con permisos restringidos (0600).');
+      }
+
+      if (Array.isArray(payload.selectedMicroservices)) {
+        const msSummary =
+          manageProjectMicroservicesUseCase.saveSelectionToProjectDir(
+            targetDir,
+            payload.selectedMicroservices
+          );
+        if (msSummary.isMicroservicesArchitecture) {
+          logs.push(
+            `==> 🧩 Arquitectura de Microservicios configurada (${
+              msSummary.enabledMicroservicesCount
+            }/${msSummary.totalMicroservices} integrados): ${
+              msSummary.enabledServiceNames.join(', ') || 'Solo Servicios Core'
+            }`
+          );
+        }
+      } else {
+        const msSummary =
+          manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+            targetDir,
+            []
+          );
+        if (msSummary.isMicroservicesArchitecture) {
+          logs.push(
+            `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`
+          );
+        }
       }
 
       if (

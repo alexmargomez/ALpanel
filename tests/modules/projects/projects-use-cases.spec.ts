@@ -27,6 +27,7 @@ import {
   ManageProjectErdUseCase,
   parsePrismaSchemaToErd,
 } from '../../../src/modules/projects/application/use-cases/manage-project-erd.use-case';
+import { ManageProjectMicroservicesUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-microservices.use-case';
 import { FilesystemDiskAdapter } from '../../../src/modules/projects/infrastructure/adapters/filesystem-disk.adapter';
 import { DockerodeRuntimeAdapter } from '../../../src/modules/projects/infrastructure/adapters/dockerode-runtime.adapter';
 import { ContainerStatInfo } from '../../../src/modules/projects/domain/entities/project.entity';
@@ -655,6 +656,109 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     expect(liveErd.tables).toHaveLength(2);
     expect(liveErd.relations).toHaveLength(1);
     expect(liveErd.relations[0].constraintName).toBe('fk_invoices_customer');
+  });
+
+  it('ManageProjectMicroservicesUseCase detecta arquitecturas de microservicios, submódulos y permite integrar selectivamente', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-ms-test-'));
+    const projDir = path.join(tmpRoot, 'Proveko');
+    fs.mkdirSync(path.join(projDir, 'apps', 'srv-crm', 'ms-crm-directory'), {
+      recursive: true,
+    });
+    fs.mkdirSync(
+      path.join(projDir, 'apps', 'srv-invoicing', 'ms-invoicing-pos'),
+      { recursive: true }
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(projDir, 'docker-compose.yml'),
+        [
+          'services:',
+          '  db:',
+          '    image: postgres:16-alpine',
+          '    container_name: proveko_db',
+          '  api-gateway:',
+          '    image: proveko-cluster-node:latest',
+          '    container_name: proveko_api_gateway',
+          '    environment:',
+          '      PROVEKO_NODE_ROLE: api-gateway',
+          '      PORT: 4000',
+          '  core-service:',
+          '    image: proveko-cluster-node:latest',
+          '    container_name: proveko_core_service',
+          '    environment:',
+          '      PROVEKO_NODE_ROLE: core-service',
+          '      PORT: 4010',
+          '  # Microservicio Independiente: ms:crm (Módulos: mod:crm-directory, mod:crm-loyalty)',
+          '  ms-crm:',
+          '    image: proveko-cluster-node:latest',
+          '    container_name: proveko_ms_crm',
+          '    environment:',
+          '      PROVEKO_NODE_ROLE: ms-host-runner',
+          '      PORT: 4101',
+          '  ms-invoicing:',
+          '    image: proveko-cluster-node:latest',
+          '    container_name: proveko_ms_invoicing',
+          '    environment:',
+          '      PROVEKO_NODE_ROLE: ms-host-runner',
+          '      PORT: 4103',
+          '  ms-hotel:',
+          '    image: proveko-cluster-node:latest',
+          '    container_name: proveko_ms_hotel',
+          '    environment:',
+          '      PROVEKO_NODE_ROLE: ms-host-runner',
+          '      PORT: 4105',
+        ].join('\n'),
+        'utf-8'
+      );
+
+      const msUseCase = new ManageProjectMicroservicesUseCase(
+        tmpRoot,
+        '/opt/alpanel'
+      );
+      const initial = msUseCase.detectMicroservicesInDirectory(projDir, []);
+      expect(initial.isMicroservicesArchitecture).toBe(true);
+      expect(initial.coreServices.map((c) => c.serviceName)).toEqual([
+        'db',
+        'api-gateway',
+        'core-service',
+      ]);
+      expect(initial.microservices.map((m) => m.serviceName)).toEqual([
+        'ms-crm',
+        'ms-invoicing',
+        'ms-hotel',
+      ]);
+      expect(initial.microservices[0].subModules).toContain(
+        'mod:crm-directory'
+      );
+
+      // Integrar selectivamente solo ms-crm y ms-invoicing (excluyendo ms-hotel)
+      const afterSave = msUseCase.saveSelectionToProjectDir(projDir, [
+        'ms-crm',
+        'ms-invoicing',
+      ]);
+      expect(afterSave.enabledMicroservicesCount).toBe(2);
+      expect(afterSave.enabledServiceNames).toEqual([
+        'ms-crm',
+        'ms-invoicing',
+      ]);
+
+      const targets = msUseCase.getComposeTargetServicesForUp(projDir);
+      expect(targets.isPartialSelection).toBe(true);
+      expect(targets.activeComposeServices).toEqual([
+        'db',
+        'api-gateway',
+        'core-service',
+        'ms-crm',
+        'ms-invoicing',
+      ]);
+      expect(targets.disabledComposeServices).toEqual(['ms-hotel']);
+
+      const envText = fs.readFileSync(path.join(projDir, '.env'), 'utf-8');
+      expect(envText).toContain('ENABLED_MICROSERVICES=ms-crm,ms-invoicing');
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });
 

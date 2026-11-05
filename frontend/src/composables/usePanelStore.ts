@@ -69,6 +69,11 @@ interface ErdModalState {
   projectName: string;
 }
 
+interface MicroservicesModalState {
+  open: boolean;
+  projectName: string;
+}
+
 function loadCachedUser(): UserItem | null {
   try {
     const token = localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token');
@@ -139,6 +144,7 @@ export const panelStore = reactive({
     cronjobs: { open: false, projectName: '' } as CronjobsModalState,
     terminal: { open: false, projectName: '', containerName: '' } as TerminalModalState,
     erd: { open: false, projectName: '' } as ErdModalState,
+    microservices: { open: false, projectName: '' } as MicroservicesModalState,
   },
 });
 
@@ -571,5 +577,10 @@ export function openTerminalModal(projectName: string, containerName = ''): void
 export function openErdModal(projectName: string): void {
   panelStore.modals.erd.projectName = projectName;
   panelStore.modals.erd.open = true;
+}
+
+export function openMicroservicesModal(projectName: string): void {
+  panelStore.modals.microservices.projectName = projectName;
+  panelStore.modals.microservices.open = true;
 }
 

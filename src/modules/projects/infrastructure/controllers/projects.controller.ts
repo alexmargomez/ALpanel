@@ -372,6 +372,63 @@ export class ProjectsController {
       });
     }
   }
+
+  async getMicroservices(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    try {
+      return await projectsService.getProjectMicroservices(name);
+    } catch (error: any) {
+      return reply.code(400).send({
+        error:
+          error?.message || 'Error consultando microservicios del proyecto',
+      });
+    }
+  }
+
+  async saveMicroservices(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as { enabledMicroservices?: string[] };
+    try {
+      const enabled = Array.isArray(body.enabledMicroservices)
+        ? body.enabledMicroservices
+        : [];
+      const res = await projectsService.applyProjectMicroservices(
+        name,
+        enabled
+      );
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_MICROSERVICES_UPDATE',
+        `${name} (${enabled.length} activos)`,
+        request.ip,
+        res.success ? 'ok' : 'error'
+      );
+      if (!res.success) {
+        return reply.code(400).send({ error: res.output, output: res.output });
+      }
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({
+        error:
+          error?.message || 'Error aplicando configuración de microservicios',
+      });
+    }
+  }
+
+  async detectRemoteMicroservices(
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) {
+    const body = (request.body || {}) as { repoUrl: string; branch?: string };
+    try {
+      return await projectsService.detectRemoteRepoMicroservices(body);
+    } catch (error: any) {
+      return reply.code(400).send({
+        error:
+          error?.message ||
+          'Error inspeccionando arquitectura del repositorio remoto',
+      });
+    }
+  }
 }
 
 export const projectsController = new ProjectsController();

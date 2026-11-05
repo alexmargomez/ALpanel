@@ -7,6 +7,7 @@ import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
+import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
 
 const execAsync = promisify(exec);
 
@@ -32,6 +33,7 @@ export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
     USER: process.env.USER || 'root',
     DOCKER_HOST: process.env.DOCKER_HOST || '',
     COMPOSE_PROJECT_NAME: cleanProjectName || 'app',
+    COMPOSE_BAKE: 'false',
   };
 }
 
@@ -640,6 +642,30 @@ export async function runDockerComposeSafe(
 
   if (finalArgs.startsWith('up')) {
     await reconcileProjectComposeContainers(projectDir, expectedProject);
+
+    // Si es un proyecto de microservicios con selección parcial, levantar solo los servicios integrados
+    const isGeneralUpCommand =
+      /^up\s+-d(?:\s+--build)?(?:\s+--remove-orphans)?$/.test(finalArgs);
+    if (isGeneralUpCommand) {
+      const msTargets =
+        manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(
+          projectDir
+        );
+      if (
+        msTargets.isMicroservices &&
+        msTargets.isPartialSelection &&
+        msTargets.activeComposeServices.length > 0
+      ) {
+        if (msTargets.disabledComposeServices.length > 0) {
+          const disabledStr = msTargets.disabledComposeServices.join(' ');
+          await execAsync(
+            `docker compose stop ${disabledStr} 2>/dev/null || true; docker compose rm -f ${disabledStr} 2>/dev/null || true`,
+            { cwd: projectDir, env, timeout: 45000 }
+          ).catch(() => null);
+        }
+        finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
+      }
+    }
   }
 
   try {
@@ -649,8 +675,20 @@ export async function runDockerComposeSafe(
       timeout,
     });
     if ((requestedForceRecreate || requestedBuild) && finalArgs.startsWith('up')) {
+      const msSummary =
+        manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+          projectDir,
+          []
+        );
+      const disabledContainers = new Set(
+        msSummary.microservices
+          .filter((m) => !m.enabled)
+          .map((m) => m.containerName.toLowerCase())
+      );
       const appContainers = extractComposeContainerNames(projectDir).filter(
-        (c) => !isDatabaseContainerName(c)
+        (c) =>
+          !isDatabaseContainerName(c) &&
+          !disabledContainers.has(c.toLowerCase())
       );
       for (const appC of appContainers) {
         await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
@@ -1486,6 +1524,98 @@ export class ManageContainerPowerUseCase {
     } catch (error: any) {
       logs.push(
         `\n❌ Error eliminando el proyecto ${projectName}: ${
+          error?.stderr || error?.message || 'Error desconocido'
+        }`
+      );
+      return { success: false, output: logs.join('\n') };
+    }
+  }
+
+  async applyMicroservicesSelection(
+    projectName: string,
+    enabledMicroservices: string[]
+  ): Promise<{
+    success: boolean;
+    output: string;
+    microservices?: ReturnType<
+      typeof manageProjectMicroservicesUseCase.detectMicroservicesInDirectory
+    >;
+  }> {
+    const projectDir = new ProjectNameVO(projectName).resolvePath(
+      this.projectsRoot,
+      this.panelSelfDir
+    );
+    this.onInvalidateCache?.(projectDir);
+    const logs: string[] = [];
+
+    try {
+      logs.push(
+        `==> [1/3] Guardando configuración de microservicios integrados para ${projectName}...`
+      );
+      const updatedSummary =
+        manageProjectMicroservicesUseCase.saveSelectionToProjectDir(
+          projectDir,
+          enabledMicroservices
+        );
+
+      const targets =
+        manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(
+          projectDir
+        );
+
+      logs.push(
+        `   -> Microservicios activos (${updatedSummary.enabledMicroservicesCount}/${updatedSummary.totalMicroservices}): ${
+          updatedSummary.enabledServiceNames.join(', ') || 'ninguno (solo Core)'
+        }`
+      );
+
+      const existingDbProject = await resolveExistingDbComposeProject(
+        projectDir
+      );
+      const env = {
+        ...getCleanComposeEnv(projectDir),
+        ...readEnvMap(projectDir),
+      };
+      if (existingDbProject) {
+        env.COMPOSE_PROJECT_NAME = existingDbProject;
+      }
+
+      if (targets.disabledComposeServices.length > 0) {
+        const disabledStr = targets.disabledComposeServices.join(' ');
+        logs.push(
+          `==> [2/3] Deteniendo y desacoplando microservicios excluidos (${disabledStr})...`
+        );
+        await execAsync(
+          `docker compose stop ${disabledStr} 2>/dev/null || true; docker compose rm -f ${disabledStr} 2>/dev/null || true`,
+          { cwd: projectDir, env, timeout: 60000 }
+        ).catch(() => null);
+      } else {
+        logs.push(`==> [2/3] Todos los microservicios están seleccionados.`);
+      }
+
+      logs.push(
+        `==> [3/3] Sincronizando servicios Core y Microservicios integrados en Docker Compose...`
+      );
+      const upRes = await runDockerComposeSafe(
+        projectDir,
+        'up -d --force-recreate',
+        240000
+      );
+      if (upRes.stdout) logs.push(upRes.stdout.trim());
+      if (upRes.stderr) logs.push(upRes.stderr.trim());
+
+      this.onInvalidateCache?.(projectDir);
+      logs.push(
+        `✅ Topología de microservicios de ${projectName} aplicada exitosamente.`
+      );
+      return {
+        success: true,
+        output: logs.join('\n'),
+        microservices: updatedSummary,
+      };
+    } catch (error: any) {
+      logs.push(
+        `❌ Error aplicando microservicios: ${
           error?.stderr || error?.message || 'Error desconocido'
         }`
       );

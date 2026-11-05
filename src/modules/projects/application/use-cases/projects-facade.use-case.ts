@@ -29,6 +29,10 @@ import {
   ManageProjectErdUseCase,
   ProjectErdSchema,
 } from './manage-project-erd.use-case';
+import {
+  manageProjectMicroservicesUseCase,
+  ProjectMicroservicesSummary,
+} from './manage-project-microservices.use-case';
 
 export {
   ContainerStatInfo,
@@ -38,6 +42,7 @@ export {
   TerminalExecPayload,
   TerminalExecResult,
   ProjectErdSchema,
+  ProjectMicroservicesSummary,
 };
 
 /**
@@ -221,8 +226,44 @@ export class ProjectsFacadeUseCase {
     branch?: string;
     envContent?: string;
     autoStart?: boolean;
+    selectedMicroservices?: string[];
   }) {
     return this.deployUseCase.cloneNewProject(payload);
+  }
+
+  async getProjectMicroservices(
+    projectName: string
+  ): Promise<ProjectMicroservicesSummary> {
+    const projects = await this.listProjects();
+    const found = projects.find(
+      (p) => p.name.toLowerCase() === projectName.toLowerCase()
+    );
+    const projectDir =
+      found?.path ||
+      manageProjectMicroservicesUseCase.resolveProjectDir(projectName);
+    return manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+      projectDir,
+      found?.containers || []
+    );
+  }
+
+  async applyProjectMicroservices(
+    projectName: string,
+    enabledMicroservices: string[]
+  ) {
+    return this.powerUseCase.applyMicroservicesSelection(
+      projectName,
+      enabledMicroservices
+    );
+  }
+
+  async detectRemoteRepoMicroservices(payload: {
+    repoUrl: string;
+    branch?: string;
+  }) {
+    return manageProjectMicroservicesUseCase.detectRemoteRepoMicroservices(
+      payload
+    );
   }
 
   async restartProject(projectName: string, containerName?: string) {

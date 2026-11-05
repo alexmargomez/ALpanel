@@ -7,6 +7,7 @@ import {
   openEnvModal,
   openErdModal,
   openLogsModal,
+  openMicroservicesModal,
   openTerminalModal,
   panelStore,
   refreshAll,
@@ -190,6 +191,19 @@ function openAppUsersModal(projectName: string): void {
                 <i class="fa-solid fa-arrow-up mr-1"></i>{{ p.git.behindCount }} commit(s) por bajar
               </span>
 
+              <button
+                v-if="p.microservices?.isMicroservicesArchitecture"
+                @click="openMicroservicesModal(p.name)"
+                class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 transition flex items-center gap-1"
+                title="Configurar qué microservicios integrar o apagar en este proyecto"
+              >
+                <i class="fa-solid fa-cubes text-[10px]"></i>
+                Microservicios: {{ p.microservices.enabledMicroservicesCount }}/{{
+                  p.microservices.totalMicroservices
+                }}
+                integrados
+              </button>
+
               <div class="flex flex-wrap gap-1.5">
                 <span
                   v-for="s in p.stack"
@@ -268,6 +282,18 @@ function openAppUsersModal(projectName: string): void {
             title="Descarga cambios de GitHub (git pull origin main) con Rollback de Git si hay conflictos, sin reiniciar ni destruir Docker"
           >
             <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull
+          </button>
+
+          <button
+            v-if="p.microservices?.isMicroservicesArchitecture && canDeployProjects"
+            @click="openMicroservicesModal(p.name)"
+            class="px-3 py-2 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+            title="Decidir qué microservicios integrar, encender o apagar en este proyecto"
+          >
+            <i class="fa-solid fa-cubes"></i>
+            Microservicios ({{ p.microservices.enabledMicroservicesCount }}/{{
+              p.microservices.totalMicroservices
+            }})
           </button>
 
           <template v-if="canDeployProjects">
