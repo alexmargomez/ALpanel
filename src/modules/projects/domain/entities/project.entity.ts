@@ -31,6 +31,8 @@ export interface DatabaseConnectionInfo {
   cliCommand: string;
 }
 
+import type { ProjectMicroservicesSummary } from '../../application/use-cases/manage-project-microservices.use-case';
+
 export interface ProjectInfo {
   name: string;
   path: string;
@@ -54,6 +56,7 @@ export interface ProjectInfo {
   hasEnvFile: boolean;
   hasComposeFile: boolean;
   database: DatabaseConnectionInfo;
+  microservices?: ProjectMicroservicesSummary;
 }
 
 export type ProjectEntity = ProjectInfo;

@@ -48,6 +48,32 @@ export interface DatabaseConnectionInfo {
   cliCommand: string;
 }
 
+export interface MicroserviceServiceItem {
+  serviceName: string;
+  containerName: string;
+  displayName: string;
+  domainCode: string;
+  category: 'core' | 'microservice' | 'database' | 'frontend' | 'gateway';
+  isSelectable: boolean;
+  enabled: boolean;
+  state: 'running' | 'stopped' | 'not_created';
+  port: string;
+  description: string;
+  subModules: string[];
+}
+
+export interface ProjectMicroservicesSummary {
+  isMicroservicesArchitecture: boolean;
+  architectureType: 'microservices' | 'monolith';
+  architectureLabel: string;
+  totalMicroservices: number;
+  enabledMicroservicesCount: number;
+  runningMicroservicesCount: number;
+  coreServices: MicroserviceServiceItem[];
+  microservices: MicroserviceServiceItem[];
+  enabledServiceNames: string[];
+}
+
 export interface ProjectInfo {
   name: string;
   path: string;
@@ -67,6 +93,7 @@ export interface ProjectInfo {
   };
   containers: ContainerStatInfo[];
   database: DatabaseConnectionInfo;
+  microservices?: ProjectMicroservicesSummary;
 }
 
 export interface DomainRouteItem {

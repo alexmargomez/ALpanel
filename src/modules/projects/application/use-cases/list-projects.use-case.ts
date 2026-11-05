@@ -11,6 +11,7 @@ import { FilesystemDiskAdapter } from '../../infrastructure/adapters/filesystem-
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import { ManageProjectDbUseCase } from './manage-project-db.use-case';
+import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
 
 export class ListProjectsUseCase {
   constructor(
@@ -120,13 +121,24 @@ export class ListProjectsUseCase {
           };
         });
 
+        const microservices =
+          manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+            projectDir,
+            containerStats
+          );
+
         const runningCount = containerStats.filter(
           (c) => c.state === 'running'
         ).length;
+        const expectedRunningTarget = microservices.isMicroservicesArchitecture
+          ? microservices.coreServices.length +
+            microservices.enabledMicroservicesCount
+          : containerStats.length;
+
         const status: ProjectInfo['status'] =
           containerStats.length === 0 || runningCount === 0
             ? 'stopped'
-            : runningCount === containerStats.length
+            : runningCount >= expectedRunningTarget && expectedRunningTarget > 0
             ? 'running'
             : 'partial';
 
@@ -157,10 +169,21 @@ export class ListProjectsUseCase {
           ),
         ]);
 
+        const stackList = this.diskAdapter.detectStack(
+          projectDir,
+          containerStats
+        );
+        if (
+          microservices.isMicroservicesArchitecture &&
+          !stackList.includes('Microservices')
+        ) {
+          stackList.unshift('Microservices');
+        }
+
         return {
           name: displayName,
           path: projectDir,
-          stack: this.diskAdapter.detectStack(projectDir, containerStats),
+          stack: stackList,
           status,
           domains,
           git,
@@ -177,6 +200,7 @@ export class ListProjectsUseCase {
             fs.existsSync(path.join(projectDir, 'docker-compose.yml')) ||
             fs.existsSync(path.join(projectDir, 'docker-compose.yaml')),
           database,
+          microservices,
         };
       })
     );

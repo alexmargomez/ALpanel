@@ -33,6 +33,7 @@ import AppUsersModal from './components/modals/AppUsersModal.vue';
 import CronjobsModal from './components/modals/CronjobsModal.vue';
 import TerminalModal from './components/modals/TerminalModal.vue';
 import DbErdModal from './components/modals/DbErdModal.vue';
+import MicroservicesModal from './components/modals/MicroservicesModal.vue';
 
 function logout(): void {
   panelStore.authToken = '';
@@ -128,6 +129,7 @@ onMounted(() => {
     <CronjobsModal />
     <TerminalModal />
     <DbErdModal />
+    <MicroservicesModal />
   </div>
 
   <ToastNotification />
