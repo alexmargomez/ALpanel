@@ -35,6 +35,8 @@ export interface ContainerStatInfo {
 export interface DatabaseConnectionInfo {
   hasDatabase: boolean;
   engine: string;
+  containerName?: string;
+  availableDatabases?: string[];
   host: string;
   port: string;
   internalHost: string;
@@ -335,6 +337,7 @@ export interface ProjectErdSchema {
   projectName: string;
   containerName?: string;
   databaseName: string;
+  availableDatabases?: string[];
   engine: string;
   source: 'live_db' | 'prisma_schema' | 'sql_schema';
   tables: ErdTableInfo[];

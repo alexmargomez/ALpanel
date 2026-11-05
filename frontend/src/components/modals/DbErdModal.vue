@@ -83,18 +83,23 @@ function autoLayoutTables(): void {
 async function loadErd(): Promise<void> {
   const projName = panelStore.modals.erd.projectName;
   const containerName = panelStore.modals.erd.containerName || '';
+  const dbName = panelStore.modals.erd.databaseName || '';
   if (!projName) return;
   loading.value = true;
   errorMsg.value = '';
   selectedTable.value = null;
   try {
-    const query = containerName
-      ? `?container=${encodeURIComponent(containerName)}`
-      : '';
+    const params = new URLSearchParams();
+    if (containerName) params.set('container', containerName);
+    if (dbName) params.set('db', dbName);
+    const query = params.toString() ? `?${params.toString()}` : '';
     const res = await apiFetch<ProjectErdSchema>(
       `/api/projects/${encodeURIComponent(projName)}/db-erd${query}`
     );
     schema.value = res;
+    if (res.databaseName) {
+      panelStore.modals.erd.databaseName = res.databaseName;
+    }
     autoLayoutTables();
   } catch (err: any) {
     errorMsg.value =
@@ -102,6 +107,13 @@ async function loadErd(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+function onSelectDatabase(e: Event): void {
+  const target = e.target as HTMLSelectElement;
+  if (!target?.value) return;
+  panelStore.modals.erd.databaseName = target.value;
+  loadErd();
 }
 
 watch(
@@ -353,8 +365,23 @@ function close(): void {
               >
                 <i class="fa-solid fa-database mr-1"></i>{{ panelStore.modals.erd.containerName || schema?.containerName }}
               </span>
+              <select
+                v-if="schema?.availableDatabases && schema.availableDatabases.length > 0"
+                :value="schema.databaseName"
+                @change="onSelectDatabase"
+                class="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-indigo-950/80 text-indigo-200 border border-indigo-500/40 font-mono focus:outline-none focus:border-fuchsia-400 cursor-pointer"
+                title="Cambiar de Base de Datos (Control Plane / Demo / Clientes)"
+              >
+                <option
+                  v-for="dbItem in schema.availableDatabases"
+                  :key="dbItem"
+                  :value="dbItem"
+                >
+                  🗄️ {{ dbItem }} ({{ schema.engine }})
+                </option>
+              </select>
               <span
-                v-if="schema"
+                v-else-if="schema"
                 class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"
               >
                 {{ schema.databaseName }} ({{ schema.engine }})

@@ -61,6 +61,12 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
   );
 
   app.get(
+    '/api/projects/:name/db-databases',
+    { preHandler: [authenticate, requirePermission('project_db', 'view')] },
+    (req, reply) => projectsController.dbDatabases(req, reply)
+  );
+
+  app.get(
     '/api/projects/:name/db-dump',
     { preHandler: [authenticate, requirePermission('project_db', 'deploy')] },
     (req, reply) => projectsController.dbDump(req, reply)

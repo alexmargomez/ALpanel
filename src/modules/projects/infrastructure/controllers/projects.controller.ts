@@ -121,13 +121,26 @@ export class ProjectsController {
     return res;
   }
 
-  async dbDump(request: FastifyRequest, reply: FastifyReply) {
+  async dbDatabases(request: FastifyRequest, reply: FastifyReply) {
     const { name } = request.params as { name: string };
     try {
-      const { filename, sql } = await projectsService.dumpDatabaseSql(name);
+      return await projectsService.listContainerDatabases(name);
+    } catch (error: any) {
+      return reply
+        .code(400)
+        .send({ error: error?.message || 'Error listando bases de datos' });
+    }
+  }
+
+  async dbDump(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { db } = (request.query || {}) as { db?: string };
+    const auditTarget = db ? `${name}/${db}` : name;
+    try {
+      const { filename, sql } = await projectsService.dumpDatabaseSql(name, db);
       await manageAuditLogsUseCase.recordAudit(
         'DB_EXPORT_SQL',
-        name,
+        auditTarget,
         request.ip,
         'ok'
       );
@@ -137,7 +150,7 @@ export class ProjectsController {
     } catch (error: any) {
       await manageAuditLogsUseCase.recordAudit(
         'DB_EXPORT_SQL',
-        name,
+        auditTarget,
         request.ip,
         'error'
       );
@@ -246,10 +259,17 @@ export class ProjectsController {
 
   async dbErd(request: FastifyRequest, reply: FastifyReply) {
     const { name } = request.params as { name: string };
-    const { container } = (request.query || {}) as { container?: string };
-    const auditTarget = container ? `${name}/${container}` : name;
+    const { container, db } = (request.query || {}) as {
+      container?: string;
+      db?: string;
+    };
+    const auditTarget = [name, container, db].filter(Boolean).join('/');
     try {
-      const schema = await projectsService.inspectProjectErd(name, container);
+      const schema = await projectsService.inspectProjectErd(
+        name,
+        container,
+        db
+      );
       await manageAuditLogsUseCase.recordAudit(
         'DB_ERD_INSPECT',
         auditTarget,

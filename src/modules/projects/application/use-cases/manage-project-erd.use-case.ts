@@ -41,6 +41,7 @@ export interface ProjectErdSchema {
   projectName: string;
   containerName?: string;
   databaseName: string;
+  availableDatabases?: string[];
   engine: string;
   source: 'live_db' | 'prisma_schema' | 'sql_schema';
   tables: ErdTableInfo[];
@@ -275,7 +276,8 @@ export class ManageProjectErdUseCase {
     projectName: string,
     projects: ProjectInfo[],
     customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>,
-    containerName?: string
+    containerName?: string,
+    requestedDbName?: string
   ): Promise<ProjectErdSchema> {
     const vo = new ProjectNameVO(projectName);
     const isSelf = ProjectNameVO.isSelfPanel(vo.value, this.panelSelfDir);
@@ -292,7 +294,8 @@ export class ManageProjectErdUseCase {
         const schema = await this.inspectLiveDatabase(
           proj,
           customExec,
-          containerName
+          containerName,
+          requestedDbName
         );
         return schema;
       } catch {
@@ -303,13 +306,14 @@ export class ManageProjectErdUseCase {
     const prismaPath = path.join(projectDir, 'prisma', 'schema.prisma');
     if (fs.existsSync(prismaPath)) {
       const content = fs.readFileSync(prismaPath, 'utf-8');
-      const parsed = parsePrismaSchemaToErd(
-        content,
-        vo.value,
-        proj?.database?.database || 'app_db'
-      );
+      const fallbackDb =
+        (requestedDbName && requestedDbName.trim()) ||
+        proj?.database?.database ||
+        'app_db';
+      const parsed = parsePrismaSchemaToErd(content, vo.value, fallbackDb);
       parsed.containerName =
         containerName || proj?.database?.containerName || undefined;
+      parsed.availableDatabases = [fallbackDb];
       return parsed;
     }
 
@@ -321,7 +325,8 @@ export class ManageProjectErdUseCase {
   private async inspectLiveDatabase(
     proj: ProjectInfo,
     customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>,
-    containerName?: string
+    containerName?: string,
+    requestedDbName?: string
   ): Promise<ProjectErdSchema> {
     const db = proj.database;
     const requestedContainer = (containerName || '').replace(
@@ -337,7 +342,11 @@ export class ManageProjectErdUseCase {
       ? /postgres/i.test(matchedContainerInfo.image) ||
         db.engine.toLowerCase().includes('postgres')
       : db.engine.toLowerCase().includes('postgres');
-    const dbName = db.database.replace(/[^a-zA-Z0-9._-]/g, '');
+    const rawTargetDb =
+      requestedDbName && requestedDbName.trim().length > 0
+        ? requestedDbName.trim()
+        : db.database;
+    const dbName = rawTargetDb.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootUser = db.rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootPass = db.rootPassword.replace(/'/g, "'\\''");
 
@@ -386,6 +395,7 @@ export class ManageProjectErdUseCase {
     execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }>
   ): Promise<ProjectErdSchema> {
     const sql = [
+      `SELECT CONCAT('DB|', SCHEMA_NAME) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys') ORDER BY SCHEMA_NAME;`,
       `SELECT CONCAT('TBL|', TABLE_NAME, '|', IFNULL(ENGINE, 'InnoDB'), '|', IFNULL(TABLE_ROWS, 0)) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;`,
       `SELECT CONCAT('COL|', TABLE_NAME, '|', COLUMN_NAME, '|', COLUMN_TYPE, '|', IS_NULLABLE, '|', IFNULL(COLUMN_KEY, ''), '|', IFNULL(COLUMN_DEFAULT, ''), '|', IFNULL(EXTRA, '')) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${dbName}' ORDER BY TABLE_NAME, ORDINAL_POSITION;`,
       `SELECT CONCAT('FK|', kcu.CONSTRAINT_NAME, '|', kcu.TABLE_NAME, '|', kcu.COLUMN_NAME, '|', kcu.REFERENCED_TABLE_NAME, '|', kcu.REFERENCED_COLUMN_NAME, '|', IFNULL(rc.DELETE_RULE, 'RESTRICT'), '|', IFNULL(rc.UPDATE_RULE, 'RESTRICT')) FROM information_schema.KEY_COLUMN_USAGE kcu LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS rc ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME WHERE kcu.TABLE_SCHEMA = '${dbName}' AND kcu.REFERENCED_TABLE_NAME IS NOT NULL ORDER BY kcu.TABLE_NAME, kcu.COLUMN_NAME;`,
@@ -412,10 +422,13 @@ export class ManageProjectErdUseCase {
     engineLabel: string,
     execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }>
   ): Promise<ProjectErdSchema> {
+    const schemaFilter = `NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'`;
+    const infoSchemaFilter = `NOT IN ('pg_catalog', 'information_schema') AND cols.table_schema NOT LIKE 'pg_toast%'`;
     const sql = [
-      `SELECT 'TBL|' || c.relname || '|PostgreSQL|' || COALESCE(c.reltuples::bigint, 0) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY c.relname;`,
-      `SELECT 'COL|' || cols.table_name || '|' || cols.column_name || '|' || cols.data_type || '|' || cols.is_nullable || '|' || CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END || '|' || COALESCE(cols.column_default, '') || '|' FROM information_schema.columns cols LEFT JOIN (SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public') pk ON pk.table_name = cols.table_name AND pk.column_name = cols.column_name WHERE cols.table_schema = 'public' ORDER BY cols.table_name, cols.ordinal_position;`,
-      `SELECT 'FK|' || tc.constraint_name || '|' || tc.table_name || '|' || kcu.column_name || '|' || ccu.table_name || '|' || ccu.column_name || '|' || COALESCE(rc.delete_rule, 'NO ACTION') || '|' || COALESCE(rc.update_rule, 'NO ACTION') FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema LEFT JOIN information_schema.referential_constraints AS rc ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';`,
+      `SELECT 'DB|' || datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY datname ASC;`,
+      `SELECT 'TBL|' || c.relname || '|PostgreSQL (' || n.nspname || ')|' || COALESCE(c.reltuples::bigint, 0) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname ${schemaFilter} AND c.relkind = 'r' ORDER BY n.nspname, c.relname;`,
+      `SELECT 'COL|' || cols.table_name || '|' || cols.column_name || '|' || cols.data_type || '|' || cols.is_nullable || '|' || CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END || '|' || COALESCE(cols.column_default, '') || '|' FROM information_schema.columns cols LEFT JOIN (SELECT kcu.table_schema, kcu.table_name, kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY') pk ON pk.table_schema = cols.table_schema AND pk.table_name = cols.table_name AND pk.column_name = cols.column_name WHERE cols.table_schema ${infoSchemaFilter} ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`,
+      `SELECT 'FK|' || tc.constraint_name || '|' || tc.table_name || '|' || kcu.column_name || '|' || ccu.table_name || '|' || ccu.column_name || '|' || COALESCE(rc.delete_rule, 'NO ACTION') || '|' || COALESCE(rc.update_rule, 'NO ACTION') FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name LEFT JOIN information_schema.referential_constraints AS rc ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema NOT IN ('pg_catalog', 'information_schema');`,
     ].join(' ');
 
     const escapedSql = sql.replace(/"/g, '\\"');
@@ -438,12 +451,18 @@ export class ManageProjectErdUseCase {
   ): ProjectErdSchema {
     const tableMap = new Map<string, ErdTableInfo>();
     const explicitRelations: ErdRelationInfo[] = [];
+    const availableDatabases: string[] = [];
 
     for (const rawLine of (stdout || '').split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line) continue;
 
-      if (line.startsWith('TBL|')) {
+      if (line.startsWith('DB|')) {
+        const dbItem = (line.split('|')[1] || '').trim();
+        if (dbItem && !availableDatabases.includes(dbItem)) {
+          availableDatabases.push(dbItem);
+        }
+      } else if (line.startsWith('TBL|')) {
         const [, tblName, tblEngine, rowsStr] = line.split('|');
         if (!tblName) continue;
         tableMap.set(tblName, {
@@ -506,6 +525,10 @@ export class ManageProjectErdUseCase {
       }
     }
 
+    if (databaseName && !availableDatabases.includes(databaseName)) {
+      availableDatabases.unshift(databaseName);
+    }
+
     const tables = Array.from(tableMap.values());
     for (const rel of explicitRelations) {
       const tbl = tableMap.get(rel.sourceTable);
@@ -518,6 +541,7 @@ export class ManageProjectErdUseCase {
     return {
       projectName,
       databaseName,
+      availableDatabases,
       engine,
       source: 'live_db',
       tables,
