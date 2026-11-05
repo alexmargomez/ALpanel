@@ -7,7 +7,7 @@
     "build:frontend": "vite build",
     "build:backend": "prisma generate && tsc",
     "build": "vite build && prisma generate && tsc",
-    "start": "node dist/main.js",
+    "start": "sh -c 'if [ ! -f dist/main.js ]; then npx tsc || true; fi && node dist/main.js'",
     "dev": "ts-node src/main.ts",
     "dev:frontend": "vite",
     "test": "jest",
