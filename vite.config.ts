@@ -16,7 +16,6 @@ if (
 ) {
   try {
     fs.rmSync('/app/src', { recursive: true, force: true });
-    fs.rmSync('/app/dist', { recursive: true, force: true });
     fs.cpSync(selfRepoSrc, '/app/src', { recursive: true });
   } catch {
     // Ignorar si no aplica en entorno local

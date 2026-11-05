@@ -828,18 +828,29 @@ export class ManageContainerPowerUseCase {
       if (isSelfPanel) {
         const logs: string[] = [];
         logs.push(
-          `==> Sincronizando archivos descargados de ALpanel en /app y preparando reinicio...`
+          `==> Sincronizando archivos descargados de ALpanel en /app y preparando reinicio atómico...`
         );
         await execAsync(
-          `rm -rf /app/public/js /app/public/views /app/src /app/dist && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          `rm -rf /app/public/js /app/public/views /app/src /app/dist_next && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
           { timeout: 30000 }
         ).catch(() => null);
         await this.runtime.ensureAlpanelContainerNames();
-        const buildRes = await execAsync('npm run build', {
-          cwd: '/app',
-          timeout: 120000,
-        }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+        const buildRes = await execAsync(
+          'npx prisma generate 2>/dev/null || true; npx tsc --outDir /app/dist_next && [ -f /app/dist_next/main.js ] && rm -rf /app/dist && mv /app/dist_next /app/dist',
+          {
+            cwd: '/app',
+            timeout: 120000,
+          }
+        ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
         if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+
+        if (fs.existsSync('/app') && !fs.existsSync('/app/dist/main.js')) {
+          return {
+            success: false,
+            output: `❌ Se abortó el reinicio de ALpanel para evitar caída 502 porque /app/dist/main.js no pudo generarse.\n${buildRes.stderr || ''}`.trim(),
+          };
+        }
+
         setTimeout(() => {
           exec(
             'docker restart alpanel_server 2>/dev/null || docker restart sm_server_panel',
@@ -957,24 +968,34 @@ export class ManageContainerPowerUseCase {
           `==> [1/3] Sincronizando código fuente (Frontend Vue 3 + Backend Fastify + Prisma) en /app...`
         );
         await execAsync(
-          `rm -rf /app/public/js /app/public/views && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
+          `rm -rf /app/public/js /app/public/views /app/src /app/dist_next && mkdir -p /app/src && cp -rf "${projectDir}/public/"* /app/public/ && cp -rf "${projectDir}/src/"* /app/src/ && (cp -rf "${projectDir}/frontend" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/vite.config.ts" /app/vite.config.ts 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.frontend.json" /app/tsconfig.frontend.json 2>/dev/null || true) && (cp -f "${projectDir}/tsconfig.json" /app/tsconfig.json 2>/dev/null || true) && (cp -rf "${projectDir}/prisma" /app/ 2>/dev/null || true) && (cp -f "${projectDir}/package.json" /app/package.json 2>/dev/null || true)`,
           { timeout: 30000 }
         );
 
         logs.push(
-          `==> [2/3] Instalando dependencias y reconstruyendo (vite build && prisma generate && tsc)...`
+          `==> [2/3] Instalando dependencias y reconstruyendo de forma atómica (vite build + prisma generate + tsc -> /app/dist)...`
         );
         await this.runtime.ensureAlpanelContainerNames();
         await execAsync('npm install --no-audit --no-fund', {
           cwd: '/app',
           timeout: 180000,
         }).catch(() => null);
-        const { stdout, stderr } = await execAsync('npm run build', {
-          cwd: '/app',
-          timeout: 180000,
-        });
+        const { stdout, stderr } = await execAsync(
+          '(npx vite build || true) && (npx prisma generate || true) && npx tsc --outDir /app/dist_next && [ -f /app/dist_next/main.js ] && rm -rf /app/dist && mv /app/dist_next /app/dist',
+          {
+            cwd: '/app',
+            timeout: 180000,
+          }
+        );
         if (stdout) logs.push(stdout.trim());
         if (stderr) logs.push(stderr.trim());
+
+        if (fs.existsSync('/app') && !fs.existsSync('/app/dist/main.js')) {
+          return {
+            success: false,
+            output: `❌ Rebuild abortado antes de reiniciar: /app/dist/main.js no existe.\n${logs.join('\n')}`,
+          };
+        }
 
         logs.push(
           `\n==> [3/3] Rebuild completado exitosamente. Reiniciando contenedor alpanel_server de forma atómica en 1.5s...`
