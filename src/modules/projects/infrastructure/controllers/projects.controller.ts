@@ -246,11 +246,13 @@ export class ProjectsController {
 
   async dbErd(request: FastifyRequest, reply: FastifyReply) {
     const { name } = request.params as { name: string };
+    const { container } = (request.query || {}) as { container?: string };
+    const auditTarget = container ? `${name}/${container}` : name;
     try {
-      const schema = await projectsService.inspectProjectErd(name);
+      const schema = await projectsService.inspectProjectErd(name, container);
       await manageAuditLogsUseCase.recordAudit(
         'DB_ERD_INSPECT',
-        name,
+        auditTarget,
         request.ip,
         'ok'
       );
@@ -258,7 +260,7 @@ export class ProjectsController {
     } catch (error: any) {
       await manageAuditLogsUseCase.recordAudit(
         'DB_ERD_INSPECT',
-        name,
+        auditTarget,
         request.ip,
         'error'
       );

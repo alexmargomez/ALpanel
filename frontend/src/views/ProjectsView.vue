@@ -322,15 +322,6 @@ function openAppUsersModal(projectName: string): void {
           </button>
 
           <button
-            v-if="canViewDb && p.database?.hasDatabase"
-            @click="openErdModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Visualizar diagrama gráfico Entidad-Relación (DER / ERD) interactivo de la Base de Datos"
-          >
-            <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
-          </button>
-
-          <button
             v-if="!isSelfPanel(p.name) && p.database?.hasDatabase && canManageAppUsers"
             @click="openAppUsersModal(p.name)"
             class="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5"
@@ -472,6 +463,14 @@ function openAppUsersModal(projectName: string): void {
             </div>
 
             <div class="flex items-center gap-1.5">
+              <button
+                v-if="c.role === 'database' && !/redis/i.test(c.image) && !/redis/i.test(c.name) && canViewDb"
+                @click="openErdModal(p.name, c.name)"
+                class="px-2.5 py-1 rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                :title="`Visualizar Modelo Gráfico DER / ERD del contenedor de Base de Datos ${c.name}`"
+              >
+                <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
+              </button>
               <button
                 v-if="canDeployProjects"
                 @click="openTerminalModal(p.name, c.name)"

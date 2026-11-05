@@ -80,9 +80,10 @@ function close(): void {
 
 function switchToErd(): void {
   const projName = panelStore.modals.db.projectName;
+  const containerName = db.value?.containerName || '';
   panelStore.modals.db.open = false;
   if (projName) {
-    openErdModal(projName);
+    openErdModal(projName, containerName);
   }
 }
 
