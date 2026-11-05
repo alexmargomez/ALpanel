@@ -67,6 +67,7 @@ interface TerminalModalState {
 interface ErdModalState {
   open: boolean;
   projectName: string;
+  containerName: string;
 }
 
 interface MicroservicesModalState {
@@ -143,7 +144,7 @@ export const panelStore = reactive({
     appUsers: { open: false, projectName: '' } as AppUsersModalState,
     cronjobs: { open: false, projectName: '' } as CronjobsModalState,
     terminal: { open: false, projectName: '', containerName: '' } as TerminalModalState,
-    erd: { open: false, projectName: '' } as ErdModalState,
+    erd: { open: false, projectName: '', containerName: '' } as ErdModalState,
     microservices: { open: false, projectName: '' } as MicroservicesModalState,
   },
 });
@@ -574,8 +575,9 @@ export function openTerminalModal(projectName: string, containerName = ''): void
   panelStore.modals.terminal.open = true;
 }
 
-export function openErdModal(projectName: string): void {
+export function openErdModal(projectName: string, containerName = ''): void {
   panelStore.modals.erd.projectName = projectName;
+  panelStore.modals.erd.containerName = containerName;
   panelStore.modals.erd.open = true;
 }
 

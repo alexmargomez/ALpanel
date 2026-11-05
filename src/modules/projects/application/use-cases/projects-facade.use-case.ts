@@ -156,9 +156,17 @@ export class ProjectsFacadeUseCase {
     return this.dbUseCase.dumpDatabaseSql(projectName, projects);
   }
 
-  async inspectProjectErd(projectName: string): Promise<ProjectErdSchema> {
+  async inspectProjectErd(
+    projectName: string,
+    containerName?: string
+  ): Promise<ProjectErdSchema> {
     const projects = await this.listProjects();
-    return this.erdUseCase.inspectProjectErd(projectName, projects);
+    return this.erdUseCase.inspectProjectErd(
+      projectName,
+      projects,
+      undefined,
+      containerName
+    );
   }
 
   listProjectCronjobs(projectName: string): ProjectCronjob[] {

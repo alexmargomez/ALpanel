@@ -39,6 +39,7 @@ export interface ErdRelationInfo {
 
 export interface ProjectErdSchema {
   projectName: string;
+  containerName?: string;
   databaseName: string;
   engine: string;
   source: 'live_db' | 'prisma_schema' | 'sql_schema';
@@ -273,7 +274,8 @@ export class ManageProjectErdUseCase {
   async inspectProjectErd(
     projectName: string,
     projects: ProjectInfo[],
-    customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>
+    customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>,
+    containerName?: string
   ): Promise<ProjectErdSchema> {
     const vo = new ProjectNameVO(projectName);
     const isSelf = ProjectNameVO.isSelfPanel(vo.value, this.panelSelfDir);
@@ -287,7 +289,12 @@ export class ManageProjectErdUseCase {
 
     if (proj && proj.database && proj.database.hasDatabase) {
       try {
-        return await this.inspectLiveDatabase(proj, customExec);
+        const schema = await this.inspectLiveDatabase(
+          proj,
+          customExec,
+          containerName
+        );
+        return schema;
       } catch {
         // Fallback to static schema inspection if container is stopped or unreachable
       }
@@ -296,11 +303,14 @@ export class ManageProjectErdUseCase {
     const prismaPath = path.join(projectDir, 'prisma', 'schema.prisma');
     if (fs.existsSync(prismaPath)) {
       const content = fs.readFileSync(prismaPath, 'utf-8');
-      return parsePrismaSchemaToErd(
+      const parsed = parsePrismaSchemaToErd(
         content,
         vo.value,
         proj?.database?.database || 'app_db'
       );
+      parsed.containerName =
+        containerName || proj?.database?.containerName || undefined;
+      return parsed;
     }
 
     throw new Error(
@@ -310,11 +320,23 @@ export class ManageProjectErdUseCase {
 
   private async inspectLiveDatabase(
     proj: ProjectInfo,
-    customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>
+    customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>,
+    containerName?: string
   ): Promise<ProjectErdSchema> {
     const db = proj.database;
-    const isPg = db.engine.toLowerCase().includes('postgres');
-    const container = db.containerName.replace(/[^a-zA-Z0-9._-]/g, '');
+    const requestedContainer = (containerName || '').replace(
+      /[^a-zA-Z0-9._-]/g,
+      ''
+    );
+    const container =
+      requestedContainer || db.containerName.replace(/[^a-zA-Z0-9._-]/g, '');
+    const matchedContainerInfo = proj.containers?.find(
+      (c) => c.name === container
+    );
+    const isPg = matchedContainerInfo
+      ? /postgres/i.test(matchedContainerInfo.image) ||
+        db.engine.toLowerCase().includes('postgres')
+      : db.engine.toLowerCase().includes('postgres');
     const dbName = db.database.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootUser = db.rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootPass = db.rootPassword.replace(/'/g, "'\\''");
@@ -328,7 +350,7 @@ export class ManageProjectErdUseCase {
         }));
 
     if (isPg) {
-      return this.inspectPostgresContainer(
+      const schema = await this.inspectPostgresContainer(
         proj.name,
         container,
         dbName,
@@ -337,9 +359,11 @@ export class ManageProjectErdUseCase {
         db.engine,
         execFn
       );
+      schema.containerName = container;
+      return schema;
     }
 
-    return this.inspectMysqlContainer(
+    const schema = await this.inspectMysqlContainer(
       proj.name,
       container,
       dbName,
@@ -348,6 +372,8 @@ export class ManageProjectErdUseCase {
       db.engine,
       execFn
     );
+    schema.containerName = container;
+    return schema;
   }
 
   private async inspectMysqlContainer(

@@ -82,19 +82,23 @@ function autoLayoutTables(): void {
 
 async function loadErd(): Promise<void> {
   const projName = panelStore.modals.erd.projectName;
+  const containerName = panelStore.modals.erd.containerName || '';
   if (!projName) return;
   loading.value = true;
   errorMsg.value = '';
   selectedTable.value = null;
   try {
+    const query = containerName
+      ? `?container=${encodeURIComponent(containerName)}`
+      : '';
     const res = await apiFetch<ProjectErdSchema>(
-      `/api/projects/${encodeURIComponent(projName)}/db-erd`
+      `/api/projects/${encodeURIComponent(projName)}/db-erd${query}`
     );
     schema.value = res;
     autoLayoutTables();
   } catch (err: any) {
     errorMsg.value =
-      err.message || 'No se pudo cargar el diagrama DER / ERD de este proyecto.';
+      err.message || 'No se pudo cargar el diagrama DER / ERD de este contenedor.';
   } finally {
     loading.value = false;
   }
@@ -343,6 +347,12 @@ function close(): void {
               <h3 class="text-base font-bold text-white">
                 Modelo Gráfico DER / ERD — {{ panelStore.modals.erd.projectName }}
               </h3>
+              <span
+                v-if="panelStore.modals.erd.containerName || schema?.containerName"
+                class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono"
+              >
+                <i class="fa-solid fa-database mr-1"></i>{{ panelStore.modals.erd.containerName || schema?.containerName }}
+              </span>
               <span
                 v-if="schema"
                 class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"

@@ -333,6 +333,7 @@ export interface ErdRelationInfo {
 
 export interface ProjectErdSchema {
   projectName: string;
+  containerName?: string;
   databaseName: string;
   engine: string;
   source: 'live_db' | 'prisma_schema' | 'sql_schema';
