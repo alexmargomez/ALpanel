@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import {
+  apiFetch,
   copyText,
   hasPerm,
   openErdModal,
@@ -9,6 +10,9 @@ import {
 } from '../../composables/usePanelStore';
 
 const revealedSecrets = reactive<Record<number, boolean>>({});
+const availableDatabases = ref<string[]>([]);
+const selectedDatabase = ref<string>('');
+const loadingDatabases = ref<boolean>(false);
 
 const project = computed(() =>
   panelStore.projects.find((p) => p.name === panelStore.modals.db.projectName)
@@ -16,18 +20,73 @@ const project = computed(() =>
 
 const db = computed(() => project.value?.database);
 
+const activeDatabaseName = computed(
+  () => selectedDatabase.value || db.value?.database || ''
+);
+
+async function fetchContainerDatabases(): Promise<void> {
+  const projName = panelStore.modals.db.projectName;
+  const d = db.value;
+  if (!projName || !d || !d.hasDatabase) return;
+  loadingDatabases.value = true;
+  try {
+    const res = await apiFetch<{
+      defaultDatabase: string;
+      availableDatabases: string[];
+    }>(`/api/projects/${encodeURIComponent(projName)}/db-databases`);
+    const list =
+      Array.isArray(res.availableDatabases) && res.availableDatabases.length > 0
+        ? res.availableDatabases
+        : [d.database];
+    availableDatabases.value = list;
+    if (!selectedDatabase.value || !list.includes(selectedDatabase.value)) {
+      selectedDatabase.value = res.defaultDatabase || d.database;
+    }
+  } catch {
+    availableDatabases.value = d.database ? [d.database] : [];
+    selectedDatabase.value = d.database || '';
+  } finally {
+    loadingDatabases.value = false;
+  }
+}
+
 watch(
   () => panelStore.modals.db.open,
   (isOpen) => {
     if (isOpen) {
       Object.keys(revealedSecrets).forEach((k) => delete revealedSecrets[Number(k)]);
+      selectedDatabase.value = db.value?.database || '';
+      availableDatabases.value = db.value?.database ? [db.value.database] : [];
+      fetchContainerDatabases();
     }
   }
 );
 
+const activeConnectionUrl = computed(() => {
+  const d = db.value;
+  if (!d || !d.hasDatabase) return '';
+  const targetDb = activeDatabaseName.value || d.database;
+  const isPg = d.engine.toLowerCase().includes('postgres');
+  const protocol = isPg ? 'postgresql' : 'mysql';
+  return `${protocol}://${encodeURIComponent(d.username)}:${encodeURIComponent(
+    d.password
+  )}@${d.host}:${d.port}/${targetDb}`;
+});
+
+const activeCliCommand = computed(() => {
+  const d = db.value;
+  if (!d || !d.hasDatabase) return '';
+  const targetDb = activeDatabaseName.value || d.database;
+  const isPg = d.engine.toLowerCase().includes('postgres');
+  return isPg
+    ? `PGPASSWORD='${d.password}' psql -h ${d.host} -p ${d.port} -U ${d.username} -d ${targetDb}`
+    : `mysql -h ${d.host} -P ${d.port} -u ${d.username} -p'${d.password}' ${targetDb}`;
+});
+
 const dbFields = computed(() => {
   const d = db.value;
   if (!d || !d.hasDatabase) return [];
+  const targetDb = activeDatabaseName.value || d.database;
   return [
     {
       label: 'Host / IP Pública (DBeaver, TablePlus, Navicat)',
@@ -42,9 +101,9 @@ const dbFields = computed(() => {
       secret: false,
     },
     {
-      label: 'Nombre de la Base de Datos (Database)',
-      value: d.database,
-      copyVal: d.database,
+      label: 'Nombre de la Base de Datos Seleccionada (Database)',
+      value: targetDb,
+      copyVal: targetDb,
       secret: false,
     },
     {
@@ -81,20 +140,26 @@ function close(): void {
 function switchToErd(): void {
   const projName = panelStore.modals.db.projectName;
   const containerName = db.value?.containerName || '';
+  const targetDb = activeDatabaseName.value;
   panelStore.modals.db.open = false;
   if (projName) {
-    openErdModal(projName, containerName);
+    openErdModal(projName, containerName, targetDb);
   }
 }
 
 async function downloadSqlBackup(): Promise<void> {
   const projName = panelStore.modals.db.projectName;
+  const targetDb = activeDatabaseName.value;
   if (!projName) return;
-  showToast(`Generando backup SQL de ${projName}...`);
+  showToast(`Generando backup SQL de ${targetDb || projName}...`);
   try {
-    const res = await fetch(`/api/projects/${encodeURIComponent(projName)}/db-dump`, {
-      headers: { Authorization: `Bearer ${panelStore.authToken}` },
-    });
+    const query = targetDb ? `?db=${encodeURIComponent(targetDb)}` : '';
+    const res = await fetch(
+      `/api/projects/${encodeURIComponent(projName)}/db-dump${query}`,
+      {
+        headers: { Authorization: `Bearer ${panelStore.authToken}` },
+      }
+    );
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Error generando backup');
@@ -103,12 +168,12 @@ async function downloadSqlBackup(): Promise<void> {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${projName}_backup.sql`;
+    a.download = `${projName}_${targetDb || 'db'}_backup.sql`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
-    showToast('Backup SQL descargado exitosamente');
+    showToast(`Backup SQL de "${targetDb}" descargado exitosamente`);
   } catch (e: any) {
     showToast(`Error: ${e.message}`, true);
   }
@@ -148,6 +213,44 @@ async function downloadSqlBackup(): Promise<void> {
       </div>
 
       <div v-else class="space-y-2.5 text-xs">
+        <!-- Selector Multi-Base de Datos (Control Plane + Demo + Bases de Clientes) -->
+        <div
+          class="bg-indigo-950/30 border border-indigo-500/30 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2"
+        >
+          <div class="flex-1 min-w-0">
+            <label
+              class="block text-[10px] uppercase tracking-wider font-bold text-indigo-300 mb-1"
+            >
+              <i class="fa-solid fa-layer-group mr-1"></i>Base de Datos Activa en Contenedor ({{
+                availableDatabases.length
+              }}
+              detectadas)
+            </label>
+            <select
+              v-model="selectedDatabase"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-indigo-400"
+            >
+              <option
+                v-for="dbItem in availableDatabases"
+                :key="dbItem"
+                :value="dbItem"
+              >
+                {{ dbItem }}
+              </option>
+            </select>
+          </div>
+          <button
+            @click="fetchContainerDatabases"
+            class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 shrink-0 mt-4"
+            title="Refrescar lista de bases de datos creadas en el contenedor"
+          >
+            <i
+              class="fa-solid fa-rotate"
+              :class="{ 'fa-spin': loadingDatabases }"
+            ></i>
+          </button>
+        </div>
+
         <div
           v-for="(f, idx) in dbFields"
           :key="idx"
@@ -180,32 +283,34 @@ async function downloadSqlBackup(): Promise<void> {
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
           <div class="flex justify-between items-center mb-1">
             <span class="text-[10px] uppercase tracking-wider text-slate-400">
-              URL de Conexión Directa
+              URL de Conexión Directa ({{ activeDatabaseName }})
             </span>
             <button
-              @click="copyText(db.connectionUrl, 'URL de conexión copiada')"
+              @click="copyText(activeConnectionUrl, 'URL de conexión copiada')"
               class="text-indigo-400 hover:underline"
             >
               Copiar URL
             </button>
           </div>
           <code class="block text-[11px] text-emerald-400 font-mono break-all">
-            {{ db.connectionUrl }}
+            {{ activeConnectionUrl }}
           </code>
         </div>
 
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
           <div class="flex justify-between items-center mb-1">
-            <span class="text-[10px] uppercase tracking-wider text-slate-400">Comando Terminal</span>
+            <span class="text-[10px] uppercase tracking-wider text-slate-400">
+              Comando Terminal ({{ activeDatabaseName }})
+            </span>
             <button
-              @click="copyText(db.cliCommand, 'Comando copiado')"
+              @click="copyText(activeCliCommand, 'Comando copiado')"
               class="text-indigo-400 hover:underline"
             >
               Copiar Comando
             </button>
           </div>
           <code class="block text-[11px] text-amber-300 font-mono break-all">
-            {{ db.cliCommand }}
+            {{ activeCliCommand }}
           </code>
         </div>
       </div>
@@ -217,14 +322,14 @@ async function downloadSqlBackup(): Promise<void> {
             @click="downloadSqlBackup"
             class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5"
           >
-            <i class="fa-solid fa-download"></i> Descargar Backup .SQL
+            <i class="fa-solid fa-download"></i> Backup .SQL ({{ activeDatabaseName }})
           </button>
           <button
             v-if="db?.hasDatabase"
             @click="switchToErd"
             class="px-3.5 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-fuchsia-600/20"
           >
-            <i class="fa-solid fa-diagram-project"></i> Ver Modelo DER / ERD
+            <i class="fa-solid fa-diagram-project"></i> Ver Modelo DER / ERD ({{ activeDatabaseName }})
           </button>
         </div>
         <button

@@ -149,23 +149,37 @@ export class ProjectsFacadeUseCase {
     );
   }
 
-  async dumpDatabaseSql(
+  async listContainerDatabases(
     projectName: string
+  ): Promise<{ defaultDatabase: string; availableDatabases: string[] }> {
+    const projects = await this.listProjects();
+    return this.dbUseCase.listContainerDatabases(projectName, projects);
+  }
+
+  async dumpDatabaseSql(
+    projectName: string,
+    requestedDbName?: string
   ): Promise<{ filename: string; sql: string }> {
     const projects = await this.listProjects();
-    return this.dbUseCase.dumpDatabaseSql(projectName, projects);
+    return this.dbUseCase.dumpDatabaseSql(
+      projectName,
+      projects,
+      requestedDbName
+    );
   }
 
   async inspectProjectErd(
     projectName: string,
-    containerName?: string
+    containerName?: string,
+    requestedDbName?: string
   ): Promise<ProjectErdSchema> {
     const projects = await this.listProjects();
     return this.erdUseCase.inspectProjectErd(
       projectName,
       projects,
       undefined,
-      containerName
+      containerName,
+      requestedDbName
     );
   }
 

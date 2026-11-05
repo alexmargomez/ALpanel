@@ -157,9 +157,60 @@ export class ManageProjectDbUseCase {
     };
   }
 
+  async listContainerDatabases(
+    projectName: string,
+    projects: ProjectInfo[],
+    customExec?: (cmd: string) => Promise<{ stdout: string; stderr: string }>
+  ): Promise<{ defaultDatabase: string; availableDatabases: string[] }> {
+    const isSelf = ProjectNameVO.isSelfPanel(projectName, this.panelSelfDir);
+    const proj = projects.find(
+      (p) =>
+        p.name.toLowerCase() === projectName.toLowerCase() ||
+        (isSelf && ProjectNameVO.isSelfPanel(p.name, this.panelSelfDir))
+    );
+    if (!proj || !proj.database.hasDatabase) {
+      return { defaultDatabase: '', availableDatabases: [] };
+    }
+    const db = proj.database;
+    const defaultDb = db.database.replace(/[^a-zA-Z0-9._-]/g, '');
+    const isPg = db.engine.toLowerCase().includes('postgres');
+    const container = db.containerName.replace(/[^a-zA-Z0-9._-]/g, '');
+    const rootUser = db.rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
+    const rootPass = db.rootPassword.replace(/'/g, "'\\''");
+    const execFn =
+      customExec ||
+      ((cmd: string) =>
+        execAsync(cmd, { maxBuffer: 5 * 1024 * 1024, timeout: 10000 }));
+
+    try {
+      const cmd = isPg
+        ? `docker exec -e PGPASSWORD='${rootPass}' ${container} psql -U ${rootUser} -d postgres -t -A -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY datname ASC;"`
+        : `docker exec ${container} sh -c "(command -v mariadb >/dev/null 2>&1 && mariadb -N -B -u ${rootUser} -p'${rootPass}' -e \\"SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME;\\") || mysql -N -B -u ${rootUser} -p'${rootPass}' -e \\"SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME;\\""`;
+
+      const { stdout } = await execFn(cmd);
+      const list = (stdout || '')
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (defaultDb && !list.includes(defaultDb)) {
+        list.unshift(defaultDb);
+      }
+      return {
+        defaultDatabase: defaultDb,
+        availableDatabases: list.length > 0 ? list : [defaultDb],
+      };
+    } catch {
+      return {
+        defaultDatabase: defaultDb,
+        availableDatabases: defaultDb ? [defaultDb] : [],
+      };
+    }
+  }
+
   async dumpDatabaseSql(
     projectName: string,
-    projects: ProjectInfo[]
+    projects: ProjectInfo[],
+    requestedDbName?: string
   ): Promise<{ filename: string; sql: string }> {
     const isSelf = ProjectNameVO.isSelfPanel(projectName, this.panelSelfDir);
     const proj = projects.find(
@@ -175,7 +226,11 @@ export class ManageProjectDbUseCase {
     const db = proj.database;
     const isPg = db.engine.toLowerCase().includes('postgres');
     const container = db.containerName.replace(/[^a-zA-Z0-9._-]/g, '');
-    const dbName = db.database.replace(/[^a-zA-Z0-9._-]/g, '');
+    const rawTargetDb =
+      requestedDbName && requestedDbName.trim().length > 0
+        ? requestedDbName.trim()
+        : db.database;
+    const dbName = rawTargetDb.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootUser = db.rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
     const rootPass = db.rootPassword.replace(/'/g, "'\\''");
 
