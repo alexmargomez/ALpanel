@@ -472,8 +472,16 @@ function openAppUsersModal(projectName: string): void {
                 <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
               </button>
               <button
-                v-if="canDeployProjects"
-                @click="openTerminalModal(p.name, c.name)"
+                v-if="c.role === 'database' && !/redis/i.test(c.image) && !/redis/i.test(c.name) && canDeployProjects"
+                @click="openTerminalModal(p.name, c.name, 'sql')"
+                class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                :title="`Abrir Terminal SQL interactiva en el motor de Base de Datos ${c.name}`"
+              >
+                <i class="fa-solid fa-database"></i> Terminal SQL
+              </button>
+              <button
+                v-else-if="canDeployProjects"
+                @click="openTerminalModal(p.name, c.name, 'shell')"
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px]"
                 title="Abrir terminal interactiva en este contenedor"
               >
@@ -549,9 +557,17 @@ function openAppUsersModal(projectName: string): void {
                   <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
                 </button>
                 <button
+                  v-if="canDeployProjects"
+                  @click="openTerminalModal(p.name, p.database.containerName || '', 'sql', dbName)"
+                  class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                  :title="`Abrir Terminal SQL interactiva conectada a la base de datos ${dbName}`"
+                >
+                  <i class="fa-solid fa-database"></i> Terminal SQL
+                </button>
+                <button
                   v-if="canViewDb"
                   @click="openDbModal(p.name)"
-                  class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                  class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] font-semibold transition flex items-center gap-1"
                   :title="`Ver credenciales y descargar Backup SQL de ${dbName}`"
                 >
                   <i class="fa-solid fa-file-arrow-down"></i> Credenciales / SQL

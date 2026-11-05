@@ -566,6 +566,77 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
       expect(res.cwd).toBe('/app/backend');
       expect(res.output).toContain('manage.py');
       expect(res.output).not.toContain('__ALPANEL_CWD_MARKER__');
+
+      const sqlRes = await termUseCase.executeTerminalCommand(
+        'API_SM',
+        {
+          targetType: 'sql',
+          containerName: 'api_sm_db',
+          command: 'SHOW TABLES;',
+        },
+        [
+          {
+            name: 'API_SM',
+            path: '/opt/projects/API_SM',
+            status: 'running',
+            stack: ['Django'],
+            domains: [],
+            hasEnvFile: true,
+            hasComposeFile: true,
+            git: {
+              isRepo: true,
+              branch: 'main',
+              commitHash: '1234567',
+              commitMessage: 'init',
+              remoteUrl: '',
+              behindCount: 0,
+            },
+            resources: { cpuPercent: 1, memoryBytes: 100, diskBytes: 100 },
+            containers: [
+              {
+                id: 'db1',
+                name: 'api_sm_db',
+                serviceName: 'db',
+                image: 'postgres:15-alpine',
+                state: 'running',
+                status: 'Up',
+                cpuPercent: 0,
+                memoryBytes: 0,
+                memoryLimitBytes: 0,
+                memoryPercent: 0,
+                ports: [],
+                role: 'database',
+              },
+            ],
+            database: {
+              hasDatabase: true,
+              engine: 'PostgreSQL 15',
+              containerName: 'api_sm_db',
+              status: 'running',
+              host: '127.0.0.1',
+              internalHost: 'db',
+              port: '5432',
+              internalPort: '5432',
+              database: 'sm_datos',
+              username: 'postgres',
+              password: 'secret',
+              rootUsername: 'postgres',
+              rootPassword: 'secret',
+              connectionUrl: '',
+              cliCommand: '',
+            },
+          },
+        ],
+        async (cmd) => ({
+          stdout: `SQL Executed: ${cmd}\n public | auth_user | table | postgres`,
+          stderr: '',
+        })
+      );
+
+      expect(sqlRes.success).toBe(true);
+      expect(sqlRes.targetLabel).toBe('sql:api_sm_db/sm_datos');
+      expect(sqlRes.output).toContain('psql -P pager=off');
+      expect(sqlRes.output).toContain('auth_user');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

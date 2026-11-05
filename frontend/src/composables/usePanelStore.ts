@@ -62,6 +62,8 @@ interface TerminalModalState {
   open: boolean;
   projectName: string;
   containerName: string;
+  mode: 'shell' | 'sql';
+  databaseName: string;
 }
 
 interface ErdModalState {
@@ -144,7 +146,7 @@ export const panelStore = reactive({
     role: { open: false, roleId: null } as RoleModalState,
     appUsers: { open: false, projectName: '' } as AppUsersModalState,
     cronjobs: { open: false, projectName: '' } as CronjobsModalState,
-    terminal: { open: false, projectName: '', containerName: '' } as TerminalModalState,
+    terminal: { open: false, projectName: '', containerName: '', mode: 'shell', databaseName: '' } as TerminalModalState,
     erd: { open: false, projectName: '', containerName: '', databaseName: '' } as ErdModalState,
     microservices: { open: false, projectName: '' } as MicroservicesModalState,
   },
@@ -570,9 +572,16 @@ export function openCronjobsModal(projectName: string): void {
   panelStore.modals.cronjobs.open = true;
 }
 
-export function openTerminalModal(projectName: string, containerName = ''): void {
+export function openTerminalModal(
+  projectName: string,
+  containerName = '',
+  mode: 'shell' | 'sql' = 'shell',
+  databaseName = ''
+): void {
   panelStore.modals.terminal.projectName = projectName;
   panelStore.modals.terminal.containerName = containerName;
+  panelStore.modals.terminal.mode = mode;
+  panelStore.modals.terminal.databaseName = databaseName;
   panelStore.modals.terminal.open = true;
 }
 
