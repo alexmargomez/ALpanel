@@ -497,6 +497,68 @@ function openAppUsersModal(projectName: string): void {
               </button>
             </div>
           </div>
+
+          <!-- Lista de Bases de Datos Alojadas en el Contenedor DB (Multi-Base / Multi-Tenant) -->
+          <div
+            v-if="p.database?.hasDatabase && p.database?.availableDatabases && p.database.availableDatabases.length > 0"
+            class="space-y-1.5 pt-2"
+          >
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-400/90 flex items-center gap-1.5">
+              <i class="fa-solid fa-database text-[10px]"></i>
+              Bases de Datos Alojadas en {{ p.database.containerName || 'DB' }} ({{ p.database.availableDatabases.length }})
+            </div>
+            <div
+              v-for="dbName in p.database.availableDatabases"
+              :key="dbName"
+              class="flex flex-wrap items-center justify-between gap-2 bg-amber-950/15 border border-amber-500/20 rounded-xl px-3.5 py-2 text-xs"
+            >
+              <div class="flex items-center gap-2.5">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span class="font-mono font-bold text-amber-200">{{ dbName }}</span>
+                <span
+                  v-if="dbName === p.database.database"
+                  class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-semibold"
+                >
+                  Principal / Core
+                </span>
+                <span
+                  v-else-if="dbName.includes('groups')"
+                  class="text-[10px] px-2 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30 font-semibold"
+                >
+                  Grupos de Clientes y Catálogo
+                </span>
+                <span
+                  v-else
+                  class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold"
+                >
+                  BD Aislada Cliente
+                </span>
+              </div>
+
+              <div class="text-slate-400 text-[11px] font-mono">
+                {{ p.database.engine }} · Contenedor: {{ p.database.containerName }}
+              </div>
+
+              <div class="flex items-center gap-1.5">
+                <button
+                  v-if="canViewDb"
+                  @click="openErdModal(p.name, p.database.containerName || '', dbName)"
+                  class="px-2.5 py-1 rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                  :title="`Visualizar Modelo DER / ERD de la base de datos ${dbName}`"
+                >
+                  <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
+                </button>
+                <button
+                  v-if="canViewDb"
+                  @click="openDbModal(p.name)"
+                  class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
+                  :title="`Ver credenciales y descargar Backup SQL de ${dbName}`"
+                >
+                  <i class="fa-solid fa-file-arrow-down"></i> Credenciales / SQL
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
