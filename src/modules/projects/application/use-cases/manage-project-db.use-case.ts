@@ -138,10 +138,33 @@ export class ManageProjectDbUseCase {
       ? `PGPASSWORD='${password}' psql -h ${publicIp} -p ${effectivePort} -U ${username} -d ${database}`
       : `mysql -h ${publicIp} -P ${effectivePort} -u ${username} -p'${password}' ${database}`;
 
+    let availableDatabases: string[] = database && database !== '-' ? [database] : [];
+    if (dbContainer && dbContainer.state === 'running') {
+      const safeContainer = dbContainer.name.replace(/[^a-zA-Z0-9._-]/g, '');
+      const safeRootUser = rootUsername.replace(/[^a-zA-Z0-9._-]/g, '');
+      const safeRootPass = rootPassword.replace(/'/g, "'\\''");
+      try {
+        const listCmd = isPostgres
+          ? `docker exec -e PGPASSWORD='${safeRootPass}' ${safeContainer} psql -U ${safeRootUser} -d postgres -t -A -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY datname ASC;"`
+          : `docker exec ${safeContainer} sh -c "(command -v mariadb >/dev/null 2>&1 && mariadb -N -B -u ${safeRootUser} -p'${safeRootPass}' -e \\"SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME;\\") || mysql -N -B -u ${safeRootUser} -p'${safeRootPass}' -e \\"SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','performance_schema','mysql','sys') ORDER BY SCHEMA_NAME;\\""`;
+        const { stdout } = await execAsync(listCmd, { timeout: 3500 });
+        const parsed = (stdout || '')
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (parsed.length > 0) {
+          availableDatabases = parsed;
+        }
+      } catch {
+        // Fallback to default database if container is still warming up
+      }
+    }
+
     return {
       hasDatabase: true,
       engine,
       containerName: dbContainer?.name || 'db',
+      availableDatabases,
       status: dbContainer?.state || 'stopped',
       host: publicIp,
       internalHost,

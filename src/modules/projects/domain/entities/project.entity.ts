@@ -17,6 +17,7 @@ export interface DatabaseConnectionInfo {
   hasDatabase: boolean;
   engine: string;
   containerName: string;
+  availableDatabases?: string[];
   status: string;
   host: string;
   internalHost: string;
