@@ -16,11 +16,28 @@ import { ManageProjectEnvUseCase } from './manage-project-env.use-case';
 import { ManageContainerPowerUseCase } from './manage-container-power.use-case';
 import { DeployGitProjectUseCase } from './deploy-git-project.use-case';
 import { ListProjectsUseCase } from './list-projects.use-case';
+import {
+  ManageProjectCronjobsUseCase,
+  ProjectCronjob,
+} from './manage-project-cronjobs.use-case';
+import {
+  ManageProjectTerminalUseCase,
+  TerminalExecPayload,
+  TerminalExecResult,
+} from './manage-project-terminal.use-case';
+import {
+  ManageProjectErdUseCase,
+  ProjectErdSchema,
+} from './manage-project-erd.use-case';
 
 export {
   ContainerStatInfo,
   DatabaseConnectionInfo,
   ProjectInfo,
+  ProjectCronjob,
+  TerminalExecPayload,
+  TerminalExecResult,
+  ProjectErdSchema,
 };
 
 /**
@@ -35,6 +52,9 @@ export class ProjectsFacadeUseCase {
   private readonly powerUseCase: ManageContainerPowerUseCase;
   private readonly deployUseCase: DeployGitProjectUseCase;
   private readonly listUseCase: ListProjectsUseCase;
+  private readonly cronjobsUseCase: ManageProjectCronjobsUseCase;
+  private readonly terminalUseCase: ManageProjectTerminalUseCase;
+  private readonly erdUseCase: ManageProjectErdUseCase;
 
   constructor(systemService: SystemService) {
     this.projectsRoot = process.env.PROJECTS_ROOT || '/opt/projects';
@@ -71,6 +91,18 @@ export class ProjectsFacadeUseCase {
       gitCliAdapter,
       filesystemDiskAdapter,
       this.dbUseCase,
+      this.projectsRoot,
+      this.panelSelfDir
+    );
+    this.cronjobsUseCase = new ManageProjectCronjobsUseCase(
+      this.projectsRoot,
+      this.panelSelfDir
+    );
+    this.terminalUseCase = new ManageProjectTerminalUseCase(
+      this.projectsRoot,
+      this.panelSelfDir
+    );
+    this.erdUseCase = new ManageProjectErdUseCase(
       this.projectsRoot,
       this.panelSelfDir
     );
@@ -117,6 +149,62 @@ export class ProjectsFacadeUseCase {
   ): Promise<{ filename: string; sql: string }> {
     const projects = await this.listProjects();
     return this.dbUseCase.dumpDatabaseSql(projectName, projects);
+  }
+
+  async inspectProjectErd(projectName: string): Promise<ProjectErdSchema> {
+    const projects = await this.listProjects();
+    return this.erdUseCase.inspectProjectErd(projectName, projects);
+  }
+
+  listProjectCronjobs(projectName: string): ProjectCronjob[] {
+    return this.cronjobsUseCase.listProjectCronjobs(projectName);
+  }
+
+  async saveProjectCronjob(
+    projectName: string,
+    payload: Partial<ProjectCronjob>
+  ): Promise<ProjectCronjob> {
+    const projects = await this.listProjects();
+    return this.cronjobsUseCase.saveProjectCronjob(
+      projectName,
+      payload,
+      projects
+    );
+  }
+
+  deleteProjectCronjob(
+    projectName: string,
+    cronId: string
+  ): { success: boolean } {
+    return this.cronjobsUseCase.deleteProjectCronjob(projectName, cronId);
+  }
+
+  async runProjectCronjobNow(
+    projectName: string,
+    cronId: string
+  ): Promise<ProjectCronjob> {
+    const projects = await this.listProjects();
+    return this.cronjobsUseCase.runProjectCronjobNow(
+      projectName,
+      cronId,
+      projects
+    );
+  }
+
+  startCronScheduler(): void {
+    this.cronjobsUseCase.startScheduler(() => this.listProjects());
+  }
+
+  async executeTerminalCommand(
+    projectName: string,
+    payload: TerminalExecPayload
+  ): Promise<TerminalExecResult> {
+    const projects = await this.listProjects();
+    return this.terminalUseCase.executeTerminalCommand(
+      projectName,
+      payload,
+      projects
+    );
   }
 
   async checkProjectUpdates(projectName: string) {

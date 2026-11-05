@@ -112,6 +112,9 @@ export const DEFAULT_CATALOG: DiscoveredCatalog = {
         { code: 'projects.env_edit', name: 'Editar y Guardar .env', icon: 'fa-key', serviceFile: 'src/services/projects/project-env.service.ts' },
         { code: 'projects.git_pull', name: 'Git Pull (Producción main)', icon: 'fa-cloud-arrow-down', serviceFile: 'src/services/projects/git-deploy.service.ts' },
         { code: 'projects.app_users', name: 'Gestionar Usuarios Internos de cada App', icon: 'fa-users-rectangle', serviceFile: 'src/services/projects/project-users.service.ts' },
+        { code: 'projects.db_erd', name: 'Visualizador Gráfico DER / ERD de Base de Datos', icon: 'fa-diagram-project', serviceFile: 'src/modules/projects/application/use-cases/manage-project-erd.use-case.ts' },
+        { code: 'projects.cronjobs', name: 'Cronjobs y Tareas Programadas', icon: 'fa-clock', serviceFile: 'src/modules/projects/application/use-cases/manage-project-cronjobs.use-case.ts' },
+        { code: 'projects.terminal', name: 'Terminal Interactiva del Proyecto', icon: 'fa-terminal', serviceFile: 'src/modules/projects/application/use-cases/manage-project-terminal.use-case.ts' },
       ],
     },
     {

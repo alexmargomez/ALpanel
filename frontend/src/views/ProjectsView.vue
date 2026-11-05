@@ -3,8 +3,11 @@ import { computed, reactive } from 'vue';
 import {
   apiFetch,
   hasPerm,
+  openCronjobsModal,
   openEnvModal,
+  openErdModal,
   openLogsModal,
+  openTerminalModal,
   panelStore,
   refreshAll,
   runProjectAction,
@@ -293,12 +296,39 @@ function openAppUsersModal(projectName: string): void {
           </button>
 
           <button
+            v-if="canViewDb && p.database?.hasDatabase"
+            @click="openErdModal(p.name)"
+            class="px-3 py-2 rounded-xl bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+            title="Visualizar diagrama gráfico Entidad-Relación (DER / ERD) interactivo de la Base de Datos"
+          >
+            <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
+          </button>
+
+          <button
             v-if="!isSelfPanel(p.name) && p.database?.hasDatabase && canManageAppUsers"
             @click="openAppUsersModal(p.name)"
             class="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5"
             :title="`Ver, crear y cambiar contraseñas de usuarios internos de ${p.name}`"
           >
             <i class="fa-solid fa-users-rectangle"></i> Usuarios App
+          </button>
+
+          <button
+            v-if="canDeployProjects"
+            @click="openCronjobsModal(p.name)"
+            class="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+            title="Programar y ejecutar Cronjobs en este proyecto"
+          >
+            <i class="fa-solid fa-clock"></i> Cronjobs
+          </button>
+
+          <button
+            v-if="canDeployProjects"
+            @click="openTerminalModal(p.name)"
+            class="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+            title="Abrir Terminal Interactiva en los contenedores o carpeta de este proyecto"
+          >
+            <i class="fa-solid fa-terminal"></i> Terminal
           </button>
 
           <button
@@ -314,7 +344,7 @@ function openAppUsersModal(projectName: string): void {
             @click="openLogsModal(p.name)"
             class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
           >
-            <i class="fa-solid fa-terminal"></i> Logs
+            <i class="fa-solid fa-scroll"></i> Logs
           </button>
 
           <button
@@ -418,6 +448,14 @@ function openAppUsersModal(projectName: string): void {
             <div class="flex items-center gap-1.5">
               <button
                 v-if="canDeployProjects"
+                @click="openTerminalModal(p.name, c.name)"
+                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px]"
+                title="Abrir terminal interactiva en este contenedor"
+              >
+                <i class="fa-solid fa-terminal"></i> Terminal
+              </button>
+              <button
+                v-if="canDeployProjects"
                 @click="runProjectAction(p.name, 'restart', { containerName: c.name })"
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px]"
                 title="Reiniciar solo este contenedor"
@@ -430,7 +468,7 @@ function openAppUsersModal(projectName: string): void {
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]"
                 title="Ver logs de este contenedor"
               >
-                <i class="fa-solid fa-terminal"></i> Logs
+                <i class="fa-solid fa-scroll"></i> Logs
               </button>
             </div>
           </div>

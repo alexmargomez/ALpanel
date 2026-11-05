@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue';
-import { copyText, hasPerm, panelStore, showToast } from '../../composables/usePanelStore';
+import {
+  copyText,
+  hasPerm,
+  openErdModal,
+  panelStore,
+  showToast,
+} from '../../composables/usePanelStore';
 
 const revealedSecrets = reactive<Record<number, boolean>>({});
 
@@ -70,6 +76,14 @@ const dbFields = computed(() => {
 
 function close(): void {
   panelStore.modals.db.open = false;
+}
+
+function switchToErd(): void {
+  const projName = panelStore.modals.db.projectName;
+  panelStore.modals.db.open = false;
+  if (projName) {
+    openErdModal(projName);
+  }
 }
 
 async function downloadSqlBackup(): Promise<void> {
@@ -195,15 +209,23 @@ async function downloadSqlBackup(): Promise<void> {
         </div>
       </div>
 
-      <div class="mt-6 flex items-center justify-between">
-        <button
-          v-if="db?.hasDatabase && hasPerm('project_db', 'deploy')"
-          @click="downloadSqlBackup"
-          class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2"
-        >
-          <i class="fa-solid fa-download"></i> Descargar Backup .SQL
-        </button>
-        <div v-else></div>
+      <div class="mt-6 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-if="db?.hasDatabase && hasPerm('project_db', 'deploy')"
+            @click="downloadSqlBackup"
+            class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5"
+          >
+            <i class="fa-solid fa-download"></i> Descargar Backup .SQL
+          </button>
+          <button
+            v-if="db?.hasDatabase"
+            @click="switchToErd"
+            class="px-3.5 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-fuchsia-600/20"
+          >
+            <i class="fa-solid fa-diagram-project"></i> Ver Modelo DER / ERD
+          </button>
+        </div>
         <button
           @click="close"
           class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold"

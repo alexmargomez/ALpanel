@@ -18,6 +18,15 @@ import {
   upsertEnvFileVariables,
 } from '../../../src/modules/projects/application/use-cases/manage-container-power.use-case';
 import { ListProjectsUseCase } from '../../../src/modules/projects/application/use-cases/list-projects.use-case';
+import {
+  ManageProjectCronjobsUseCase,
+  matchesCronExpression,
+} from '../../../src/modules/projects/application/use-cases/manage-project-cronjobs.use-case';
+import { ManageProjectTerminalUseCase } from '../../../src/modules/projects/application/use-cases/manage-project-terminal.use-case';
+import {
+  ManageProjectErdUseCase,
+  parsePrismaSchemaToErd,
+} from '../../../src/modules/projects/application/use-cases/manage-project-erd.use-case';
 import { FilesystemDiskAdapter } from '../../../src/modules/projects/infrastructure/adapters/filesystem-disk.adapter';
 import { DockerodeRuntimeAdapter } from '../../../src/modules/projects/infrastructure/adapters/dockerode-runtime.adapter';
 import { ContainerStatInfo } from '../../../src/modules/projects/domain/entities/project.entity';
@@ -486,6 +495,166 @@ describe('Projects Module — Application Use Cases & Adapters', () => {
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
+  });
+
+  it('ManageProjectCronjobsUseCase valida expresiones cron, persiste tareas y ejecuta en caliente', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-cron-'));
+    const storeFile = path.join(tmpDir, 'cronjobs.json');
+    const cronUseCase = new ManageProjectCronjobsUseCase(
+      tmpDir,
+      '/opt/alpanel',
+      storeFile
+    );
+
+    try {
+      const sampleDate = new Date(2026, 10, 4, 2, 15, 0); // 02:15
+      expect(matchesCronExpression('*/5 * * * *', sampleDate)).toBe(true);
+      expect(matchesCronExpression('15 2 * * *', sampleDate)).toBe(true);
+      expect(matchesCronExpression('0 3 * * *', sampleDate)).toBe(false);
+
+      const created = cronUseCase.saveProjectCronjob('FixMotor', {
+        name: 'Laravel Scheduler',
+        schedule: '*/5 * * * *',
+        targetType: 'container',
+        containerName: 'fixmotor_backend',
+        command: 'php artisan schedule:run',
+      });
+      expect(created.id).toMatch(/^cron_/);
+      expect(cronUseCase.listProjectCronjobs('FixMotor')).toHaveLength(1);
+
+      const executed = await cronUseCase.runProjectCronjobNow(
+        'FixMotor',
+        created.id,
+        [],
+        async (cmd) => ({
+          stdout: `Executed: ${cmd}`,
+          stderr: '',
+        })
+      );
+      expect(executed.lastStatus).toBe('ok');
+      expect(executed.lastOutput).toContain('php artisan schedule:run');
+
+      cronUseCase.deleteProjectCronjob('FixMotor', created.id);
+      expect(cronUseCase.listProjectCronjobs('FixMotor')).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('ManageProjectTerminalUseCase ejecuta comandos interactivos y preserva el directorio de trabajo (cwd)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alpanel-term-'));
+    const termUseCase = new ManageProjectTerminalUseCase(tmpDir, '/opt/alpanel');
+
+    try {
+      const res = await termUseCase.executeTerminalCommand(
+        'API_SM',
+        {
+          targetType: 'container',
+          containerName: 'api_sm_backend',
+          command: 'cd /app/backend && ls -1',
+          cwd: '/app',
+        },
+        [],
+        async () => ({
+          stdout: 'manage.py\nrequirements.txt\n__ALPANEL_CWD_MARKER__:/app/backend\n',
+          stderr: '',
+        })
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.cwd).toBe('/app/backend');
+      expect(res.output).toContain('manage.py');
+      expect(res.output).not.toContain('__ALPANEL_CWD_MARKER__');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('ManageProjectErdUseCase construye el modelo DER / ERD con tablas, llaves primarias, foráneas y código Mermaid', async () => {
+    const prismaSample = `
+      model Role {
+        id    Int    @id @default(autoincrement())
+        code  String @unique
+        users User[]
+        @@map("roles")
+      }
+      model User {
+        id     Int    @id @default(autoincrement())
+        roleId Int    @map("role_id")
+        role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+        @@map("users")
+      }
+    `;
+    const erdFromPrisma = parsePrismaSchemaToErd(
+      prismaSample,
+      'ALpanel',
+      'alpanel_db'
+    );
+    expect(erdFromPrisma.tables).toHaveLength(2);
+    expect(erdFromPrisma.relations).toHaveLength(1);
+    expect(erdFromPrisma.relations[0].sourceTable).toBe('users');
+    expect(erdFromPrisma.relations[0].targetTable).toBe('roles');
+    expect(erdFromPrisma.mermaidCode).toContain('erDiagram');
+
+    const erdUseCase = new ManageProjectErdUseCase('/opt/projects', '/opt/alpanel');
+    const liveErd = await erdUseCase.inspectProjectErd(
+      'FixMotor',
+      [
+        {
+          name: 'FixMotor',
+          path: '/opt/projects/FixMotor',
+          status: 'running',
+          stack: ['Laravel'],
+          domains: [],
+          hasEnvFile: true,
+          hasComposeFile: true,
+          git: {
+            isRepo: true,
+            branch: 'main',
+            commitHash: '1234567',
+            commitMessage: 'init',
+            remoteUrl: '',
+            behindCount: 0,
+          },
+          resources: { cpuPercent: 1, memoryBytes: 100, diskBytes: 100 },
+          containers: [],
+          database: {
+            hasDatabase: true,
+            engine: 'MariaDB 11.4',
+            containerName: 'fixmotor_db',
+            status: 'running',
+            host: '127.0.0.1',
+            internalHost: 'db',
+            port: '3306',
+            internalPort: '3306',
+            database: 'fixmotor',
+            username: 'root',
+            password: 'secret',
+            rootUsername: 'root',
+            rootPassword: 'secret',
+            connectionUrl: '',
+            cliCommand: '',
+          },
+        },
+      ],
+      async () => ({
+        stdout: [
+          'TBL|customers|InnoDB|45',
+          'TBL|invoices|InnoDB|120',
+          'COL|customers|id|bigint(20)|NO|PRI||auto_increment',
+          'COL|customers|name|varchar(150)|NO|||',
+          'COL|invoices|id|bigint(20)|NO|PRI||auto_increment',
+          'COL|invoices|customer_id|bigint(20)|NO|MUL||',
+          'FK|fk_invoices_customer|invoices|customer_id|customers|id|CASCADE|RESTRICT',
+        ].join('\n'),
+        stderr: '',
+      })
+    );
+
+    expect(liveErd.source).toBe('live_db');
+    expect(liveErd.tables).toHaveLength(2);
+    expect(liveErd.relations).toHaveLength(1);
+    expect(liveErd.relations[0].constraintName).toBe('fk_invoices_customer');
   });
 });
 
