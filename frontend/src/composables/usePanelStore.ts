@@ -21,6 +21,19 @@ interface ConsoleModalState {
   projectName: string;
   selectedContainer: string;
   showContainerSelect: boolean;
+  taskId: string;
+}
+
+export interface BackgroundTaskItem {
+  id: string;
+  title: string;
+  projectName: string;
+  action: string;
+  status: 'running' | 'success' | 'error';
+  message: string;
+  output: string;
+  startedAt: number;
+  finishedAt?: number;
 }
 
 interface EnvModalState {
@@ -130,6 +143,7 @@ export const panelStore = reactive({
     message: 'Listo',
     isError: false,
   },
+  backgroundTasks: [] as BackgroundTaskItem[],
   modals: {
     db: { open: false, projectName: '' } as DbModalState,
     console: {
@@ -139,6 +153,7 @@ export const panelStore = reactive({
       projectName: '',
       selectedContainer: '',
       showContainerSelect: false,
+      taskId: '',
     } as ConsoleModalState,
     env: { open: false, projectName: '', content: '' } as EnvModalState,
     clone: { open: false } as CloneModalState,
@@ -457,49 +472,201 @@ export async function jumpToRolePermissionsCard(roleId: number): Promise<void> {
   }, 150);
 }
 
+const taskTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function dismissBackgroundTask(taskId: string): void {
+  const timer = taskTimers.get(taskId);
+  if (timer) {
+    clearTimeout(timer);
+    taskTimers.delete(taskId);
+  }
+  const idx = panelStore.backgroundTasks.findIndex((t) => t.id === taskId);
+  if (idx !== -1) {
+    panelStore.backgroundTasks.splice(idx, 1);
+  }
+}
+
+export function openTaskConsole(task: BackgroundTaskItem): void {
+  panelStore.modals.console.taskId = task.id;
+  panelStore.modals.console.projectName = task.projectName || '';
+  panelStore.modals.console.title = task.title;
+  panelStore.modals.console.showContainerSelect = false;
+  panelStore.modals.console.output = task.output || '⏳ Ejecutando en segundo plano...';
+  panelStore.modals.console.open = true;
+}
+
+function summarizeTaskOutput(rawOutput: string, fallback: string): string {
+  if (!rawOutput) return fallback;
+  const lines = rawOutput
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (
+      line.startsWith('✅') ||
+      line.startsWith('❌') ||
+      line.startsWith('⚠️') ||
+      line.startsWith('✨') ||
+      line.startsWith('🧹') ||
+      line.startsWith('🛑')
+    ) {
+      return line.length > 110 ? `${line.slice(0, 107)}...` : line;
+    }
+  }
+  const last = lines[lines.length - 1] || fallback;
+  return last.length > 110 ? `${last.slice(0, 107)}...` : last;
+}
+
+export function enqueueBackgroundTask(opts: {
+  title: string;
+  projectName?: string;
+  action: string;
+  initialOutput?: string;
+  runningMessage?: string;
+  successMessage?: string;
+  taskFn: () => Promise<{ output?: string; message?: string; success?: boolean } | any>;
+  onComplete?: () => Promise<void> | void;
+}): BackgroundTaskItem {
+  const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const task = reactive<BackgroundTaskItem>({
+    id,
+    title: opts.title,
+    projectName: opts.projectName || 'Sistema',
+    action: opts.action,
+    status: 'running',
+    message: opts.runningMessage || 'Ejecutando en segundo plano...',
+    output:
+      opts.initialOutput ||
+      `⏳ Ejecutando "${opts.title}" en segundo plano...\nPuedes seguir usando el panel con normalidad.\n`,
+    startedAt: Date.now(),
+  });
+
+  panelStore.backgroundTasks.unshift(task);
+  if (panelStore.backgroundTasks.length > 6) {
+    const removed = panelStore.backgroundTasks.pop();
+    if (removed) {
+      const t = taskTimers.get(removed.id);
+      if (t) clearTimeout(t);
+      taskTimers.delete(removed.id);
+    }
+  }
+
+  Promise.resolve()
+    .then(() => opts.taskFn())
+    .then(async (res) => {
+      const rawOutput =
+        typeof res?.output === 'string'
+          ? res.output
+          : typeof res?.message === 'string'
+            ? res.message
+            : 'Proceso finalizado correctamente.';
+
+      task.output = rawOutput;
+      task.finishedAt = Date.now();
+
+      const hasInlineError =
+        res?.success === false || rawOutput.includes('❌ Error:') || rawOutput.startsWith('❌');
+
+      if (hasInlineError) {
+        task.status = 'error';
+        task.message = summarizeTaskOutput(rawOutput, 'La operación reportó un error');
+      } else {
+        task.status = 'success';
+        task.message =
+          opts.successMessage || summarizeTaskOutput(rawOutput, 'Completado exitosamente');
+      }
+
+      if (panelStore.modals.console.open && panelStore.modals.console.taskId === task.id) {
+        panelStore.modals.console.output = task.output;
+      }
+
+      if (opts.onComplete) {
+        await opts.onComplete();
+      } else {
+        await refreshAll().catch(() => {});
+      }
+
+      const ttlMs = task.status === 'error' ? 22000 : 12000;
+      const timer = setTimeout(() => {
+        dismissBackgroundTask(task.id);
+      }, ttlMs);
+      taskTimers.set(task.id, timer);
+    })
+    .catch((err: any) => {
+      const errMsg = err?.message || String(err);
+      task.status = 'error';
+      task.finishedAt = Date.now();
+      task.output = `${task.output}\n❌ Error: ${errMsg}`;
+      task.message = `❌ Error: ${errMsg}`;
+
+      if (panelStore.modals.console.open && panelStore.modals.console.taskId === task.id) {
+        panelStore.modals.console.output = task.output;
+      }
+
+      const timer = setTimeout(() => {
+        dismissBackgroundTask(task.id);
+      }, 22000);
+      taskTimers.set(task.id, timer);
+    });
+
+  return task;
+}
+
 export async function runProjectAction(
   projectName: string,
   action: string,
   body: Record<string, any> = {}
 ): Promise<void> {
   const titleMap: Record<string, string> = {
-    pull: `Git Pull (Rama main con Rollback por Conflictos) — ${projectName}`,
+    pull: `Git Pull & Deploy — ${projectName}`,
     restart: `Reiniciando Docker — ${projectName}`,
     'clear-cache': `Limpiando Caché — ${projectName}`,
-    rebuild: `Reconstruyendo Imágenes (Rebuild Seguro) — ${projectName}`,
-    'rebuild-destroy': `Rebuild Destroy (Destrucción y Reconstrucción Total desde Cero) — ${projectName}`,
-    delete: `Eliminando Proyecto del Servidor — ${projectName}`,
-    start: `Iniciando Proyecto — ${projectName}`,
-    stop: `Deteniendo Proyecto — ${projectName}`,
+    rebuild: `Rebuild Seguro — ${projectName}`,
+    'rebuild-destroy': `Rebuild Destroy Total — ${projectName}`,
+    delete: `Eliminando Proyecto — ${projectName}`,
+    start: `Iniciando Contenedores — ${projectName}`,
+    stop: `Deteniendo Contenedores — ${projectName}`,
   };
 
-  panelStore.modals.console.title = titleMap[action] || `Ejecutando ${action}`;
-  panelStore.modals.console.showContainerSelect = false;
-  panelStore.modals.console.output = '⏳ Ejecutando comando en el servidor, por favor espera...\n';
-  panelStore.modals.console.open = true;
+  const runningMessageMap: Record<string, string> = {
+    pull: 'Descargando cambios de Git y actualizando contenedores...',
+    restart: 'Reiniciando contenedores Docker en segundo plano...',
+    'clear-cache': 'Limpiando caché interna del proyecto...',
+    rebuild: 'Reconstruyendo imágenes y contenedores en segundo plano...',
+    'rebuild-destroy': 'Destruyendo y reconstruyendo contenedores desde cero...',
+    delete: 'Deteniendo contenedores y eliminando proyecto...',
+    start: 'Levantando contenedores del proyecto...',
+    stop: 'Deteniendo contenedores del proyecto...',
+  };
 
-  try {
-    const res = await apiFetch<{ output: string }>(
-      `/api/projects/${encodeURIComponent(projectName)}/${action}`,
-      {
-        method: 'POST',
-        body: JSON.stringify(body),
+  enqueueBackgroundTask({
+    title: titleMap[action] || `Ejecutando ${action} — ${projectName}`,
+    projectName,
+    action,
+    runningMessage: runningMessageMap[action] || `Ejecutando ${action} en segundo plano...`,
+    initialOutput: `⏳ Ejecutando ${action} en ${projectName}...\n`,
+    taskFn: () =>
+      apiFetch<{ output: string }>(
+        `/api/projects/${encodeURIComponent(projectName)}/${action}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }
+      ),
+    onComplete: async () => {
+      if (
+        ['serverpanel', 'alpanel'].includes(projectName.toLowerCase()) &&
+        ['restart', 'rebuild'].includes(action)
+      ) {
+        setTimeout(() => {
+          refreshAll().catch(() => {});
+        }, 3500);
+      } else {
+        await refreshAll().catch(() => {});
       }
-    );
-    panelStore.modals.console.output = res.output || 'Comando finalizado.';
-    if (
-      ['serverpanel', 'alpanel'].includes(projectName.toLowerCase()) &&
-      ['restart', 'rebuild'].includes(action)
-    ) {
-      setTimeout(() => {
-        refreshAll().catch(() => {});
-      }, 3500);
-    } else {
-      await refreshAll();
-    }
-  } catch (e: any) {
-    panelStore.modals.console.output = `❌ Error: ${e.message}`;
-  }
+    },
+  });
 }
 
 export async function openLogsModal(
@@ -511,6 +678,7 @@ export async function openLogsModal(
     showToast('Este proyecto no tiene contenedores activos', true);
     return;
   }
+  panelStore.modals.console.taskId = '';
   panelStore.modals.console.projectName = projectName;
   panelStore.modals.console.selectedContainer =
     preferredContainer && proj.containers.some((c) => c.name === preferredContainer)
@@ -552,19 +720,14 @@ export async function openEnvModal(projectName: string): Promise<void> {
 }
 
 export async function pruneServerDocker(): Promise<void> {
-  panelStore.modals.console.title = 'Limpiando Caché e Imágenes Huérfanas de Docker';
-  panelStore.modals.console.showContainerSelect = false;
-  panelStore.modals.console.output =
-    '⏳ Ejecutando docker system prune -f && docker builder prune -f...\n';
-  panelStore.modals.console.open = true;
-
-  try {
-    const res = await apiFetch<{ output: string }>('/api/system/prune', { method: 'POST' });
-    panelStore.modals.console.output = res.output || 'Limpieza completada.';
-    await refreshAll();
-  } catch (err: any) {
-    panelStore.modals.console.output = `❌ Error: ${err.message}`;
-  }
+  enqueueBackgroundTask({
+    title: 'Limpieza de Caché e Imágenes Docker',
+    projectName: 'Servidor Docker',
+    action: 'prune',
+    runningMessage: 'Ejecutando docker system prune & builder prune...',
+    initialOutput: '⏳ Ejecutando docker system prune -f && docker builder prune -f...\n',
+    taskFn: () => apiFetch<{ output: string }>('/api/system/prune', { method: 'POST' }),
+  });
 }
 
 export function openCronjobsModal(projectName: string): void {
@@ -600,4 +763,5 @@ export function openMicroservicesModal(projectName: string): void {
   panelStore.modals.microservices.projectName = projectName;
   panelStore.modals.microservices.open = true;
 }
+
 

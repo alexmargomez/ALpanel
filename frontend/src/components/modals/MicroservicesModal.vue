@@ -2,8 +2,8 @@
 import { ref, watch } from 'vue';
 import {
   apiFetch,
+  enqueueBackgroundTask,
   panelStore,
-  refreshAll,
   showToast,
 } from '../../composables/usePanelStore';
 import type { ProjectMicroservicesSummary } from '../../types/panel';
@@ -86,37 +86,29 @@ function selectNone(): void {
 async function applyChanges(): Promise<void> {
   const projectName = panelStore.modals.microservices.projectName;
   if (!projectName) return;
-  saving.value = true;
+  const enabledList = [...selectedServices.value];
 
   close();
-  panelStore.modals.console.title = `Aplicando Microservicios — ${projectName}`;
-  panelStore.modals.console.showContainerSelect = false;
-  panelStore.modals.console.output = `⏳ Sincronizando topología de microservicios de ${projectName}...\n`;
-  panelStore.modals.console.open = true;
 
-  try {
-    const res = await apiFetch<{
-      success: boolean;
-      output: string;
-      microservices?: ProjectMicroservicesSummary;
-    }>(`/api/projects/${encodeURIComponent(projectName)}/microservices`, {
-      method: 'POST',
-      body: JSON.stringify({
-        enabledMicroservices: selectedServices.value,
+  enqueueBackgroundTask({
+    title: `Aplicando Microservicios — ${projectName}`,
+    projectName,
+    action: 'microservices',
+    runningMessage: `Sincronizando ${enabledList.length} microservicios activos en ${projectName}...`,
+    successMessage: `✅ Microservicios de ${projectName} actualizados (${enabledList.length} activos)`,
+    initialOutput: `⏳ Sincronizando topología de microservicios de ${projectName}...\n`,
+    taskFn: () =>
+      apiFetch<{
+        success: boolean;
+        output: string;
+        microservices?: ProjectMicroservicesSummary;
+      }>(`/api/projects/${encodeURIComponent(projectName)}/microservices`, {
+        method: 'POST',
+        body: JSON.stringify({
+          enabledMicroservices: enabledList,
+        }),
       }),
-    });
-    panelStore.modals.console.output =
-      res.output || 'Configuración de microservicios aplicada.';
-    showToast(
-      `✅ Microservicios de ${projectName} actualizados (${selectedServices.value.length} activos)`
-    );
-    await refreshAll();
-  } catch (err: any) {
-    panelStore.modals.console.output = `❌ Error aplicando microservicios: ${err.message}`;
-    showToast(`Error: ${err.message}`, true);
-  } finally {
-    saving.value = false;
-  }
+  });
 }
 </script>
 

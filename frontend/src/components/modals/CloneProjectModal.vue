@@ -2,8 +2,8 @@
 import { ref } from 'vue';
 import {
   apiFetch,
+  enqueueBackgroundTask,
   panelStore,
-  refreshAll,
   showToast,
 } from '../../composables/usePanelStore';
 import {
@@ -232,28 +232,25 @@ async function handleSubmit(): Promise<void> {
   }
 
   close();
+  repoUrl.value = '';
+  projectName.value = '';
+  branch.value = '';
+  envContent.value = '';
+  detectedSummary.value = null;
+  selectedMicroservices.value = [];
 
-  panelStore.modals.console.title = `Clonando y Desplegando ${payload.name}`;
-  panelStore.modals.console.showContainerSelect = false;
-  panelStore.modals.console.output = `⏳ Clonando ${payload.repoUrl}...\n`;
-  panelStore.modals.console.open = true;
-
-  try {
-    const res = await apiFetch<{ output: string }>('/api/projects/clone', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    panelStore.modals.console.output = res.output || 'Proceso finalizado.';
-    repoUrl.value = '';
-    projectName.value = '';
-    branch.value = '';
-    envContent.value = '';
-    detectedSummary.value = null;
-    selectedMicroservices.value = [];
-    await refreshAll();
-  } catch (err: any) {
-    panelStore.modals.console.output = `❌ Error: ${err.message}`;
-  }
+  enqueueBackgroundTask({
+    title: `Clonando y Desplegando ${payload.name}`,
+    projectName: payload.name,
+    action: 'clone',
+    runningMessage: `Clonando ${payload.repoUrl} y levantando contenedores Docker...`,
+    initialOutput: `⏳ Clonando ${payload.repoUrl} en segundo plano...\n`,
+    taskFn: () =>
+      apiFetch<{ output: string }>('/api/projects/clone', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+  });
 }
 </script>
 

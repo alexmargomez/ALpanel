@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {
   apiFetch,
+  enqueueBackgroundTask,
   panelStore,
-  refreshAll,
   showToast,
 } from '../../composables/usePanelStore';
 import {
@@ -34,24 +34,21 @@ async function saveEnvFile(restart = true): Promise<void> {
   const content = panelStore.modals.env.content;
   close();
 
-  panelStore.modals.console.title = `Guardando .env y Reiniciando — ${projectName}`;
-  panelStore.modals.console.showContainerSelect = false;
-  panelStore.modals.console.output = '⏳ Guardando archivo .env y reiniciando contenedores...';
-  panelStore.modals.console.open = true;
-
-  try {
-    const res = await apiFetch<{ output: string }>(
-      `/api/projects/${encodeURIComponent(projectName)}/env`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ content, restart }),
-      }
-    );
-    panelStore.modals.console.output = res.output || 'Guardado correctamente.';
-    await refreshAll();
-  } catch (err: any) {
-    panelStore.modals.console.output = `❌ Error: ${err.message}`;
-  }
+  enqueueBackgroundTask({
+    title: `Guardando .env y Reiniciando — ${projectName}`,
+    projectName,
+    action: 'env-save',
+    runningMessage: 'Guardando archivo .env (0600) y reiniciando contenedores...',
+    initialOutput: '⏳ Guardando archivo .env y reiniciando contenedores...\n',
+    taskFn: () =>
+      apiFetch<{ output: string }>(
+        `/api/projects/${encodeURIComponent(projectName)}/env`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ content, restart }),
+        }
+      ),
+  });
 }
 </script>
 

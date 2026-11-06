@@ -2,17 +2,18 @@
 import { computed, reactive } from 'vue';
 import {
   apiFetch,
+  type BackgroundTaskItem,
+  enqueueBackgroundTask,
   hasPerm,
   openCronjobsModal,
   openEnvModal,
   openErdModal,
   openLogsModal,
   openMicroservicesModal,
+  openTaskConsole,
   openTerminalModal,
   panelStore,
-  refreshAll,
   runProjectAction,
-  showToast,
 } from '../composables/usePanelStore';
 import { formatBytes } from '../services/api';
 import type { ProjectInfo } from '../types/panel';
@@ -88,18 +89,27 @@ function isSelfPanel(projectName: string): boolean {
   return ['serverpanel', 'alpanel'].includes(projectName.toLowerCase());
 }
 
+function getRunningTaskForProject(projectName: string): BackgroundTaskItem | undefined {
+  return panelStore.backgroundTasks.find(
+    (t) =>
+      t.status === 'running' &&
+      t.projectName.toLowerCase() === projectName.toLowerCase()
+  );
+}
+
 async function checkGitUpdates(projectName: string): Promise<void> {
-  showToast(`Verificando repositorio remoto de ${projectName}...`);
-  try {
-    const res = await apiFetch<{ output: string }>(
-      `/api/projects/${encodeURIComponent(projectName)}/check-updates`,
-      { method: 'POST' }
-    );
-    showToast(res.output || 'Verificación completada');
-    await refreshAll();
-  } catch (err: any) {
-    showToast(`Error: ${err.message}`, true);
-  }
+  enqueueBackgroundTask({
+    title: `Verificando Git Remoto — ${projectName}`,
+    projectName,
+    action: 'check-updates',
+    runningMessage: `Consultando repositorio remoto de ${projectName}...`,
+    initialOutput: `⏳ Verificando commits remotos de ${projectName}...\n`,
+    taskFn: () =>
+      apiFetch<{ output: string }>(
+        `/api/projects/${encodeURIComponent(projectName)}/check-updates`,
+        { method: 'POST' }
+      ),
+  });
 }
 
 function openDbModal(projectName: string): void {
@@ -183,6 +193,16 @@ function openAppUsersModal(projectName: string): void {
               >
                 DETENIDO
               </span>
+
+              <button
+                v-if="getRunningTaskForProject(p.name)"
+                @click="openTaskConsole(getRunningTaskForProject(p.name)!)"
+                class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5 transition"
+                title="Operación en segundo plano en curso — clic para ver consola"
+              >
+                <i class="fa-solid fa-circle-notch fa-spin text-[10px]"></i>
+                <span>{{ getRunningTaskForProject(p.name)?.title }}</span>
+              </button>
 
               <span
                 v-if="p.git.behindCount > 0"
