@@ -680,10 +680,14 @@ export async function openLogsModal(
   }
   panelStore.modals.console.taskId = '';
   panelStore.modals.console.projectName = projectName;
+  const defaultAppContainer =
+    proj.containers.find((c) => c.role === 'backend') ||
+    proj.containers.find((c) => c.role === 'frontend') ||
+    proj.containers[0];
   panelStore.modals.console.selectedContainer =
     preferredContainer && proj.containers.some((c) => c.name === preferredContainer)
       ? preferredContainer
-      : proj.containers[0].name;
+      : defaultAppContainer.name;
   panelStore.modals.console.showContainerSelect = true;
   panelStore.modals.console.title = `Logs en Vivo — ${projectName}`;
   panelStore.modals.console.open = true;

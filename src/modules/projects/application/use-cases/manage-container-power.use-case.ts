@@ -521,6 +521,7 @@ export async function autoAssignAndPersistProjectPorts(
   }
 
   if (composeContent && composePath) {
+    let composeModified = false;
     // Si tiene un puerto fijo "3307:3306" o "3306:3306" sin variable, parametrizarlo con DB_EXTERNAL_PORT
     const fixedMysqlPortRegex = /^(\s*-\s*['"]?)(\d{4})(:3306['"]?\s*)$/m;
     const fixedMatch = fixedMysqlPortRegex.exec(composeContent);
@@ -529,6 +530,24 @@ export async function autoAssignAndPersistProjectPorts(
         fixedMysqlPortRegex,
         `$1\${DB_EXTERNAL_PORT:-${fixedMatch[2]}}$3`
       );
+      composeModified = true;
+    }
+
+    // Evitar "[Warning] Access denied for user 'root'@'localhost' (using password: NO)" en MariaDB 11.4+
+    // cuando el healthcheck intenta `mariadb -u root -e` sin contraseña antes de `-p"$${MARIADB_ROOT_PASSWORD}"`
+    const passwordlessFirstPattern =
+      'mariadb -u root -e "$$SQL" 2>/dev/null || mariadb -u root -p"$${MARIADB_ROOT_PASSWORD}" -e "$$SQL" 2>/dev/null || mariadb -u root -p"$${MARIADB_PASSWORD}" -e "$$SQL" 2>/dev/null';
+    const passwordFirstReplacement =
+      'mariadb -u root -p"$${MARIADB_ROOT_PASSWORD}" -e "$$SQL" 2>/dev/null || mariadb -u root -p"$${MARIADB_PASSWORD}" -e "$$SQL" 2>/dev/null || mariadb -u root -e "$$SQL" 2>/dev/null';
+    if (composeContent.includes(passwordlessFirstPattern)) {
+      composeContent = composeContent.replace(
+        passwordlessFirstPattern,
+        passwordFirstReplacement
+      );
+      composeModified = true;
+    }
+
+    if (composeModified) {
       try {
         fs.writeFileSync(composePath, composeContent, 'utf-8');
       } catch {
@@ -539,6 +558,17 @@ export async function autoAssignAndPersistProjectPorts(
 
   const envMap = readEnvMap(projectDir);
   const updates: Record<string, string> = {};
+
+  // Si docker-compose mapea MARIADB_ROOT_PASSWORD a DB_PASSWORD y DB_ROOT_PASSWORD quedó desincronizado, unificarlo
+  if (
+    envMap.DB_PASSWORD &&
+    envMap.DB_ROOT_PASSWORD &&
+    envMap.DB_PASSWORD !== envMap.DB_ROOT_PASSWORD &&
+    /MARIADB_ROOT_PASSWORD\s*:\s*['"]?\$\{DB_PASSWORD/.test(composeContent)
+  ) {
+    updates.DB_ROOT_PASSWORD = envMap.DB_PASSWORD;
+    envMap.DB_ROOT_PASSWORD = envMap.DB_PASSWORD;
+  }
 
   const pickFreePort = (startPort: number): number => {
     let candidate = startPort;

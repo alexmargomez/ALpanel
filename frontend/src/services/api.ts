@@ -50,28 +50,35 @@ export function injectDbPasswordInEnvText(currentText: string): {
   keyUpdated: string;
 } {
   const pass = `db_${generateCryptoHex(12)}`;
-  const current = currentText.trim();
+  let updated = currentText.trim();
+  const candidateKeys = [
+    'POSTGRES_PASSWORD',
+    'MARIADB_PASSWORD',
+    'MARIADB_ROOT_PASSWORD',
+    'MYSQL_PASSWORD',
+    'MYSQL_ROOT_PASSWORD',
+    'DB_PASSWORD',
+    'DB_ROOT_PASSWORD',
+  ];
+  const matchedKeys: string[] = [];
 
-  if (/^POSTGRES_PASSWORD\s*=.*$/m.test(current)) {
+  for (const key of candidateKeys) {
+    const regex = new RegExp(`^${key}\\s*=.*$`, 'm');
+    if (regex.test(updated)) {
+      updated = updated.replace(regex, `${key}=${pass}`);
+      matchedKeys.push(key);
+    }
+  }
+
+  if (matchedKeys.length > 0) {
     return {
-      text: current.replace(/^POSTGRES_PASSWORD\s*=.*$/m, `POSTGRES_PASSWORD=${pass}`),
-      keyUpdated: 'POSTGRES_PASSWORD',
+      text: updated,
+      keyUpdated: matchedKeys.join(', '),
     };
   }
-  if (/^MYSQL_PASSWORD\s*=.*$/m.test(current)) {
-    return {
-      text: current.replace(/^MYSQL_PASSWORD\s*=.*$/m, `MYSQL_PASSWORD=${pass}`),
-      keyUpdated: 'MYSQL_PASSWORD',
-    };
-  }
-  if (/^DB_PASSWORD\s*=.*$/m.test(current)) {
-    return {
-      text: current.replace(/^DB_PASSWORD\s*=.*$/m, `DB_PASSWORD=${pass}`),
-      keyUpdated: 'DB_PASSWORD',
-    };
-  }
+
   return {
-    text: current ? `${current}\nDB_PASSWORD=${pass}` : `DB_PASSWORD=${pass}`,
+    text: updated ? `${updated}\nDB_PASSWORD=${pass}` : `DB_PASSWORD=${pass}`,
     keyUpdated: 'DB_PASSWORD',
   };
 }
