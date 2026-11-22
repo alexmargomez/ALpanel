@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { initDatabase } from './shared/infrastructure/database/prisma.service';
 import { registerApiRoutes } from './shared/infrastructure/http/routes/api.routes';
 import { hostService } from './shared/infrastructure/services/host-metrics.service';
+import { taskTelemetryService } from './shared/infrastructure/services/task-telemetry.service';
 import { projectsFacadeUseCase } from './modules/projects/application/use-cases/projects-facade.use-case';
 import { manageDomainsUseCase } from './modules/domains/application/use-cases/manage-domains.use-case';
 import { manageAuditLogsUseCase } from './modules/security/application/use-cases/manage-audit-logs.use-case';
@@ -39,6 +40,17 @@ async function bootstrap() {
   await app.register(fastifyCors, { origin: true, credentials: true });
   await app.register(fastifyCookie);
   await app.register(fastifyJwt, { secret: JWT_SECRET });
+
+  // 2.4 Enlazar contexto asíncrono (AsyncLocalStorage) para streaming en vivo de tareas y telemetría top
+  app.addHook('onRequest', (request, _reply, done) => {
+    const rawTaskId = request.headers['x-task-id'];
+    if (typeof rawTaskId === 'string' && rawTaskId.trim()) {
+      taskTelemetryService.enterRequestContext({
+        taskId: rawTaskId.trim().slice(0, 80),
+      });
+    }
+    done();
+  });
 
   // 2.5 Middleware en Memoria Volátil (< 1ms): Rate-Limiting Dinámico por CPU & Escudo DDoS
   app.addHook('onRequest', async (request, reply) => {
@@ -94,6 +106,7 @@ async function bootstrap() {
   const io = new SocketIOServer(app.server, {
     cors: { origin: '*' },
   });
+  taskTelemetryService.bindSocketServer(io);
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;

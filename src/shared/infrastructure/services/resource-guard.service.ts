@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import { spawn, exec } from 'child_process';
 import { InsufficientServerMemoryException } from '../../../modules/projects/domain/exceptions/project.exception';
+import { taskTelemetryService } from './task-telemetry.service';
 
 export interface LiveMemorySnapshot {
   totalMb: number;
@@ -148,13 +149,22 @@ export class ResourceGuardService {
       snap.availableMb < requiredMb ||
       snap.usagePercent >= ResourceGuardService.PREFLIGHT_MAX_PERCENT
     ) {
-      throw new InsufficientServerMemoryException(
+      const msg =
         `⛔ Operación bloqueada preventivamente por Protección de Memoria (RAM Guard): ` +
-          `El servidor cuenta con ${snap.availableMb} MB disponibles (${snap.usagePercent}% de ${snap.totalMb} MB en uso) ` +
-          `y ejecutar "${opts.operation}" en "${opts.targetProject}" requiere al menos ${requiredMb} MB libres para evitar un colapso OOM en el VPS. ` +
-          `Detén contenedores que no estés utilizando o integra menos microservicios.`
-      );
+        `El servidor cuenta con ${snap.availableMb} MB disponibles (${snap.usagePercent}% de ${snap.totalMb} MB en uso) ` +
+        `y ejecutar "${opts.operation}" en "${opts.targetProject}" requiere al menos ${requiredMb} MB libres para evitar un colapso OOM en el VPS. ` +
+        `Detén contenedores que no estés utilizando o integra menos microservicios.`;
+      taskTelemetryService.emitTaskLog(msg, {
+        isError: true,
+        phase: opts.operation,
+      });
+      throw new InsufficientServerMemoryException(msg);
     }
+
+    taskTelemetryService.emitTaskLog(
+      `[RAM-GUARD] OK — Disponible: ${snap.availableMb} MB / ${snap.totalMb} MB (Requerido mín.: ${requiredMb} MB para "${opts.operation}")`,
+      { phase: opts.operation }
+    );
 
     return snap;
   }
@@ -164,20 +174,30 @@ export class ResourceGuardService {
     opts: WatchdogExecOptions
   ): Promise<{ stdout: string; stderr: string }> {
     const timeoutMs = opts.timeout || 180000;
+    const inheritedTaskId = taskTelemetryService.getCurrentContext()?.taskId;
 
-    // Verificación previa inmediata antes de crear el subproceso
     if (!this.isBypassedInUnitTests()) {
       const snap = this.readLiveMemorySnapshot();
       if (
         snap.availableMb < ResourceGuardService.CRITICAL_ABORT_AVAILABLE_MB ||
         snap.usagePercent >= ResourceGuardService.CRITICAL_ABORT_PERCENT
       ) {
-        throw new InsufficientServerMemoryException(
+        const msg =
           `⛔ Ejecución cancelada antes de iniciar: Memoria libre crítica (${snap.availableMb} MB disponibles / ${snap.usagePercent}% en uso). ` +
-            `Se bloqueó "${opts.operation}" en "${opts.targetProject}" para proteger la estabilidad del VPS.`
-        );
+          `Se bloqueó "${opts.operation}" en "${opts.targetProject}" para proteger la estabilidad del VPS.`;
+        taskTelemetryService.emitTaskLog(msg, {
+          isError: true,
+          phase: opts.operation,
+          explicitTaskId: inheritedTaskId,
+        });
+        throw new InsufficientServerMemoryException(msg);
       }
     }
+
+    taskTelemetryService.emitTaskLog(`$ ${command}`, {
+      phase: opts.operation,
+      explicitTaskId: inheritedTaskId,
+    });
 
     return new Promise((resolve, reject) => {
       const child = spawn('sh', ['-c', command], {
@@ -214,11 +234,51 @@ export class ResourceGuardService {
               // ignore
             }
           }
-        }, 250);
+        }, 250).unref();
       };
 
       let watchdogTimer: NodeJS.Timeout | null = null;
+      let telemetryTimer: NodeJS.Timeout | null = null;
+
+      const stopTimers = () => {
+        if (watchdogTimer) {
+          clearInterval(watchdogTimer);
+          watchdogTimer = null;
+        }
+        if (telemetryTimer) {
+          clearInterval(telemetryTimer);
+          telemetryTimer = null;
+        }
+      };
+
       if (!this.isBypassedInUnitTests()) {
+        if (inheritedTaskId) {
+          taskTelemetryService
+            .broadcastLiveTelemetry({
+              explicitTaskId: inheritedTaskId,
+              rootPid: child.pid,
+              phase: opts.operation,
+              targetProject: opts.targetProject,
+              projectDir: opts.cleanupComposeDir || opts.cwd,
+              safetyFloorMb: ResourceGuardService.CRITICAL_ABORT_AVAILABLE_MB,
+            })
+            .catch(() => null);
+
+          telemetryTimer = setInterval(() => {
+            if (settled) return;
+            taskTelemetryService
+              .broadcastLiveTelemetry({
+                explicitTaskId: inheritedTaskId,
+                rootPid: child.pid,
+                phase: opts.operation,
+                targetProject: opts.targetProject,
+                projectDir: opts.cleanupComposeDir || opts.cwd,
+                safetyFloorMb: ResourceGuardService.CRITICAL_ABORT_AVAILABLE_MB,
+              })
+              .catch(() => null);
+          }, 1000);
+        }
+
         watchdogTimer = setInterval(() => {
           if (settled) return;
           const snap = this.readLiveMemorySnapshot();
@@ -228,7 +288,7 @@ export class ResourceGuardService {
             snap.usagePercent >= ResourceGuardService.CRITICAL_ABORT_PERCENT
           ) {
             settled = true;
-            if (watchdogTimer) clearInterval(watchdogTimer);
+            stopTimers();
             if (timeoutTimer) clearTimeout(timeoutTimer);
 
             killProcessGroup();
@@ -240,14 +300,19 @@ export class ResourceGuardService {
               );
             }
 
-            reject(
-              new InsufficientServerMemoryException(
-                `🛑 Ejecución abortada automáticamente en caliente (RAM Watchdog): ` +
-                  `La memoria disponible del VPS cayó al umbral crítico (${snap.availableMb} MB libres / ${snap.usagePercent}% usado) ` +
-                  `durante "${opts.operation}" en "${opts.targetProject}". ` +
-                  `Se detuvo el subproceso de inmediato para impedir que el servidor se quede sin memoria.`
-              )
-            );
+            const abortMsg =
+              `🛑 Ejecución abortada automáticamente en caliente (RAM Watchdog): ` +
+              `La memoria disponible del VPS cayó al umbral crítico (${snap.availableMb} MB libres / ${snap.usagePercent}% usado) ` +
+              `durante "${opts.operation}" en "${opts.targetProject}". ` +
+              `Se detuvo el subproceso de inmediato para impedir que el servidor se quede sin memoria.`;
+
+            taskTelemetryService.emitTaskLog(abortMsg, {
+              isError: true,
+              phase: opts.operation,
+              explicitTaskId: inheritedTaskId,
+            });
+
+            reject(new InsufficientServerMemoryException(abortMsg));
           }
         }, 400);
       }
@@ -255,33 +320,59 @@ export class ResourceGuardService {
       const timeoutTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        if (watchdogTimer) clearInterval(watchdogTimer);
+        stopTimers();
         killProcessGroup();
-        const err: any = new Error(
-          `Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s) ejecutando ${opts.operation} en ${opts.targetProject}.`
-        );
+        const timeoutMsg = `⏱ Tiempo de espera agotado (${Math.round(
+          timeoutMs / 1000
+        )}s) ejecutando ${opts.operation} en ${opts.targetProject}.`;
+        taskTelemetryService.emitTaskLog(timeoutMsg, {
+          isError: true,
+          phase: opts.operation,
+          explicitTaskId: inheritedTaskId,
+        });
+        const err: any = new Error(timeoutMsg);
         err.stdout = stdout;
         err.stderr = stderr;
         reject(err);
       }, timeoutMs);
 
       child.stdout?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf-8');
         if (stdout.length < MAX_BUF) {
-          stdout += chunk.toString('utf-8');
+          stdout += text;
         }
+        taskTelemetryService.emitTaskLog(text, {
+          isError: false,
+          phase: opts.operation,
+          explicitTaskId: inheritedTaskId,
+        });
       });
 
       child.stderr?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf-8');
         if (stderr.length < MAX_BUF) {
-          stderr += chunk.toString('utf-8');
+          stderr += text;
         }
+        const looksLikeError = /\b(error|fatal|failed|exception|denied)\b/i.test(
+          text
+        );
+        taskTelemetryService.emitTaskLog(text, {
+          isError: looksLikeError,
+          phase: opts.operation,
+          explicitTaskId: inheritedTaskId,
+        });
       });
 
       child.on('error', (err: any) => {
         if (settled) return;
         settled = true;
-        if (watchdogTimer) clearInterval(watchdogTimer);
+        stopTimers();
         clearTimeout(timeoutTimer);
+        taskTelemetryService.emitTaskLog(`❌ Error de proceso: ${err.message}`, {
+          isError: true,
+          phase: opts.operation,
+          explicitTaskId: inheritedTaskId,
+        });
         err.stdout = stdout;
         err.stderr = stderr;
         reject(err);
@@ -290,17 +381,25 @@ export class ResourceGuardService {
       child.on('close', (code) => {
         if (settled) return;
         settled = true;
-        if (watchdogTimer) clearInterval(watchdogTimer);
+        stopTimers();
         clearTimeout(timeoutTimer);
 
         if (code === 0) {
           resolve({ stdout, stderr });
         } else {
-          const err: any = new Error(
+          const exitMsg =
             stderr.trim() ||
-              stdout.trim() ||
-              `El comando finalizó con código de salida ${code}`
+            stdout.trim() ||
+            `El comando finalizó con código de salida ${code}`;
+          taskTelemetryService.emitTaskLog(
+            `❌ Proceso terminado con código ${code}`,
+            {
+              isError: true,
+              phase: opts.operation,
+              explicitTaskId: inheritedTaskId,
+            }
           );
+          const err: any = new Error(exitMsg);
           err.code = code;
           err.stdout = stdout;
           err.stderr = stderr;

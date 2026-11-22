@@ -15,6 +15,7 @@ import {
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
 import { resourceGuardService } from '../../../../shared/infrastructure/services/resource-guard.service';
+import { taskTelemetryService } from '../../../../shared/infrastructure/services/task-telemetry.service';
 
 const execAsync = promisify(exec);
 
@@ -79,11 +80,12 @@ export class DeployGitProjectUseCase {
       }).catch(() => ({ stdout: '' }));
       prevHead = headRes.stdout.trim();
 
-      logs.push(
-        `==> Ejecutando git pull origin main en ${projectName} (HEAD actual: ${
-          prevHead.slice(0, 7) || 'N/A'
-        })...`
-      );
+      const headMsg = `[Paso 1/2] Verificando estado del repositorio ${projectName} (HEAD actual: ${
+        prevHead.slice(0, 7) || 'N/A'
+      })...`;
+      logs.push(`==> ${headMsg}`);
+      taskTelemetryService.emitTaskStep(headMsg, 'git pull');
+
       await execAsync(
         'git -c core.hooksPath=/dev/null fetch origin && git -c core.hooksPath=/dev/null checkout main',
         {
@@ -91,18 +93,28 @@ export class DeployGitProjectUseCase {
           timeout: 30000,
         }
       ).catch(() => null);
-      const pullRes = await execAsync('git -c core.hooksPath=/dev/null pull origin main', {
-        cwd: projectDir,
-        timeout: 60000,
-      });
+
+      taskTelemetryService.emitTaskStep(
+        `[Paso 2/2] Descargando últimos commits desde origin/main en ${projectName}...`,
+        'git pull'
+      );
+      const pullRes = await resourceGuardService.execWithMemoryWatchdog(
+        'git -c core.hooksPath=/dev/null pull --progress origin main',
+        {
+          cwd: projectDir,
+          timeout: 60000,
+          operation: 'git pull',
+          targetProject: projectName,
+        }
+      );
       await this.hardenGitDirPermissions(projectDir);
       this.onInvalidateCache?.(projectDir);
       logs.push(pullRes.stdout.trim() || 'Already up to date.');
       if (pullRes.stderr) logs.push(pullRes.stderr.trim());
 
-      logs.push(
-        `\n✅ Cambios de GitHub (rama main) descargados exitosamente en ${projectName} (sin reiniciar contenedores; usa "Restart Docker" o "Rebuild" cuando desees aplicar reinicio).`
-      );
+      const okMsg = `✅ Cambios de GitHub (rama main) descargados exitosamente en ${projectName} (sin reiniciar contenedores; usa "Restart Docker" o "Rebuild" cuando desees aplicar reinicio).`;
+      logs.push(`\n${okMsg}`);
+      taskTelemetryService.emitTaskStep(okMsg, 'Completado');
 
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
@@ -110,7 +122,12 @@ export class DeployGitProjectUseCase {
         .map((s) => (s || '').trim())
         .filter(Boolean)
         .join('\n');
-      logs.push(`\n❌ Error o conflicto durante git pull: ${errorDetails}`);
+      const errMsg = `❌ Error o conflicto durante git pull: ${errorDetails}`;
+      logs.push(`\n${errMsg}`);
+      taskTelemetryService.emitTaskLog(errMsg, {
+        isError: true,
+        phase: 'Error en git pull',
+      });
       if (prevHead) {
         try {
           logs.push(
@@ -188,15 +205,18 @@ export class DeployGitProjectUseCase {
 
     DeployGitProjectUseCase.activeDeployments.add(lockKey);
     const logs: string[] = [];
+    const pushStep = (msg: string, phase?: string) => {
+      logs.push(taskTelemetryService.emitTaskStep(msg, phase));
+    };
     let clonedOnDisk = false;
     try {
       const branchArg = safeBranch ? `-b "${safeBranch}"` : '';
-      logs.push(`==> Clonando ${safeRepoUrl} en ${targetDir}...`);
+      pushStep(`==> [Paso 1] Clonando ${safeRepoUrl} en ${targetDir}...`, 'Clonando repositorio Git');
       const cloneRes = await resourceGuardService.execWithMemoryWatchdog(
-        `git -c core.hooksPath=/dev/null clone ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
+        `git -c core.hooksPath=/dev/null clone --progress ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
         {
           timeout: 180000,
-          operation: 'git clone',
+          operation: 'git clone --progress',
           targetProject: cleanName,
         }
       );
@@ -213,13 +233,15 @@ export class DeployGitProjectUseCase {
       if (!finalEnvContent) {
         if (fs.existsSync(envExamplePath)) {
           finalEnvContent = fs.readFileSync(envExamplePath, 'utf-8').trim();
-          logs.push(
-            '==> 📋 Se detectó .env.example en el repositorio y se usó como base para .env.'
+          pushStep(
+            '==> 📋 Se detectó .env.example en el repositorio y se usó como base para .env.',
+            'Configurando variables .env'
           );
         } else if (fs.existsSync(envSamplePath)) {
           finalEnvContent = fs.readFileSync(envSamplePath, 'utf-8').trim();
-          logs.push(
-            '==> 📋 Se detectó .env.sample en el repositorio y se usó como base para .env.'
+          pushStep(
+            '==> 📋 Se detectó .env.sample en el repositorio y se usó como base para .env.',
+            'Configurando variables .env'
           );
         }
       }
@@ -247,8 +269,9 @@ export class DeployGitProjectUseCase {
           } else {
             finalEnvContent += `\nJWT_SECRET=${generatedJwtSecret}`;
           }
-          logs.push(
-            '==> 🔑 JWT_SECRET seguro (256-bit hex) generado automáticamente por ALpanel.'
+          pushStep(
+            '==> 🔑 JWT_SECRET seguro (256-bit hex) generado automáticamente por ALpanel.',
+            'Generando secretos'
           );
         }
 
@@ -269,7 +292,10 @@ export class DeployGitProjectUseCase {
           }
           throw err;
         }
-        logs.push('==> Archivo .env creado atómicamente con permisos restringidos (0600).');
+        pushStep(
+          '==> [Paso 2] Archivo .env creado atómicamente con permisos restringidos (0600).',
+          'Archivo .env listo'
+        );
       }
 
       let activeServicesToStart = 2;
@@ -282,12 +308,13 @@ export class DeployGitProjectUseCase {
         if (msSummary.isMicroservicesArchitecture) {
           activeServicesToStart =
             msSummary.coreServices.length + msSummary.enabledMicroservicesCount;
-          logs.push(
+          pushStep(
             `==> 🧩 Arquitectura de Microservicios configurada (${
               msSummary.enabledMicroservicesCount
             }/${msSummary.totalMicroservices} integrados): ${
               msSummary.enabledServiceNames.join(', ') || 'Solo Servicios Core'
-            }`
+            }`,
+            'Topología de microservicios'
           );
         }
       } else {
@@ -329,14 +356,16 @@ export class DeployGitProjectUseCase {
               );
             activeServicesToStart =
               savedMs.coreServices.length + savedMs.enabledMicroservicesCount;
-            logs.push(
-              `==> 🛡️ Protección Anti-OOM activada: Clúster grande detectado (${msSummary.totalMicroservices} microservicios). Integrando automáticamente Core + ${savedMs.enabledMicroservicesCount} esenciales (${savedMs.enabledServiceNames.join(', ')}). Puedes activar más módulos cuando desees desde el botón "Microservicios".`
+            pushStep(
+              `==> 🛡️ Protección Anti-OOM activada: Clúster grande detectado (${msSummary.totalMicroservices} microservicios). Integrando automáticamente Core + ${savedMs.enabledMicroservicesCount} esenciales (${savedMs.enabledServiceNames.join(', ')}).`,
+              'Selección Anti-OOM'
             );
           } else {
             activeServicesToStart =
               msSummary.coreServices.length + msSummary.totalMicroservices;
-            logs.push(
-              `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`
+            pushStep(
+              `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`,
+              'Detección de arquitectura'
             );
           }
         }
@@ -347,7 +376,6 @@ export class DeployGitProjectUseCase {
         (fs.existsSync(path.join(targetDir, 'docker-compose.yml')) ||
           fs.existsSync(path.join(targetDir, 'docker-compose.yaml')))
       ) {
-        // 2. Validar RAM exacta para la cantidad real de contenedores a construir y encender
         resourceGuardService.assertMemoryAvailableForOperation({
           operation: `desplegar ${activeServicesToStart} contenedores`,
           targetProject: cleanName,
@@ -355,8 +383,9 @@ export class DeployGitProjectUseCase {
           additionalContainersCount: activeServicesToStart,
         });
 
-        logs.push(
-          '==> Construyendo y levantando contenedores Docker con monitoreo activo de RAM (RAM Watchdog)...'
+        pushStep(
+          `==> [Paso 3] Compilando e iniciando ${activeServicesToStart} contenedores Docker con telemetría top en vivo...`,
+          'Docker Compose Build & Up'
         );
         const upRes = await runDockerComposeSafe(
           targetDir,
@@ -369,7 +398,7 @@ export class DeployGitProjectUseCase {
       }
 
       this.onInvalidateCache?.(targetDir);
-      logs.push(`✅ Proyecto ${cleanName} creado exitosamente.`);
+      pushStep(`✅ Proyecto ${cleanName} desplegado exitosamente.`, 'Completado');
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
       if (error instanceof InsufficientServerMemoryException) {

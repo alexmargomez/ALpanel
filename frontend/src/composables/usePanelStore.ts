@@ -10,6 +10,8 @@ import type {
   RateLimitShieldStatus,
   RoleItem,
   RolePermissionEntry,
+  TaskLiveTelemetryPayload,
+  TaskStreamChunkPayload,
   UserItem,
 } from '../types/panel';
 import { DEFAULT_CATALOG } from '../services/api';
@@ -30,8 +32,11 @@ export interface BackgroundTaskItem {
   projectName: string;
   action: string;
   status: 'running' | 'success' | 'error';
+  phase?: string;
   message: string;
   output: string;
+  streamStarted?: boolean;
+  telemetry?: TaskLiveTelemetryPayload | null;
   startedAt: number;
   finishedAt?: number;
 }
@@ -350,10 +355,16 @@ export function registerUnauthorizedHandler(cb: () => void): void {
   onUnauthorizedCallback = cb;
 }
 
+let pendingDispatchTaskId = '';
+
 export async function apiFetch<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+  const boundTaskId = pendingDispatchTaskId;
+  pendingDispatchTaskId = '';
+
   const headers: Record<string, string> = {
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(panelStore.authToken ? { Authorization: `Bearer ${panelStore.authToken}` } : {}),
+    ...(boundTaskId ? { 'X-Task-Id': boundTaskId } : {}),
     ...((options.headers as Record<string, string>) || {}),
   };
 
@@ -544,6 +555,41 @@ function summarizeTaskOutput(rawOutput: string, fallback: string): string {
   return last.length > 110 ? `${last.slice(0, 107)}...` : last;
 }
 
+export function appendTaskStreamChunk(payload: TaskStreamChunkPayload): void {
+  const task = panelStore.backgroundTasks.find((t) => t.id === payload.taskId);
+  if (!task) return;
+
+  if (!task.streamStarted) {
+    task.streamStarted = true;
+    task.output = '';
+  }
+
+  task.output += payload.chunk;
+  if (task.output.length > 250000) {
+    task.output = '...[salida previa truncada]...\n' + task.output.slice(-220000);
+  }
+
+  if (payload.phase) {
+    task.phase = payload.phase;
+  }
+  if (payload.summaryLine && task.status === 'running') {
+    task.message = payload.summaryLine;
+  }
+
+  if (panelStore.modals.console.open && panelStore.modals.console.taskId === task.id) {
+    panelStore.modals.console.output = task.output;
+  }
+}
+
+export function updateTaskLiveTelemetry(payload: TaskLiveTelemetryPayload): void {
+  const task = panelStore.backgroundTasks.find((t) => t.id === payload.taskId);
+  if (!task) return;
+  task.telemetry = payload;
+  if (payload.phase) {
+    task.phase = payload.phase;
+  }
+}
+
 export function enqueueBackgroundTask(opts: {
   title: string;
   projectName?: string;
@@ -551,7 +597,7 @@ export function enqueueBackgroundTask(opts: {
   initialOutput?: string;
   runningMessage?: string;
   successMessage?: string;
-  taskFn: () => Promise<{ output?: string; message?: string; success?: boolean } | any>;
+  taskFn: (taskId?: string) => Promise<{ output?: string; message?: string; success?: boolean } | any>;
   onComplete?: () => Promise<void> | void;
 }): BackgroundTaskItem {
   const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -561,10 +607,13 @@ export function enqueueBackgroundTask(opts: {
     projectName: opts.projectName || 'Sistema',
     action: opts.action,
     status: 'running',
-    message: opts.runningMessage || 'Ejecutando en segundo plano...',
+    phase: 'Inicializando proceso...',
+    message: opts.runningMessage || 'Conectando telemetría en tiempo real...',
     output:
       opts.initialOutput ||
-      `⏳ Ejecutando "${opts.title}" en segundo plano...\nPuedes seguir usando el panel con normalidad.\n`,
+      `⏳ Conectando stream en vivo y telemetría de procesos para "${opts.title}"...\n`,
+    streamStarted: false,
+    telemetry: null,
     startedAt: Date.now(),
   });
 
@@ -579,7 +628,10 @@ export function enqueueBackgroundTask(opts: {
   }
 
   Promise.resolve()
-    .then(() => opts.taskFn())
+    .then(() => {
+      pendingDispatchTaskId = id;
+      return opts.taskFn(id);
+    })
     .then(async (res) => {
       const rawOutput =
         typeof res?.output === 'string'
@@ -588,8 +640,14 @@ export function enqueueBackgroundTask(opts: {
             ? res.message
             : 'Proceso finalizado correctamente.';
 
-      task.output = rawOutput;
+      if (!task.streamStarted) {
+        task.output = rawOutput;
+      } else if (rawOutput && !task.output.includes('✅') && rawOutput.includes('✅')) {
+        task.output += `\n${summarizeTaskOutput(rawOutput, 'Completado.')}\n`;
+      }
+
       task.finishedAt = Date.now();
+      task.phase = 'Finalizado';
 
       const hasInlineError =
         res?.success === false || rawOutput.includes('❌ Error:') || rawOutput.startsWith('❌');
@@ -597,6 +655,9 @@ export function enqueueBackgroundTask(opts: {
       if (hasInlineError) {
         task.status = 'error';
         task.message = summarizeTaskOutput(rawOutput, 'La operación reportó un error');
+        if (task.streamStarted && !task.output.includes('❌')) {
+          task.output += `\n${rawOutput}\n`;
+        }
       } else {
         task.status = 'success';
         task.message =
@@ -613,7 +674,7 @@ export function enqueueBackgroundTask(opts: {
         await refreshAll().catch(() => {});
       }
 
-      const ttlMs = task.status === 'error' ? 22000 : 12000;
+      const ttlMs = task.status === 'error' ? 24000 : 14000;
       const timer = setTimeout(() => {
         dismissBackgroundTask(task.id);
       }, ttlMs);
@@ -622,9 +683,14 @@ export function enqueueBackgroundTask(opts: {
     .catch((err: any) => {
       const errMsg = err?.message || String(err);
       task.status = 'error';
+      task.phase = 'Abortado / Error';
       task.finishedAt = Date.now();
-      task.output = `${task.output}\n❌ Error: ${errMsg}`;
-      task.message = `❌ Error: ${errMsg}`;
+      if (!task.output.includes(errMsg)) {
+        task.output = `${task.output}\n❌ Error: ${errMsg}\n`;
+      }
+      task.message = errMsg.startsWith('⛔') || errMsg.startsWith('🛑')
+        ? errMsg
+        : `❌ Error: ${errMsg}`;
 
       if (panelStore.modals.console.open && panelStore.modals.console.taskId === task.id) {
         panelStore.modals.console.output = task.output;
@@ -632,7 +698,7 @@ export function enqueueBackgroundTask(opts: {
 
       const timer = setTimeout(() => {
         dismissBackgroundTask(task.id);
-      }, 22000);
+      }, 25000);
       taskTimers.set(task.id, timer);
     });
 

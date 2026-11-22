@@ -10,6 +10,7 @@ import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
 import { resourceGuardService } from '../../../../shared/infrastructure/services/resource-guard.service';
+import { taskTelemetryService } from '../../../../shared/infrastructure/services/task-telemetry.service';
 
 const execAsync = promisify(exec);
 
@@ -763,9 +764,15 @@ export async function runDockerComposeSafe(
         }
 
         if (requestedBuild) {
-          for (const svc of msTargets.activeComposeServices) {
+          const totalSvcs = msTargets.activeComposeServices.length;
+          for (let idx = 0; idx < totalSvcs; idx++) {
+            const svc = msTargets.activeComposeServices[idx];
             const safeSvc = svc.replace(/[^a-zA-Z0-9._-]/g, '');
             if (!safeSvc) continue;
+            taskTelemetryService.emitTaskStep(
+              `==> [Build ${idx + 1}/${totalSvcs}] Construyendo imagen del servicio "${safeSvc}"...`,
+              `Build [${idx + 1}/${totalSvcs}] ${safeSvc}`
+            );
             resourceGuardService.assertMemoryAvailableForOperation({
               operation: `build microservicio ${safeSvc}`,
               targetProject: projectLabel,
@@ -773,12 +780,12 @@ export async function runDockerComposeSafe(
               additionalContainersCount: 0,
             });
             await resourceGuardService.execWithMemoryWatchdog(
-              `docker compose build "${safeSvc}"`,
+              `docker compose --ansi never build --progress=plain "${safeSvc}"`,
               {
                 cwd: projectDir,
                 env,
                 timeout: Math.max(timeout, 240000),
-                operation: `docker compose build ${safeSvc}`,
+                operation: `Build [${idx + 1}/${totalSvcs}] ${safeSvc}`,
                 targetProject: projectLabel,
                 cleanupComposeDir: projectDir,
               }
@@ -790,13 +797,34 @@ export async function runDockerComposeSafe(
         if (msTargets.isPartialSelection) {
           finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
         }
+      } else if (requestedBuild) {
+        taskTelemetryService.emitTaskStep(
+          `==> Construyendo imágenes Docker de ${projectLabel} (streaming capa por capa)...`,
+          `Docker Build — ${projectLabel}`
+        );
+        await resourceGuardService.execWithMemoryWatchdog(
+          `docker compose --ansi never build --progress=plain`,
+          {
+            cwd: projectDir,
+            env,
+            timeout: Math.max(timeout, 240000),
+            operation: `docker compose build — ${projectLabel}`,
+            targetProject: projectLabel,
+            cleanupComposeDir: projectDir,
+          }
+        );
+        finalArgs = finalArgs.replace(/\s+--build\b/g, '').trim();
       }
     }
   }
 
   try {
+    taskTelemetryService.emitTaskStep(
+      `==> Ejecutando docker compose ${finalArgs} en ${projectLabel}...`,
+      `Docker Compose Up — ${projectLabel}`
+    );
     const upRes = await resourceGuardService.execWithMemoryWatchdog(
-      `docker compose ${finalArgs}`,
+      `docker compose --ansi never ${finalArgs}`,
       {
         cwd: projectDir,
         env,
