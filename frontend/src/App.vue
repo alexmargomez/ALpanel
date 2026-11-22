@@ -4,6 +4,8 @@ import {
   apiFetch,
   applyTheme,
   hasPerm,
+  loadAuditLogs,
+  loadDomains,
   panelStore,
   refreshAll,
   registerUnauthorizedHandler,
@@ -13,9 +15,11 @@ import { connectRealtime, disconnectRealtime } from './composables/useSocket';
 import type { PanelTab, UserItem } from './types/panel';
 
 import LoginView from './components/layout/LoginView.vue';
+import SidebarNav from './components/layout/SidebarNav.vue';
 import TopHeader from './components/layout/TopHeader.vue';
 import ToastNotification from './components/layout/ToastNotification.vue';
 
+import OverviewView from './views/OverviewView.vue';
 import ProjectsView from './views/ProjectsView.vue';
 import DomainsView from './views/DomainsView.vue';
 import GitGuideView from './views/GitGuideView.vue';
@@ -69,7 +73,7 @@ async function bootstrapSession(): Promise<void> {
     }
 
     if (hasPerm('projects', 'view')) {
-      panelStore.activeTab = 'projects';
+      panelStore.activeTab = 'overview';
       if (projRes) {
         if (projRes.host) panelStore.host = projRes.host;
         if (projRes.projectsRoot) panelStore.projectsRoot = projRes.projectsRoot;
@@ -77,6 +81,12 @@ async function bootstrapSession(): Promise<void> {
         panelStore.loadingProjects = false;
       } else {
         await refreshAll();
+      }
+      if (hasPerm('domains', 'view')) {
+        loadDomains().catch(() => {});
+      }
+      if (hasPerm('security', 'view')) {
+        loadAuditLogs().catch(() => {});
       }
     } else {
       panelStore.loadingProjects = false;
@@ -106,17 +116,27 @@ onMounted(() => {
 <template>
   <LoginView v-if="!panelStore.currentUser" @login-success="bootstrapSession" />
 
-  <div v-else class="flex-1 flex flex-col min-h-screen">
-    <TopHeader @logout="logout" />
+  <div
+    v-else
+    class="min-h-screen w-full flex gap-3.5 p-2.5 sm:p-3 max-w-[1640px] mx-auto"
+  >
+    <!-- Barra Lateral Colapsable / Rail Izquierdo (Estilo Sylva) -->
+    <SidebarNav @logout="logout" />
 
-    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6 flex-1 space-y-5">
-      <ProjectsView v-if="panelStore.activeTab === 'projects'" />
-      <DomainsView v-else-if="panelStore.activeTab === 'domains'" />
-      <GitGuideView v-else-if="panelStore.activeTab === 'guide'" />
-      <UsersRolesView v-else-if="panelStore.activeTab === 'users'" />
-      <PermissionsView v-else-if="panelStore.activeTab === 'permissions'" />
-      <SecurityAuditView v-else-if="panelStore.activeTab === 'audit'" />
-    </main>
+    <!-- Área Principal de Contenido -->
+    <div class="flex-1 min-w-0 flex flex-col gap-4 px-1 sm:px-2">
+      <TopHeader @logout="logout" />
+
+      <main class="flex-1 space-y-5">
+        <OverviewView v-if="panelStore.activeTab === 'overview'" />
+        <ProjectsView v-else-if="panelStore.activeTab === 'projects'" />
+        <DomainsView v-else-if="panelStore.activeTab === 'domains'" />
+        <GitGuideView v-else-if="panelStore.activeTab === 'guide'" />
+        <UsersRolesView v-else-if="panelStore.activeTab === 'users'" />
+        <PermissionsView v-else-if="panelStore.activeTab === 'permissions'" />
+        <SecurityAuditView v-else-if="panelStore.activeTab === 'audit'" />
+      </main>
+    </div>
 
     <!-- Modales Reactivos del Sistema -->
     <DbCredentialsModal />

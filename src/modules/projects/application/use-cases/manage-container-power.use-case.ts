@@ -638,6 +638,60 @@ export async function autoAssignAndPersistProjectPorts(
     upsertEnvFileVariables(projectDir, updates);
   }
 
+  // 4. Si el puerto efectivo en .env cambió respecto a la ruta de Caddy (ej. BACKEND_PORT reasignado de 3000 a 3001 por colisión),
+  // sincronizar automáticamente la ruta en Dominios & SSL y recargar Caddy para evitar 502 Bad Gateway
+  try {
+    const routes = await domainsService.listRoutes();
+    const matchingRoute = routes.find(
+      (r) => (r.projectName || '').toLowerCase() === projectName.toLowerCase()
+    );
+    if (matchingRoute) {
+      let routeChanged = false;
+      const replaceTargetPort = (target: string, newPort?: string): string => {
+        if (!target || !newPort) return target;
+        const hostPart = target.replace(/:\d+\s*$/, '').trim();
+        const updated = `${hostPart}:${newPort}`;
+        if (updated !== target) {
+          routeChanged = true;
+        }
+        return updated;
+      };
+
+      let nextFront = matchingRoute.frontendTarget || '';
+      let nextBack = matchingRoute.backendTarget || '';
+
+      if (nextFront && nextBack) {
+        if (envMap.FRONTEND_PORT) {
+          nextFront = replaceTargetPort(nextFront, envMap.FRONTEND_PORT);
+        }
+        if (envMap.BACKEND_PORT || envMap.PORT) {
+          nextBack = replaceTargetPort(
+            nextBack,
+            envMap.BACKEND_PORT || envMap.PORT
+          );
+        }
+      } else if (nextFront && !nextBack) {
+        const isFront = nextFront.toLowerCase().includes('front');
+        const desiredPort = isFront
+          ? envMap.FRONTEND_PORT
+          : envMap.BACKEND_PORT || envMap.PORT || envMap.FRONTEND_PORT;
+        if (desiredPort) {
+          nextFront = replaceTargetPort(nextFront, desiredPort);
+        }
+      }
+
+      if (routeChanged) {
+        await domainsService.saveRoute({
+          ...matchingRoute,
+          frontendTarget: nextFront,
+          backendTarget: nextBack,
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return { ...domainSynced, ...updates };
 }
 

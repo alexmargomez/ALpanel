@@ -104,9 +104,11 @@ function loadCachedUser(): UserItem | null {
 
 export const panelStore = reactive({
   theme: (localStorage.getItem('alpanel_theme') === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+  sidebarCollapsed: localStorage.getItem('alpanel_sidebar_collapsed') === '1',
+  mobileSidebarOpen: false,
   authToken: localStorage.getItem('alpanel_token') || localStorage.getItem('sm_panel_token') || '',
   currentUser: loadCachedUser() as UserItem | null,
-  activeTab: 'projects' as PanelTab,
+  activeTab: 'overview' as PanelTab,
   projectsRoot: '/opt/projects',
   loadingProjects: true,
   host: {
@@ -185,8 +187,17 @@ export function applyTheme(theme: 'dark' | 'light' = panelStore.theme): void {
 }
 
 export function toggleTheme(): void {
-  const next = panelStore.theme === 'dark' ? 'light' : 'dark';
+  const next = panelStore.theme === 'dark' ? 'light' : 'light' === panelStore.theme ? 'dark' : 'dark';
   applyTheme(next);
+}
+
+export function toggleSidebar(): void {
+  panelStore.sidebarCollapsed = !panelStore.sidebarCollapsed;
+  try {
+    localStorage.setItem('alpanel_sidebar_collapsed', panelStore.sidebarCollapsed ? '1' : '0');
+  } catch {
+    // Ignore storage quota errors
+  }
 }
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -433,6 +444,7 @@ export async function loadAuditLogs(): Promise<void> {
 
 export async function switchTab(tab: PanelTab): Promise<void> {
   const tabModMap: Record<PanelTab, string> = {
+    overview: 'projects',
     projects: 'projects',
     domains: 'domains',
     guide: 'git',
@@ -446,11 +458,25 @@ export async function switchTab(tab: PanelTab): Promise<void> {
     return;
   }
 
+  panelStore.mobileSidebarOpen = false;
   panelStore.activeTab = tab;
+  if (tab === 'overview') {
+    if (hasPerm('domains', 'view') && panelStore.domainRoutes.length === 0) {
+      loadDomains().catch(() => {});
+    }
+    if (hasPerm('security', 'view') && !panelStore.securityShield) {
+      loadAuditLogs().catch(() => {});
+    }
+  }
   if (tab === 'domains') await loadDomains();
   if (tab === 'users') await loadUsersAndRoles();
   if (tab === 'permissions') await loadPermissionsModule();
   if (tab === 'audit') await loadAuditLogs();
+}
+
+export async function focusProjectCard(projectName: string): Promise<void> {
+  panelStore.projectSearchQuery = projectName;
+  await switchTab('projects');
 }
 
 export async function jumpToRolePermissionsCard(roleId: number): Promise<void> {

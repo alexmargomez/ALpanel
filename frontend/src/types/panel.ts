@@ -345,5 +345,13 @@ export interface ProjectErdSchema {
   mermaidCode: string;
 }
 
-export type PanelTab = 'projects' | 'domains' | 'guide' | 'users' | 'permissions' | 'audit';
+export type PanelTab =
+  | 'overview'
+  | 'projects'
+  | 'domains'
+  | 'guide'
+  | 'users'
+  | 'permissions'
+  | 'audit';
+
 
