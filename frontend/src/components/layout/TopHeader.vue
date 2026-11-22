@@ -21,7 +21,7 @@ const tabLabels: Record<PanelTab, string> = {
   projects: 'Pipeline & Proyectos',
   domains: 'Dominios & SSL',
   guide: 'Guía Multi-Stack',
-  users: 'Equipo & Roles',
+  users: 'Usuarios & Roles',
   permissions: 'Permisos RBAC',
   audit: 'Auditoría & Escudo',
 };
@@ -29,6 +29,14 @@ const tabLabels: Record<PanelTab, string> = {
 const currentTabTitle = computed(
   () => tabLabels[panelStore.activeTab] || 'Overview'
 );
+
+const hostDisplayLabel = computed(() => {
+  const h = (panelStore.host.hostname || '').trim();
+  if (!h || /^[0-9a-f]{12}$/i.test(h)) {
+    return 'ALpanel';
+  }
+  return h;
+});
 
 const runningTasksCount = computed(
   () => panelStore.backgroundTasks.filter((t) => t.status === 'running').length
@@ -82,37 +90,37 @@ onUnmounted(() => {
 
 <template>
   <header class="w-full space-y-3">
-    <!-- Barra Contextual Superior (Estilo Sylva) -->
+    <!-- Barra Contextual Superior -->
     <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <!-- Izquierda: Botón Móvil + Dots Colapsados + Breadcrumb + IP -->
+      <!-- Izquierda: Botón Móvil + Spaces Colapsados + Breadcrumb + IP -->
       <div class="flex items-center gap-2.5 min-w-0">
         <button
           @click="panelStore.mobileSidebarOpen = true"
-          class="lg:hidden w-8 h-8 rounded-xl sylva-card-charcoal flex items-center justify-center text-slate-300 hover:text-white"
+          class="lg:hidden w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white"
           title="Abrir menú"
         >
           <i class="fa-solid fa-bars text-xs"></i>
         </button>
 
-        <!-- Píldora de Espacios Apilados cuando el Rail está colapsado (Imagen 3) -->
+        <!-- Píldora de Espacios Apilados cuando el Rail está colapsado -->
         <button
           v-if="panelStore.sidebarCollapsed"
           @click="toggleSidebar"
-          class="hidden lg:inline-flex items-center -space-x-1.5 px-2 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 transition"
+          class="hidden lg:inline-flex items-center -space-x-1.5 px-2 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 transition"
           title="Expandir barra lateral de espacios"
         >
           <span
-            class="w-4 h-4 rounded-md bg-[#7DB4D8] text-[#0D1720] text-[8px] font-bold flex items-center justify-center ring-1 ring-[#10120F]"
+            class="w-4 h-4 rounded-md bg-indigo-600 keep-white text-[8px] font-bold flex items-center justify-center"
           >
             <i class="fa-solid fa-bolt"></i>
           </span>
           <span
-            class="w-4 h-4 rounded-md bg-[#B9F249] text-[#11150D] text-[8px] font-bold flex items-center justify-center ring-1 ring-[#10120F]"
+            class="w-4 h-4 rounded-md bg-emerald-600 keep-white text-[8px] font-bold flex items-center justify-center"
           >
             <i class="fa-solid fa-cubes"></i>
           </span>
           <span
-            class="w-4 h-4 rounded-md bg-[#F28B66] text-[#1F0F0A] text-[8px] font-bold flex items-center justify-center ring-1 ring-[#10120F]"
+            class="w-4 h-4 rounded-md bg-violet-600 keep-white text-[8px] font-bold flex items-center justify-center"
           >
             <i class="fa-solid fa-server"></i>
           </span>
@@ -121,11 +129,11 @@ onUnmounted(() => {
         <div class="flex items-center gap-2 text-xs min-w-0">
           <button
             @click="switchTab('overview')"
-            class="text-slate-400 hover:text-white font-medium truncate transition"
+            class="text-slate-400 hover:text-indigo-400 font-medium truncate transition"
           >
-            {{ panelStore.host.hostname || 'VPS Cloud' }}
+            {{ hostDisplayLabel }}
           </button>
-          <span class="text-slate-600">/</span>
+          <span class="text-slate-500">/</span>
           <span class="text-white font-semibold truncate">
             {{ currentTabTitle }}
           </span>
@@ -138,15 +146,15 @@ onUnmounted(() => {
               'IP pública copiada al portapapeles'
             )
           "
-          class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[11px] text-slate-300 font-mono transition"
+          class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-mono transition"
           title="Clic para copiar IP pública del servidor"
         >
-          <span class="w-1.5 h-1.5 rounded-full bg-[#B9F249] animate-pulse"></span>
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
           <span>{{ panelStore.host.publicIp || '127.0.0.1' }}</span>
         </button>
       </div>
 
-      <!-- Derecha: Buscador Global ⌘K + CTA Lima (+ Nuevo) + Alertas + Avatar -->
+      <!-- Derecha: Buscador Global ⌘K + CTA Indigo (+ Nuevo) + Alertas + Avatar -->
       <div class="flex items-center gap-2 ml-auto">
         <div class="relative hidden md:flex items-center">
           <i
@@ -158,10 +166,10 @@ onUnmounted(() => {
             @keydown.enter="handleSearchEnter"
             type="text"
             placeholder="Buscar proyectos, dominios, stack..."
-            class="w-60 lg:w-72 bg-white/[0.05] hover:bg-white/[0.07] focus:bg-white/[0.09] border border-white/[0.09] focus:border-[#B9F249]/50 rounded-full pl-8 pr-12 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none transition"
+            class="w-60 lg:w-72 bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-full pl-8 pr-12 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none transition"
           />
           <kbd
-            class="absolute right-2.5 px-1.5 py-0.5 rounded-md bg-white/[0.07] text-[10px] text-slate-400 font-mono"
+            class="absolute right-2.5 px-1.5 py-0.5 rounded-md bg-slate-800 text-[10px] text-slate-400 border border-slate-700 font-mono"
           >
             ⌘K
           </kbd>
@@ -170,7 +178,7 @@ onUnmounted(() => {
         <button
           v-if="hasPerm('git', 'create')"
           @click="openClone"
-          class="sylva-lime-btn rounded-full px-3.5 py-1.5 text-xs flex items-center gap-1.5"
+          class="px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20"
         >
           <i class="fa-solid fa-plus text-[10px]"></i>
           <span>Nuevo</span>
@@ -178,7 +186,7 @@ onUnmounted(() => {
 
         <button
           @click="switchTab(pendingUpdatesCount > 0 ? 'projects' : 'audit')"
-          class="relative w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center text-slate-300 hover:text-white transition"
+          class="relative w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white transition"
           :title="
             badgeAlertCount > 0
               ? `${badgeAlertCount} notificaciones / tareas activas`
@@ -188,7 +196,7 @@ onUnmounted(() => {
           <i class="fa-regular fa-bell text-xs"></i>
           <span
             v-if="badgeAlertCount > 0"
-            class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center"
+            class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-extrabold flex items-center justify-center"
           >
             {{ badgeAlertCount }}
           </span>
@@ -201,7 +209,7 @@ onUnmounted(() => {
         >
           <button
             @click="emit('logout')"
-            class="w-8 h-8 rounded-full bg-gradient-to-br from-[#7DB4D8] to-[#B9F249] text-[#11150D] font-extrabold text-[11px] flex items-center justify-center shadow ring-2 ring-white/10 hover:opacity-90 transition"
+            class="w-8 h-8 rounded-full bg-indigo-600 keep-white font-bold text-[11px] flex items-center justify-center shadow hover:bg-indigo-500 transition"
           >
             {{ userInitials }}
           </button>
@@ -215,10 +223,10 @@ onUnmounted(() => {
       class="grid grid-cols-1 sm:grid-cols-3 gap-2.5"
     >
       <div
-        class="sylva-card-charcoal rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
+        class="bg-slate-900 border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
       >
         <div
-          class="w-8 h-8 rounded-xl bg-[#7DB4D8]/15 text-[#7DB4D8] flex items-center justify-center shrink-0"
+          class="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0"
         >
           <i class="fa-solid fa-microchip text-xs"></i>
         </div>
@@ -231,9 +239,9 @@ onUnmounted(() => {
               {{ panelStore.host.cpu.usagePercent }}%
             </span>
           </div>
-          <div class="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
             <div
-              class="h-full bg-[#7DB4D8] rounded-full transition-all duration-300"
+              class="h-full bg-indigo-500 rounded-full transition-all duration-300"
               :style="{
                 width: `${Math.min(100, panelStore.host.cpu.usagePercent)}%`,
               }"
@@ -243,10 +251,10 @@ onUnmounted(() => {
       </div>
 
       <div
-        class="sylva-card-charcoal rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
+        class="bg-slate-900 border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
       >
         <div
-          class="w-8 h-8 rounded-xl bg-[#B9F249]/15 text-[#B9F249] flex items-center justify-center shrink-0"
+          class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0"
         >
           <i class="fa-solid fa-memory text-xs"></i>
         </div>
@@ -258,9 +266,9 @@ onUnmounted(() => {
               {{ formatBytes(panelStore.host.memory.totalBytes) }}
             </span>
           </div>
-          <div class="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
             <div
-              class="h-full bg-[#B9F249] rounded-full transition-all duration-300"
+              class="h-full bg-emerald-500 rounded-full transition-all duration-300"
               :style="{
                 width: `${Math.min(100, panelStore.host.memory.usagePercent)}%`,
               }"
@@ -270,24 +278,24 @@ onUnmounted(() => {
       </div>
 
       <div
-        class="sylva-card-charcoal rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
+        class="bg-slate-900 border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center gap-3"
       >
         <div
-          class="w-8 h-8 rounded-xl bg-[#E09F87]/15 text-[#E09F87] flex items-center justify-center shrink-0"
+          class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0"
         >
           <i class="fa-solid fa-hard-drive text-xs"></i>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex justify-between text-[11px] mb-1">
-            <span class="text-slate-400">Disco NVMe</span>
+            <span class="text-slate-400">Disco SSD</span>
             <span class="font-bold text-white">
               {{ formatBytes(panelStore.host.disk.usedBytes) }} /
               {{ formatBytes(panelStore.host.disk.totalBytes) }}
             </span>
           </div>
-          <div class="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
             <div
-              class="h-full bg-[#E09F87] rounded-full transition-all duration-300"
+              class="h-full bg-amber-500 rounded-full transition-all duration-300"
               :style="{
                 width: `${Math.min(100, panelStore.host.disk.usagePercent)}%`,
               }"

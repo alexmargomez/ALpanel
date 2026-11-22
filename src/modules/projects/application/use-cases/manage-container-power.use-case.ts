@@ -4,10 +4,12 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ProjectInfo } from '../../domain/entities/project.entity';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
+import { InsufficientServerMemoryException } from '../../domain/exceptions/project.exception';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
+import { resourceGuardService } from '../../../../shared/infrastructure/services/resource-guard.service';
 
 const execAsync = promisify(exec);
 
@@ -34,6 +36,8 @@ export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
     DOCKER_HOST: process.env.DOCKER_HOST || '',
     COMPOSE_PROJECT_NAME: cleanProjectName || 'app',
     COMPOSE_BAKE: 'false',
+    COMPOSE_PARALLEL_LIMIT: '1',
+    GOMAXPROCS: '2',
   };
 }
 
@@ -724,10 +728,21 @@ export async function runDockerComposeSafe(
   }
   const expectedProject = env.COMPOSE_PROJECT_NAME || 'app';
 
+  const projectLabel = path.basename(projectDir);
+
+  if (finalArgs.startsWith('up') || finalArgs.startsWith('build')) {
+    resourceGuardService.assertMemoryAvailableForOperation({
+      operation: requestedBuild ? 'docker compose build & up' : 'docker compose up',
+      targetProject: projectLabel,
+      requiresBuild: requestedBuild,
+      additionalContainersCount: 1,
+    });
+  }
+
   if (finalArgs.startsWith('up')) {
     await reconcileProjectComposeContainers(projectDir, expectedProject);
 
-    // Si es un proyecto de microservicios con selección parcial, levantar solo los servicios integrados
+    // Si es un proyecto de microservicios, controlar selección parcial y compilar secuencialmente (1 por 1) con RAM Watchdog
     const isGeneralUpCommand =
       /^up\s+-d(?:\s+--build)?(?:\s+--remove-orphans)?$/.test(finalArgs);
     if (isGeneralUpCommand) {
@@ -735,29 +750,62 @@ export async function runDockerComposeSafe(
         manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(
           projectDir
         );
-      if (
-        msTargets.isMicroservices &&
-        msTargets.isPartialSelection &&
-        msTargets.activeComposeServices.length > 0
-      ) {
-        if (msTargets.disabledComposeServices.length > 0) {
+      if (msTargets.isMicroservices && msTargets.activeComposeServices.length > 0) {
+        if (
+          msTargets.isPartialSelection &&
+          msTargets.disabledComposeServices.length > 0
+        ) {
           const disabledStr = msTargets.disabledComposeServices.join(' ');
           await execAsync(
             `docker compose stop ${disabledStr} 2>/dev/null || true; docker compose rm -f ${disabledStr} 2>/dev/null || true`,
             { cwd: projectDir, env, timeout: 45000 }
           ).catch(() => null);
         }
-        finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
+
+        if (requestedBuild) {
+          for (const svc of msTargets.activeComposeServices) {
+            const safeSvc = svc.replace(/[^a-zA-Z0-9._-]/g, '');
+            if (!safeSvc) continue;
+            resourceGuardService.assertMemoryAvailableForOperation({
+              operation: `build microservicio ${safeSvc}`,
+              targetProject: projectLabel,
+              requiresBuild: true,
+              additionalContainersCount: 0,
+            });
+            await resourceGuardService.execWithMemoryWatchdog(
+              `docker compose build "${safeSvc}"`,
+              {
+                cwd: projectDir,
+                env,
+                timeout: Math.max(timeout, 240000),
+                operation: `docker compose build ${safeSvc}`,
+                targetProject: projectLabel,
+                cleanupComposeDir: projectDir,
+              }
+            );
+          }
+          finalArgs = finalArgs.replace(/\s+--build\b/g, '').trim();
+        }
+
+        if (msTargets.isPartialSelection) {
+          finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
+        }
       }
     }
   }
 
   try {
-    const upRes = await execAsync(`docker compose ${finalArgs}`, {
-      cwd: projectDir,
-      env,
-      timeout,
-    });
+    const upRes = await resourceGuardService.execWithMemoryWatchdog(
+      `docker compose ${finalArgs}`,
+      {
+        cwd: projectDir,
+        env,
+        timeout,
+        operation: `docker compose ${finalArgs.split(' ')[0]}`,
+        targetProject: projectLabel,
+        cleanupComposeDir: projectDir,
+      }
+    );
     if ((requestedForceRecreate || requestedBuild) && finalArgs.startsWith('up')) {
       const msSummary =
         manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
@@ -782,6 +830,9 @@ export async function runDockerComposeSafe(
     }
     return upRes;
   } catch (error: any) {
+    if (error instanceof InsufficientServerMemoryException) {
+      throw error;
+    }
     const errText = `${error?.stderr || ''}\n${error?.stdout || ''}\n${
       error?.message || ''
     }`;
@@ -961,6 +1012,9 @@ export class ManageContainerPowerUseCase {
         output: `Proyecto ${projectName} reiniciado y variables .env sincronizadas correctamente.\n${stdout}\n${stderr}`.trim(),
       };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        throw error;
+      }
       return {
         success: false,
         output:
@@ -991,6 +1045,9 @@ export class ManageContainerPowerUseCase {
           `Proyecto ${projectName} iniciado.`,
       };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        throw error;
+      }
       return {
         success: false,
         output: error?.stderr || error?.message || 'Error iniciando proyecto',
@@ -1121,19 +1178,39 @@ export class ManageContainerPowerUseCase {
           `==> [1/2] Reconstruyendo imagen sin caché para [${targetService || cleanContainer}] (conservando volúmenes de datos)...`
         );
         if (targetService) {
-          const buildRes = await execAsync(
+          resourceGuardService.assertMemoryAvailableForOperation({
+            operation: `rebuild --no-cache (${targetService})`,
+            targetProject: projectName,
+            requiresBuild: true,
+            additionalContainersCount: 0,
+          });
+          const buildRes = await resourceGuardService.execWithMemoryWatchdog(
             `docker compose build --no-cache "${targetService}"`,
-            { cwd: projectDir, env, timeout: 600000 }
-          ).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+            {
+              cwd: projectDir,
+              env,
+              timeout: 600000,
+              operation: `rebuild --no-cache ${targetService}`,
+              targetProject: projectName,
+              cleanupComposeDir: projectDir,
+            }
+          );
           if (buildRes.stdout) logs.push(buildRes.stdout.trim());
           if (buildRes.stderr) logs.push(buildRes.stderr.trim());
 
           logs.push(
             `\n==> [2/2] Recreando contenedor [${cleanContainer || targetService}] sin afectar los demás servicios...`
           );
-          const upRes = await execAsync(
+          const upRes = await resourceGuardService.execWithMemoryWatchdog(
             `docker compose up -d --no-deps --force-recreate "${targetService}"`,
-            { cwd: projectDir, env, timeout: 180000 }
+            {
+              cwd: projectDir,
+              env,
+              timeout: 180000,
+              operation: `recreate ${targetService}`,
+              targetProject: projectName,
+              cleanupComposeDir: projectDir,
+            }
           );
           if (upRes.stdout) logs.push(upRes.stdout.trim());
           if (upRes.stderr) logs.push(upRes.stderr.trim());
@@ -1147,15 +1224,34 @@ export class ManageContainerPowerUseCase {
         return { success: true, output: logs.join('\n') };
       }
 
+      resourceGuardService.assertMemoryAvailableForOperation({
+        operation: 'rebuild --no-cache',
+        targetProject: projectName,
+        requiresBuild: true,
+        additionalContainersCount: 1,
+      });
+
       const logs: string[] = [];
       logs.push(
         `==> [1/2] Reconstruyendo imágenes de aplicación sin caché en ${projectName} (conservando Base de Datos y sus volúmenes)...`
       );
-      const buildRes = await execAsync(`docker compose build --no-cache`, {
-        cwd: projectDir,
-        env,
-        timeout: 600000,
-      }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+      const msTargets =
+        manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(projectDir);
+      const servicesArg =
+        msTargets.isMicroservices && msTargets.isPartialSelection
+          ? msTargets.activeComposeServices.join(' ')
+          : '';
+      const buildRes = await resourceGuardService.execWithMemoryWatchdog(
+        `docker compose build --no-cache ${servicesArg}`.trim(),
+        {
+          cwd: projectDir,
+          env,
+          timeout: 600000,
+          operation: 'rebuild --no-cache',
+          targetProject: projectName,
+          cleanupComposeDir: projectDir,
+        }
+      );
       if (buildRes.stdout) logs.push(buildRes.stdout.trim());
       if (buildRes.stderr) logs.push(buildRes.stderr.trim());
 
@@ -1178,6 +1274,9 @@ export class ManageContainerPowerUseCase {
         output: logs.join('\n').trim(),
       };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        throw error;
+      }
       return {
         success: false,
         output:
@@ -1364,23 +1463,43 @@ export class ManageContainerPowerUseCase {
         ...readEnvMap(projectDir),
       };
 
+      resourceGuardService.assertMemoryAvailableForOperation({
+        operation: 'rebuild-destroy --no-cache',
+        targetProject: projectName,
+        requiresBuild: true,
+        additionalContainersCount: 2,
+      });
+
       logs.push(
         `\n==> [3/5] Reconstruyendo todas las imágenes desde cero sin caché (docker compose build --no-cache)...`
       );
-      const buildRes = await execAsync(`docker compose build --no-cache`, {
-        cwd: projectDir,
-        env: updatedEnv,
-        timeout: 600000,
-      }).catch((e) => ({ stdout: e?.stdout || '', stderr: e?.stderr || '' }));
+      const msTargets =
+        manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(projectDir);
+      const servicesArg =
+        msTargets.isMicroservices && msTargets.isPartialSelection
+          ? msTargets.activeComposeServices.join(' ')
+          : '';
+      const buildRes = await resourceGuardService.execWithMemoryWatchdog(
+        `docker compose build --no-cache ${servicesArg}`.trim(),
+        {
+          cwd: projectDir,
+          env: updatedEnv,
+          timeout: 600000,
+          operation: 'rebuild-destroy build',
+          targetProject: projectName,
+          cleanupComposeDir: projectDir,
+        }
+      );
       if (buildRes.stdout) logs.push(buildRes.stdout.trim());
       if (buildRes.stderr) logs.push(buildRes.stderr.trim());
 
       logs.push(
         `\n==> [4/5] Montando todo el proyecto ${projectName} de nuevo desde cero (docker compose up -d --force-recreate)...`
       );
-      const upRes = await execAsync(
-        `docker compose up -d --force-recreate --remove-orphans`,
-        { cwd: projectDir, env: updatedEnv, timeout: 300000 }
+      const upRes = await runDockerComposeSafe(
+        projectDir,
+        'up -d --force-recreate',
+        300000
       );
       if (upRes.stdout) logs.push(upRes.stdout.trim());
       if (upRes.stderr) logs.push(upRes.stderr.trim());
@@ -1410,6 +1529,9 @@ export class ManageContainerPowerUseCase {
       );
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        throw error;
+      }
       logs.push(
         `\n❌ Error durante Rebuild Destroy: ${
           error?.stderr || error?.message || 'Error desconocido'
@@ -1699,8 +1821,19 @@ export class ManageContainerPowerUseCase {
       }
 
       logs.push(
-        `==> [3/3] Sincronizando servicios Core y Microservicios integrados en Docker Compose...`
+        `==> [3/3] Verificando presupuesto de RAM y sincronizando servicios Core + Microservicios integrados...`
       );
+      resourceGuardService.assertMemoryAvailableForOperation({
+        operation: `integrar ${updatedSummary.enabledMicroservicesCount} microservicios`,
+        targetProject: projectName,
+        requiresBuild: false,
+        additionalContainersCount: Math.max(
+          1,
+          updatedSummary.enabledMicroservicesCount -
+            updatedSummary.runningMicroservicesCount
+        ),
+      });
+
       const upRes = await runDockerComposeSafe(
         projectDir,
         'up -d --force-recreate',
@@ -1719,6 +1852,9 @@ export class ManageContainerPowerUseCase {
         microservices: updatedSummary,
       };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        throw error;
+      }
       logs.push(
         `❌ Error aplicando microservicios: ${
           error?.stderr || error?.message || 'Error desconocido'

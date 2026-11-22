@@ -79,7 +79,17 @@ function selectAllMicroservices(): void {
 
 function selectEssentialMicroservices(): void {
   if (!detectedSummary.value) return;
-  const essentialKeywords = ['crm', 'inventory', 'invoicing', 'billing', 'auth'];
+  const essentialKeywords = [
+    'facturacion',
+    'clientes',
+    'inventario',
+    'caja',
+    'crm',
+    'inventory',
+    'invoicing',
+    'billing',
+    'auth',
+  ];
   const filtered = detectedSummary.value.microservices
     .filter((m) =>
       essentialKeywords.some(
@@ -125,9 +135,13 @@ async function detectRepoArchitecture(): Promise<void> {
     });
 
     detectedSummary.value = res.summary;
-    selectedMicroservices.value = res.summary.microservices.map(
-      (m) => m.serviceName
-    );
+    if (res.summary.totalMicroservices > 5) {
+      selectEssentialMicroservices();
+    } else {
+      selectedMicroservices.value = res.summary.microservices.map(
+        (m) => m.serviceName
+      );
+    }
 
     if (res.suggestedEnvContent && !envContent.value.trim()) {
       let text = res.suggestedEnvContent.trim();
