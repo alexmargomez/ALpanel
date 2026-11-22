@@ -63,7 +63,17 @@ function selectAll(): void {
 
 function selectEssentials(): void {
   if (!summary.value) return;
-  const essentialKeywords = ['crm', 'inventory', 'invoicing', 'billing', 'auth'];
+  const essentialKeywords = [
+    'facturacion',
+    'clientes',
+    'inventario',
+    'caja',
+    'crm',
+    'inventory',
+    'invoicing',
+    'billing',
+    'auth',
+  ];
   const filtered = summary.value.microservices
     .filter((m) =>
       essentialKeywords.some(

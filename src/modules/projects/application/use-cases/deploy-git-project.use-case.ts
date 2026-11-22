@@ -274,9 +274,44 @@ export class DeployGitProjectUseCase {
             []
           );
         if (msSummary.isMicroservicesArchitecture) {
-          logs.push(
-            `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`
-          );
+          if (msSummary.totalMicroservices > 5) {
+            const essentialKeywords = [
+              'facturacion',
+              'clientes',
+              'inventario',
+              'caja',
+              'crm',
+              'inventory',
+              'invoicing',
+              'billing',
+              'auth',
+            ];
+            const essentials = msSummary.microservices
+              .filter((m) =>
+                essentialKeywords.some(
+                  (kw) =>
+                    m.domainCode.toLowerCase().includes(kw) ||
+                    m.serviceName.toLowerCase().includes(kw)
+                )
+              )
+              .map((m) => m.serviceName);
+            const fallbackSelection =
+              essentials.length > 0
+                ? essentials
+                : msSummary.microservices.slice(0, 3).map((m) => m.serviceName);
+            const savedMs =
+              manageProjectMicroservicesUseCase.saveSelectionToProjectDir(
+                targetDir,
+                fallbackSelection
+              );
+            logs.push(
+              `==> 🛡️ Protección Anti-OOM activada: Clúster grande detectado (${msSummary.totalMicroservices} microservicios). Integrando automáticamente Core + ${savedMs.enabledMicroservicesCount} esenciales (${savedMs.enabledServiceNames.join(', ')}). Puedes activar más módulos cuando desees desde el botón "Microservicios".`
+            );
+          } else {
+            logs.push(
+              `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`
+            );
+          }
         }
       }
 

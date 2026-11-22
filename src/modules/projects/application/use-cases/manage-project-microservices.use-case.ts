@@ -53,17 +53,32 @@ interface ParsedComposeServiceRaw {
 
 const FRIENDLY_DOMAIN_TITLES: Record<string, string> = {
   crm: 'CRM, Clientes & Fidelización',
+  clientes: 'CRM, Clientes & Terceros',
   inventory: 'Inventario, Kardex, Recetas & Lotes',
+  inventario: 'Inventario, Kardex & Bodegas',
   invoicing: 'Facturación POS, Recibos & DIAN',
+  facturacion: 'Facturación Electrónica & POS',
+  caja: 'Caja, Turnos & Arqueos',
   gastro: 'Gastronomía, Mesas, KDS & Cuentas',
+  comandas: 'Gastronomía, Mesas & Comandas KDS',
   hotel: 'Hotelería, Habitaciones & PMS',
+  hoteleria: 'Hotelería, Reservas & PMS',
+  taller: 'Taller Automotriz & Órdenes',
+  bascula: 'Báscula & Pesaje Industrial',
+  compras: 'Compras & Proveedores',
+  agenda: 'Agenda, Citas & Reservas',
+  taquilla: 'Taquilla, Eventos & Boletería',
   finance: 'Finanzas, Caja, Cartera & PUC',
+  contabilidad: 'Contabilidad, PUC & Asientos',
   billing: 'Suscripciones & Facturación SaaS',
   auth: 'Autenticación & Identidad',
   notifications: 'Notificaciones & Mensajería',
   analytics: 'Analítica & Reportes BI',
+  reportes: 'Reportes & Analítica BI',
+  impresiones: 'Servidor de Impresión ESC/POS',
   logistics: 'Logística & Despachos',
-  hr: ' Nómina & Talento Humano',
+  hr: 'Nómina & Talento Humano',
+  nomina: 'Nómina Electrónica & RRHH',
 };
 
 export class ManageProjectMicroservicesUseCase {
@@ -379,21 +394,26 @@ export class ManageProjectMicroservicesUseCase {
       };
     }
 
-    // 4. Control Plane / Core Service
+    // 4. Control Plane / Core / Platform Service
     if (
       nodeRole === 'core-service' ||
       sLower === 'core-service' ||
       sLower === 'control-plane' ||
-      sLower === 'core'
+      sLower === 'core' ||
+      sLower === 'ms-platform' ||
+      sLower === 'platform'
     ) {
       return {
         category: 'core',
         isSelectable: false,
-        domainCode: 'core',
-        displayName: `Control Plane (${raw.serviceName})`,
+        domainCode: sLower === 'ms-platform' ? 'platform' : 'core',
+        displayName:
+          sLower === 'ms-platform' || sLower === 'platform'
+            ? `Plataforma & Identidad (${raw.serviceName})`
+            : `Control Plane (${raw.serviceName})`,
         description:
           raw.commentHeader ||
-          'Plano de control central, catálogo y orquestación',
+          'Plano de control central, identidad multi-tenant y orquestación',
       };
     }
 

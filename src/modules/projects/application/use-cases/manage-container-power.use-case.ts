@@ -34,6 +34,8 @@ export function getCleanComposeEnv(projectDir: string): NodeJS.ProcessEnv {
     DOCKER_HOST: process.env.DOCKER_HOST || '',
     COMPOSE_PROJECT_NAME: cleanProjectName || 'app',
     COMPOSE_BAKE: 'false',
+    COMPOSE_PARALLEL_LIMIT: '1',
+    GOMAXPROCS: '2',
   };
 }
 
@@ -727,7 +729,7 @@ export async function runDockerComposeSafe(
   if (finalArgs.startsWith('up')) {
     await reconcileProjectComposeContainers(projectDir, expectedProject);
 
-    // Si es un proyecto de microservicios con selección parcial, levantar solo los servicios integrados
+    // Si es un proyecto de microservicios, controlar selección parcial y compilar secuencialmente (1 por 1) para evitar picos OOM
     const isGeneralUpCommand =
       /^up\s+-d(?:\s+--build)?(?:\s+--remove-orphans)?$/.test(finalArgs);
     if (isGeneralUpCommand) {
@@ -735,19 +737,34 @@ export async function runDockerComposeSafe(
         manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(
           projectDir
         );
-      if (
-        msTargets.isMicroservices &&
-        msTargets.isPartialSelection &&
-        msTargets.activeComposeServices.length > 0
-      ) {
-        if (msTargets.disabledComposeServices.length > 0) {
+      if (msTargets.isMicroservices && msTargets.activeComposeServices.length > 0) {
+        if (
+          msTargets.isPartialSelection &&
+          msTargets.disabledComposeServices.length > 0
+        ) {
           const disabledStr = msTargets.disabledComposeServices.join(' ');
           await execAsync(
             `docker compose stop ${disabledStr} 2>/dev/null || true; docker compose rm -f ${disabledStr} 2>/dev/null || true`,
             { cwd: projectDir, env, timeout: 45000 }
           ).catch(() => null);
         }
-        finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
+
+        if (requestedBuild) {
+          for (const svc of msTargets.activeComposeServices) {
+            const safeSvc = svc.replace(/[^a-zA-Z0-9._-]/g, '');
+            if (!safeSvc) continue;
+            await execAsync(`docker compose build "${safeSvc}"`, {
+              cwd: projectDir,
+              env,
+              timeout: Math.max(timeout, 240000),
+            });
+          }
+          finalArgs = finalArgs.replace(/\s+--build\b/g, '').trim();
+        }
+
+        if (msTargets.isPartialSelection) {
+          finalArgs = `${finalArgs} ${msTargets.activeComposeServices.join(' ')}`;
+        }
       }
     }
   }
