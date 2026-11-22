@@ -1,8 +1,17 @@
 body {
-  background-color: #0B0F19;
-  color: #F3F4F6;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  background-color: #10120F;
+  background-image:
+    radial-gradient(ellipse 72% 38% at 54% -4%, rgba(126, 168, 134, 0.16), rgba(62, 86, 102, 0.08) 52%, transparent 100%),
+    radial-gradient(ellipse 45% 35% at 88% 92%, rgba(114, 146, 72, 0.07), transparent 100%);
+  background-attachment: fixed;
+  color: #F4F5F2;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.font-editorial {
+  font-family: 'Instrument Serif', Georgia, serif;
+  letter-spacing: -0.01em;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -11,32 +20,134 @@ body {
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: #111827;
+  background: #151814;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 3px;
+  background: #2E342C;
+  border-radius: 9999px;
 }
 
 /* ==========================================================================
-   MODO DÍA (LIGHT MODE) — ALpanel Global Theme Overrides
+   SYLVA ORGANIC DARK MODE HARMONIZATION & BENTO SURFACES
+   ========================================================================== */
+html:not(.light-mode) .bg-slate-900,
+html:not(.light-mode) .bg-slate-900\/95,
+html:not(.light-mode) .bg-slate-900\/90,
+html:not(.light-mode) .bg-slate-900\/80 {
+  background-color: rgba(27, 30, 26, 0.92) !important;
+}
+
+html:not(.light-mode) .bg-slate-950,
+html:not(.light-mode) .bg-slate-950\/95,
+html:not(.light-mode) .bg-slate-950\/90,
+html:not(.light-mode) .bg-slate-950\/80,
+html:not(.light-mode) .bg-slate-950\/60 {
+  background-color: rgba(19, 22, 18, 0.92) !important;
+}
+
+html:not(.light-mode) .bg-slate-800 {
+  background-color: #242922 !important;
+}
+
+html:not(.light-mode) .hover\:bg-slate-700:hover {
+  background-color: #2F362C !important;
+}
+
+html:not(.light-mode) .border-slate-800,
+html:not(.light-mode) .border-slate-800\/80,
+html:not(.light-mode) .border-slate-800\/60,
+html:not(.light-mode) .border-slate-700 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.sylva-sidebar {
+  background: linear-gradient(180deg, rgba(25, 28, 24, 0.96) 0%, rgba(20, 23, 19, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.65);
+}
+
+.sylva-card-slate {
+  background: linear-gradient(145deg, rgba(64, 83, 98, 0.78) 0%, rgba(43, 56, 67, 0.72) 100%);
+  border: 1px solid rgba(139, 190, 224, 0.22);
+}
+
+.sylva-card-olive {
+  background: linear-gradient(145deg, rgba(84, 100, 56, 0.82) 0%, rgba(57, 69, 39, 0.74) 100%);
+  border: 1px solid rgba(185, 242, 73, 0.24);
+}
+
+.sylva-card-terracotta {
+  background: linear-gradient(145deg, rgba(102, 70, 60, 0.80) 0%, rgba(71, 49, 42, 0.74) 100%);
+  border: 1px solid rgba(228, 162, 138, 0.22);
+}
+
+.sylva-card-charcoal {
+  background: linear-gradient(145deg, rgba(30, 34, 29, 0.94) 0%, rgba(22, 25, 21, 0.94) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sylva-lime-btn {
+  background-color: #B9F249;
+  color: #11150D !important;
+  font-weight: 700;
+  box-shadow: 0 6px 22px -4px rgba(185, 242, 73, 0.32);
+  transition: all 0.18s ease;
+}
+
+.sylva-lime-btn:hover {
+  background-color: #C8F765;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px -4px rgba(185, 242, 73, 0.42);
+}
+
+/* ==========================================================================
+   MODO DÍA (LIGHT MODE) — Sylva Daylight Editorial Overrides
    ========================================================================== */
 html.light-mode body {
-  background-color: #F1F5F9;
-  color: #0F172A;
+  background-color: #F3F5F0;
+  background-image:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(163, 214, 114, 0.18), rgba(125, 180, 216, 0.10) 55%, transparent 100%);
+  color: #111812;
 }
 
 html.light-mode .scrollbar-thin::-webkit-scrollbar-track {
-  background: #E2E8F0;
+  background: #E5E9E0;
 }
 
 html.light-mode .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #94A3B8;
+  background: #A3B09B;
+}
+
+html.light-mode .sylva-sidebar {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAF6 100%);
+  border: 1px solid #DDE3D8;
+  box-shadow: 0 12px 32px -10px rgba(17, 24, 18, 0.08);
+}
+
+html.light-mode .sylva-card-slate {
+  background: linear-gradient(145deg, #E3EFF7 0%, #D5E6F2 100%);
+  border: 1px solid #B8D4E8;
+}
+
+html.light-mode .sylva-card-olive {
+  background: linear-gradient(145deg, #EAF4D8 0%, #DCEBC2 100%);
+  border: 1px solid #C2DC96;
+}
+
+html.light-mode .sylva-card-terracotta {
+  background: linear-gradient(145deg, #F8E8E2 0%, #F1DAD1 100%);
+  border: 1px solid #E3BEB0;
+}
+
+html.light-mode .sylva-card-charcoal {
+  background: linear-gradient(145deg, #FFFFFF 0%, #F8FAF6 100%);
+  border: 1px solid #DDE3D8;
 }
 
 /* Fondos de tarjetas, headers, contenedores e inputs */
 html.light-mode .bg-slate-900,
+html.light-mode .bg-slate-900\/95,
 html.light-mode .bg-slate-900\/90,
 html.light-mode .bg-slate-900\/80,
 html.light-mode .bg-slate-900\/70,
@@ -45,12 +156,13 @@ html.light-mode .bg-slate-900\/60 {
 }
 
 html.light-mode .bg-slate-950,
+html.light-mode .bg-slate-950\/95,
 html.light-mode .bg-slate-950\/90,
 html.light-mode .bg-slate-950\/80,
 html.light-mode .bg-slate-950\/70,
 html.light-mode .bg-slate-950\/60,
 html.light-mode .bg-slate-950\/50 {
-  background-color: #F8FAFC !important;
+  background-color: #F7F9F5 !important;
 }
 
 /* Mantener backdrop oscuro en modales superpuestos */
@@ -62,17 +174,17 @@ html.light-mode .fixed.inset-0.bg-slate-950\/80 {
 html.light-mode .bg-slate-800,
 html.light-mode .bg-slate-800\/80,
 html.light-mode .bg-slate-800\/60 {
-  background-color: #F1F5F9 !important;
+  background-color: #EDF1EA !important;
 }
 
 html.light-mode .hover\:bg-slate-700:hover,
 html.light-mode .hover\:bg-slate-800:hover {
-  background-color: #E2E8F0 !important;
+  background-color: #DFE6DA !important;
 }
 
 /* Gradiente de Login en Modo Día */
 html.light-mode .from-slate-950.via-slate-900.to-indigo-950 {
-  background-image: linear-gradient(to bottom right, #EEF2FF, #F8FAFC, #E0E7FF) !important;
+  background-image: linear-gradient(to bottom right, #EEF4E8, #F8FAF6, #E3EFF7) !important;
 }
 
 /* Bordes y divisores */
@@ -81,16 +193,16 @@ html.light-mode .border-slate-800\/80,
 html.light-mode .border-slate-800\/60,
 html.light-mode .border-slate-700,
 html.light-mode .border-slate-700\/80 {
-  border-color: #CBD5E1 !important;
+  border-color: #D5DDD0 !important;
 }
 
 html.light-mode .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
-  border-color: #E2E8F0 !important;
+  border-color: #E2E8DD !important;
 }
 
-/* Tipografía y contraste de textos (preservando botones sólidos con bg-indigo/rose/emerald/amber) */
+/* Tipografía y contraste de textos */
 html.light-mode .text-white:not(.bg-indigo-600):not(.bg-indigo-500):not(.bg-rose-600):not(.bg-rose-500):not(.bg-emerald-600):not(.bg-emerald-500):not(.bg-amber-600) {
-  color: #0F172A !important;
+  color: #111812 !important;
 }
 
 html.light-mode .bg-indigo-600,
@@ -103,25 +215,25 @@ html.light-mode .bg-emerald-600 .text-white {
 }
 
 html.light-mode .text-slate-200 {
-  color: #1E293B !important;
+  color: #1E2920 !important;
 }
 
 html.light-mode .text-slate-300 {
-  color: #334155 !important;
+  color: #334136 !important;
 }
 
 html.light-mode .text-slate-400 {
-  color: #475569 !important;
+  color: #4B5B4E !important;
 }
 
 html.light-mode .text-slate-500 {
-  color: #64748B !important;
+  color: #647467 !important;
 }
 
 /* Colores de acento optimizados para fondo claro */
 html.light-mode .text-indigo-300,
 html.light-mode .text-indigo-400 {
-  color: #4F46E5 !important;
+  color: #3F51B5 !important;
 }
 
 html.light-mode .text-emerald-300,
@@ -154,7 +266,6 @@ html.light-mode .text-purple-400 {
   color: #7C3AED !important;
 }
 
-/* Fondos semánticos suaves en Modo Día */
 html.light-mode .bg-rose-950\/60,
 html.light-mode .bg-rose-950\/50,
 html.light-mode .bg-rose-950\/40,
@@ -168,9 +279,9 @@ html.light-mode .bg-emerald-950\/30 {
   background-color: #D1FAE5 !important;
 }
 
-/* Sombras suaves en Modo Día */
 html.light-mode .shadow-xl,
 html.light-mode .shadow-2xl {
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04) !important;
+  box-shadow: 0 6px 24px -4px rgba(17, 24, 18, 0.08), 0 2px 6px -1px rgba(17, 24, 18, 0.04) !important;
 }
+
 

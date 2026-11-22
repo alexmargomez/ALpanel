@@ -125,23 +125,35 @@ function openAppUsersModal(projectName: string): void {
 
 <template>
   <section class="space-y-5">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-bold text-white">Proyectos Alojados en el Servidor</h2>
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+      <div class="space-y-1.5">
+        <div>
+          <h2 class="font-editorial text-3xl sm:text-[36px] leading-none text-white">
+            Pipeline & Proyectos
+          </h2>
+          <div class="h-[3px] w-32 rounded-full bg-[#B9F249] mt-1.5"></div>
+        </div>
         <p class="text-xs text-slate-400">
-          Carpeta raíz:
-          <code class="text-indigo-400 bg-slate-900 px-1.5 py-0.5 rounded">
+          {{ filteredProjects.length }} de {{ panelStore.projects.length }} proyectos desplegados en
+          <code class="text-[#B9F249] bg-white/[0.06] px-1.5 py-0.5 rounded font-mono">
             {{ panelStore.projectsRoot }}
           </code>
+          <button
+            v-if="panelStore.projectSearchQuery"
+            @click="panelStore.projectSearchQuery = ''"
+            class="ml-2 text-[#7DB4D8] hover:underline font-semibold"
+          >
+            (Limpiar filtro: "{{ panelStore.projectSearchQuery }}")
+          </button>
         </p>
       </div>
       <div class="relative w-full sm:w-72">
-        <i class="fa-solid fa-search absolute left-3.5 top-3 text-slate-500 text-xs"></i>
+        <i class="fa-solid fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs"></i>
         <input
           v-model="panelStore.projectSearchQuery"
           type="text"
-          placeholder="Filtrar proyecto o dominio..."
-          class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+          placeholder="Filtrar proyecto, dominio o stack..."
+          class="w-full bg-slate-900 border border-slate-800 rounded-full pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-[#B9F249]"
         />
       </div>
     </div>
