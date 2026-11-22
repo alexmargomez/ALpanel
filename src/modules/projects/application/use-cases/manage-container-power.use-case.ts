@@ -1265,30 +1265,60 @@ export class ManageContainerPowerUseCase {
       );
       const msTargets =
         manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(projectDir);
-      const servicesArg =
-        msTargets.isMicroservices && msTargets.isPartialSelection
-          ? msTargets.activeComposeServices.join(' ')
-          : '';
-      const buildRes = await resourceGuardService.execWithMemoryWatchdog(
-        `docker compose build --no-cache ${servicesArg}`.trim(),
-        {
-          cwd: projectDir,
-          env,
-          timeout: 600000,
-          operation: 'rebuild --no-cache',
-          targetProject: projectName,
-          cleanupComposeDir: projectDir,
+      if (msTargets.isMicroservices && msTargets.activeComposeServices.length > 0) {
+        const totalSvcs = msTargets.activeComposeServices.length;
+        for (let idx = 0; idx < totalSvcs; idx++) {
+          const svc = msTargets.activeComposeServices[idx];
+          const safeSvc = svc.replace(/[^a-zA-Z0-9._-]/g, '');
+          if (!safeSvc) continue;
+          logs.push(
+            taskTelemetryService.emitTaskStep(
+              `==> [Rebuild ${idx + 1}/${totalSvcs}] Construyendo imagen sin caché del servicio "${safeSvc}"...`,
+              `Rebuild [${idx + 1}/${totalSvcs}] ${safeSvc}`
+            )
+          );
+          resourceGuardService.assertMemoryAvailableForOperation({
+            operation: `rebuild --no-cache ${safeSvc}`,
+            targetProject: projectName,
+            requiresBuild: true,
+            additionalContainersCount: 0,
+          });
+          const stepRes = await resourceGuardService.execWithMemoryWatchdog(
+            `docker compose --ansi never build --no-cache --progress=plain "${safeSvc}"`,
+            {
+              cwd: projectDir,
+              env,
+              timeout: 300000,
+              operation: `Rebuild [${idx + 1}/${totalSvcs}] ${safeSvc}`,
+              targetProject: projectName,
+              cleanupComposeDir: projectDir,
+            }
+          );
+          if (stepRes.stdout) logs.push(stepRes.stdout.trim());
+          if (stepRes.stderr) logs.push(stepRes.stderr.trim());
         }
-      );
-      if (buildRes.stdout) logs.push(buildRes.stdout.trim());
-      if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+      } else {
+        const buildRes = await resourceGuardService.execWithMemoryWatchdog(
+          `docker compose --ansi never build --no-cache --progress=plain`,
+          {
+            cwd: projectDir,
+            env,
+            timeout: 600000,
+            operation: 'rebuild --no-cache',
+            targetProject: projectName,
+            cleanupComposeDir: projectDir,
+          }
+        );
+        if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+        if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+      }
 
       logs.push(
         `\n==> [2/2] Actualizando contenedores de aplicación (manteniendo Base de Datos intacta)...`
       );
       const { stdout, stderr } = await runDockerComposeSafe(
         projectDir,
-        'up -d --build --force-recreate',
+        'up -d --force-recreate',
         600000
       );
       await domainsService.reloadCaddy().catch(() => null);
@@ -1503,23 +1533,53 @@ export class ManageContainerPowerUseCase {
       );
       const msTargets =
         manageProjectMicroservicesUseCase.getComposeTargetServicesForUp(projectDir);
-      const servicesArg =
-        msTargets.isMicroservices && msTargets.isPartialSelection
-          ? msTargets.activeComposeServices.join(' ')
-          : '';
-      const buildRes = await resourceGuardService.execWithMemoryWatchdog(
-        `docker compose build --no-cache ${servicesArg}`.trim(),
-        {
-          cwd: projectDir,
-          env: updatedEnv,
-          timeout: 600000,
-          operation: 'rebuild-destroy build',
-          targetProject: projectName,
-          cleanupComposeDir: projectDir,
+      if (msTargets.isMicroservices && msTargets.activeComposeServices.length > 0) {
+        const totalSvcs = msTargets.activeComposeServices.length;
+        for (let idx = 0; idx < totalSvcs; idx++) {
+          const svc = msTargets.activeComposeServices[idx];
+          const safeSvc = svc.replace(/[^a-zA-Z0-9._-]/g, '');
+          if (!safeSvc) continue;
+          logs.push(
+            taskTelemetryService.emitTaskStep(
+              `==> [Rebuild Destroy ${idx + 1}/${totalSvcs}] Construyendo desde cero "${safeSvc}"...`,
+              `Rebuild Destroy [${idx + 1}/${totalSvcs}] ${safeSvc}`
+            )
+          );
+          resourceGuardService.assertMemoryAvailableForOperation({
+            operation: `rebuild-destroy build ${safeSvc}`,
+            targetProject: projectName,
+            requiresBuild: true,
+            additionalContainersCount: 0,
+          });
+          const stepRes = await resourceGuardService.execWithMemoryWatchdog(
+            `docker compose --ansi never build --no-cache --progress=plain "${safeSvc}"`,
+            {
+              cwd: projectDir,
+              env: updatedEnv,
+              timeout: 300000,
+              operation: `Rebuild Destroy [${idx + 1}/${totalSvcs}] ${safeSvc}`,
+              targetProject: projectName,
+              cleanupComposeDir: projectDir,
+            }
+          );
+          if (stepRes.stdout) logs.push(stepRes.stdout.trim());
+          if (stepRes.stderr) logs.push(stepRes.stderr.trim());
         }
-      );
-      if (buildRes.stdout) logs.push(buildRes.stdout.trim());
-      if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+      } else {
+        const buildRes = await resourceGuardService.execWithMemoryWatchdog(
+          `docker compose --ansi never build --no-cache --progress=plain`,
+          {
+            cwd: projectDir,
+            env: updatedEnv,
+            timeout: 600000,
+            operation: 'rebuild-destroy build',
+            targetProject: projectName,
+            cleanupComposeDir: projectDir,
+          }
+        );
+        if (buildRes.stdout) logs.push(buildRes.stdout.trim());
+        if (buildRes.stderr) logs.push(buildRes.stderr.trim());
+      }
 
       logs.push(
         `\n==> [4/5] Montando todo el proyecto ${projectName} de nuevo desde cero (docker compose up -d --force-recreate)...`
