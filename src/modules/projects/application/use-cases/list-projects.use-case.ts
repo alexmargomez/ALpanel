@@ -95,15 +95,87 @@ export class ListProjectsUseCase {
         const displayName = path.basename(projectDir);
         const rawContainers = containersByProject.get(key) || [];
 
+        const preMicroservices =
+          manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+            projectDir,
+            []
+          );
+        const composeServiceMap = new Map<
+          string,
+          {
+            port: string;
+            category: string;
+            domainCode: string;
+          }
+        >();
+        for (const item of [
+          ...preMicroservices.coreServices,
+          ...preMicroservices.microservices,
+        ]) {
+          composeServiceMap.set(item.serviceName.toLowerCase(), {
+            port: item.port !== '-' ? item.port : '',
+            category: item.category,
+            domainCode: item.domainCode,
+          });
+        }
+
         const containerStats: ContainerStatInfo[] = rawContainers.map((c) => {
           const isRunning = c.State === 'running';
           const live = this.runtime.getContainerLiveStats(c.Id, isRunning);
           const name = (c.Names?.[0] || '').replace(/^\//, '');
           const serviceName =
             c.Labels?.['com.docker.compose.service'] || name;
-          const ports = (c.Ports || [])
+          const sLower = serviceName.toLowerCase();
+          const composeMeta = composeServiceMap.get(sLower);
+
+          const publishedPorts = (c.Ports || [])
             .filter((p) => p.PublicPort)
             .map((p) => `${p.PublicPort}->${p.PrivatePort}/${p.Type}`);
+
+          const privateOnlyPorts = (c.Ports || [])
+            .filter((p) => !p.PublicPort && p.PrivatePort)
+            .map((p) => `${p.PrivatePort}/${p.Type || 'tcp'} (interno)`);
+
+          let internalPort = '';
+          const firstWithPrivate = (c.Ports || []).find((p) => p.PrivatePort);
+          if (firstWithPrivate?.PrivatePort) {
+            internalPort = String(firstWithPrivate.PrivatePort);
+          } else if (composeMeta?.port) {
+            internalPort = composeMeta.port;
+          }
+
+          const combinedPorts = [...publishedPorts];
+          if (combinedPorts.length === 0) {
+            if (privateOnlyPorts.length > 0) {
+              combinedPorts.push(...privateOnlyPorts);
+            } else if (internalPort) {
+              combinedPorts.push(`${internalPort}/tcp (interno)`);
+            }
+          }
+
+          const baseRole = this.runtime.detectRole(serviceName, c.Image);
+          const isGateway =
+            preMicroservices.isMicroservicesArchitecture &&
+            baseRole !== 'database' &&
+            (composeMeta?.category === 'gateway' ||
+              sLower === 'core' ||
+              sLower === 'gateway' ||
+              sLower === 'api-gateway' ||
+              sLower === 'control-plane');
+
+          let suggestedPathPrefix: string | undefined;
+          if (
+            preMicroservices.isMicroservicesArchitecture &&
+            !isGateway &&
+            baseRole !== 'database' &&
+            baseRole !== 'proxy'
+          ) {
+            const cleanSlug = (
+              composeMeta?.domainCode ||
+              sLower.replace(/^(ms|srv|svc|micro)[_-]/i, '')
+            ).toLowerCase();
+            suggestedPathPrefix = `/api/${cleanSlug}/*`;
+          }
 
           return {
             id: c.Id.slice(0, 12),
@@ -116,9 +188,24 @@ export class ListProjectsUseCase {
             memoryBytes: live.memoryBytes,
             memoryLimitBytes: live.memoryLimitBytes,
             memoryPercent: live.memoryPercent,
-            ports: Array.from(new Set(ports)),
-            role: this.runtime.detectRole(serviceName, c.Image),
+            ports: Array.from(new Set(combinedPorts)),
+            internalPort: internalPort || undefined,
+            isGateway,
+            suggestedPathPrefix,
+            role: isGateway ? 'gateway' : baseRole,
           };
+        });
+
+        // Ordenar contenedores: Gateway/Core primero, Frontend después, Microservicios/Backend y DB al final
+        containerStats.sort((a, b) => {
+          const rank = (x: ContainerStatInfo) => {
+            if (x.isGateway || x.role === 'gateway') return 0;
+            if (x.role === 'frontend') return 1;
+            if (x.role === 'backend') return 2;
+            if (x.role === 'database') return 3;
+            return 4;
+          };
+          return rank(a) - rank(b) || a.name.localeCompare(b.name);
         });
 
         const microservices =

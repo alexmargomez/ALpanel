@@ -23,11 +23,15 @@ export interface HostMetrics {
 export interface ContainerStatInfo {
   id: string;
   name: string;
+  serviceName?: string;
   image: string;
   state: string;
   status: string;
-  role: 'frontend' | 'backend' | 'database' | 'proxy' | string;
+  role: 'frontend' | 'backend' | 'database' | 'proxy' | 'gateway' | string;
   ports: string[];
+  internalPort?: string;
+  isGateway?: boolean;
+  suggestedPathPrefix?: string;
   cpuPercent: number;
   memoryBytes: number;
 }
@@ -98,6 +102,13 @@ export interface ProjectInfo {
   microservices?: ProjectMicroservicesSummary;
 }
 
+export interface DomainMicroserviceRoute {
+  pathPrefix: string;
+  target: string;
+  stripPrefix?: boolean;
+  serviceName?: string;
+}
+
 export interface DomainRouteItem {
   id: string;
   domain: string;
@@ -105,6 +116,7 @@ export interface DomainRouteItem {
   frontendTarget: string;
   apiPathPrefix: string;
   backendTarget: string;
+  extraRoutes?: DomainMicroserviceRoute[];
   sslEnabled: boolean;
   createdAt?: string;
 }

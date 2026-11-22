@@ -85,7 +85,9 @@ export function injectDbPasswordInEnvText(currentText: string): {
 
 export function extractContainerInternalTarget(container: ContainerStatInfo): string {
   let internalPort = '3000';
-  if (Array.isArray(container.ports) && container.ports.length > 0) {
+  if (container.internalPort && /^\d+$/.test(String(container.internalPort))) {
+    internalPort = String(container.internalPort);
+  } else if (Array.isArray(container.ports) && container.ports.length > 0) {
     const firstPort = String(container.ports[0]);
     const arrowMatch = /->(\d+)/.exec(firstPort);
     const numMatch = /(\d+)/.exec(firstPort);

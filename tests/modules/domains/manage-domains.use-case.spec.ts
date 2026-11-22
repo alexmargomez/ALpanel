@@ -93,4 +93,116 @@ describe('Domains Module — DomainNameVO & ManageDomainsUseCase', () => {
     expect(deleted).toBe(true);
     expect(await useCase.listRoutes()).toHaveLength(0);
   });
+
+  it('CaddyProxyAdapter genera bloques handle y handle_path ordenados para múltiples microservicios', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'caddy-ms-test-'));
+    const prevDataDir = process.env.PANEL_DATA_DIR;
+    const prevCaddyPath = process.env.CADDYFILE_PATH;
+    process.env.PANEL_DATA_DIR = tmpDir;
+    process.env.CADDYFILE_PATH = path.join(tmpDir, 'Caddyfile');
+
+    try {
+      const { CaddyProxyAdapter } = await import(
+        '../../../src/modules/domains/infrastructure/adapters/caddy-proxy.adapter'
+      );
+      const adapter = new CaddyProxyAdapter();
+      const generated = await adapter.generateCaddyfile([
+        {
+          id: 'r-ms-1',
+          domain: 'erp.sudoalexmar.tech',
+          projectName: 'ClusterERP',
+          frontendTarget: 'erp_web:5173',
+          apiPathPrefix: '/api/*',
+          backendTarget: 'erp_core:4000',
+          extraRoutes: [
+            {
+              pathPrefix: '/api/facturacion/*',
+              target: 'erp-ms-facturacion-1:4101',
+              stripPrefix: false,
+            },
+            {
+              pathPrefix: '/ms-nomina/*',
+              target: 'erp-ms-nomina-1:4112',
+              stripPrefix: true,
+            },
+          ],
+          sslEnabled: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      expect(generated).toContain('handle /api/facturacion/* {');
+      expect(generated).toContain('reverse_proxy erp-ms-facturacion-1:4101');
+      expect(generated).toContain('handle_path /ms-nomina/* {');
+      expect(generated).toContain('reverse_proxy erp-ms-nomina-1:4112');
+      expect(generated).toContain('handle /api/* {');
+      expect(generated).toContain('reverse_proxy erp_core:4000');
+      expect(generated).toContain('reverse_proxy erp_web:5173');
+    } finally {
+      if (prevDataDir === undefined) delete process.env.PANEL_DATA_DIR;
+      else process.env.PANEL_DATA_DIR = prevDataDir;
+      if (prevCaddyPath === undefined) delete process.env.CADDYFILE_PATH;
+      else process.env.CADDYFILE_PATH = prevCaddyPath;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('syncDomainRoutePortsToProjectEnv preserva PORT intacto y agrega ALLOWED_ORIGINS en clústeres de microservicios', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const { syncDomainRoutePortsToProjectEnv } = await import(
+      '../../../src/modules/projects/application/use-cases/manage-container-power.use-case'
+    );
+
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-env-sync-'));
+    const projDir = path.join(rootDir, 'Proveko');
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projDir, 'docker-compose.yml'),
+      [
+        'services:',
+        '  core:',
+        '    container_name: proveko_core',
+        '    ports:',
+        '      - "${PORT:-4000}:4000"',
+        '    environment:',
+        '      PORT: 4000',
+        '  ms-facturacion:',
+        '    environment:',
+        '      PORT: 4101',
+        '  ms-nomina:',
+        '    environment:',
+        '      PORT: 4112',
+      ].join('\n'),
+      'utf-8'
+    );
+    fs.writeFileSync(
+      path.join(projDir, '.env'),
+      'PORT=4000\nALLOWED_ORIGINS=http://localhost:4000\n',
+      'utf-8'
+    );
+
+    try {
+      syncDomainRoutePortsToProjectEnv(
+        {
+          domain: 'proveko.sudoalexmar.tech',
+          projectName: 'Proveko',
+          frontendTarget: 'proveko-ms-nomina-1:4112',
+        },
+        rootDir,
+        '/opt/alpanel'
+      );
+
+      const finalEnv = fs.readFileSync(path.join(projDir, '.env'), 'utf-8');
+      expect(finalEnv).toContain('PORT=4000');
+      expect(finalEnv).not.toContain('PORT=4112');
+      expect(finalEnv).toContain('https://proveko.sudoalexmar.tech');
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
 });
