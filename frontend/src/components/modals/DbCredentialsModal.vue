@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import {
   apiFetch,
   copyText,
@@ -19,6 +22,14 @@ const project = computed(() =>
 );
 
 const db = computed(() => project.value?.database);
+
+const databaseOptions = computed<Select2Option[]>(() =>
+  availableDatabases.value.map((dbItem) => ({
+    value: dbItem,
+    label: dbItem,
+    badge: dbItem === db.value?.database ? 'Principal' : undefined,
+  }))
+);
 
 const activeDatabaseName = computed(
   () => selectedDatabase.value || db.value?.database || ''
@@ -226,18 +237,15 @@ async function downloadSqlBackup(): Promise<void> {
               }}
               detectadas)
             </label>
-            <select
+            <SearchableSelect
               v-model="selectedDatabase"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-indigo-400"
-            >
-              <option
-                v-for="dbItem in availableDatabases"
-                :key="dbItem"
-                :value="dbItem"
-              >
-                {{ dbItem }}
-              </option>
-            </select>
+              :options="databaseOptions"
+              placeholder="Selecciona una base de datos..."
+              search-placeholder="Buscar base de datos..."
+              size="sm"
+              mono
+              accent="indigo"
+            />
           </div>
           <button
             @click="fetchContainerDatabases"

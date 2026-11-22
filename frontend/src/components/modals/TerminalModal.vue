@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import { apiFetch, panelStore } from '../../composables/usePanelStore';
 import type { TerminalExecResult } from '../../types/panel';
 
@@ -31,6 +34,22 @@ const project = computed(() =>
 const containers = computed(() => project.value?.containers || []);
 const availableDatabases = computed(
   () => project.value?.database?.availableDatabases || []
+);
+
+const containerOptions = computed<Select2Option[]>(() =>
+  containers.value.map((c) => ({
+    value: c.name,
+    label: c.name,
+    badge: c.role === 'database' ? 'DB SQL' : c.role,
+  }))
+);
+
+const databaseOptions = computed<Select2Option[]>(() =>
+  availableDatabases.value.map((db) => ({
+    value: db,
+    label: db,
+    badge: 'DB',
+  }))
 );
 
 function isSqlDbContainer(containerName: string): boolean {
@@ -366,33 +385,39 @@ function close(): void {
             <option value="host">Carpeta Host (/opt/projects)</option>
           </select>
 
-          <select
+          <div
             v-if="targetType === 'container' || targetType === 'sql'"
-            v-model="selectedContainer"
-            @change="handleContainerChange"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none"
-            :class="
-              targetType === 'sql'
-                ? 'text-amber-300 focus:border-amber-500'
-                : 'text-emerald-300 focus:border-emerald-500'
-            "
+            class="w-56"
           >
-            <option v-for="c in containers" :key="c.name" :value="c.name">
-              {{ c.name }} ({{ c.role === 'database' ? 'DB SQL' : c.role }})
-            </option>
-          </select>
+            <SearchableSelect
+              v-model="selectedContainer"
+              :options="containerOptions"
+              placeholder="Contenedor..."
+              search-placeholder="Buscar contenedor..."
+              size="xs"
+              mono
+              :accent="targetType === 'sql' ? 'amber' : 'emerald'"
+              :min-dropdown-width="260"
+              @change="handleContainerChange"
+            />
+          </div>
 
-          <select
+          <div
             v-if="targetType === 'sql' && availableDatabases.length > 0"
-            v-model="selectedDatabase"
-            @change="handleDatabaseChange"
-            class="bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-400"
-            title="Seleccionar base de datos activa para las consultas SQL"
+            class="w-52"
           >
-            <option v-for="db in availableDatabases" :key="db" :value="db">
-              🗄️ {{ db }}
-            </option>
-          </select>
+            <SearchableSelect
+              v-model="selectedDatabase"
+              :options="databaseOptions"
+              placeholder="Base de datos..."
+              search-placeholder="Buscar base de datos..."
+              size="xs"
+              mono
+              accent="amber"
+              :min-dropdown-width="240"
+              @change="handleDatabaseChange"
+            />
+          </div>
 
           <button
             @click="close"

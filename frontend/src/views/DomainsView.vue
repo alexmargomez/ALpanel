@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../components/common/SearchableSelect.vue';
 import {
   apiFetch,
   copyText,
@@ -30,32 +33,29 @@ const canCreate = computed(() => hasPerm('domains', 'create'));
 const canEdit = computed(() => hasPerm('domains', 'edit'));
 const canDelete = computed(() => hasPerm('domains', 'delete'));
 
-const projectOptions = computed(() => {
-  return panelStore.projects.map((p) => {
-    const appContainers = (p.containers || []).filter(
-      (c) => c.role !== 'database' && c.role !== 'proxy'
-    );
-    const gateway = appContainers.find((c) => c.isGateway || c.role === 'gateway');
-    let targetsLabel = 'Sin contenedores activos';
-    if (gateway && p.microservices?.isMicroservicesArchitecture) {
-      const msCount = Math.max(0, appContainers.length - 1);
-      targetsLabel = `Gateway: ${extractContainerInternalTarget(gateway)}${
-        msCount > 0 ? ` + ${msCount} microservicios` : ''
-      }`;
-    } else if (appContainers.length > 0) {
-      targetsLabel = appContainers
-        .slice(0, 3)
-        .map((c) => extractContainerInternalTarget(c))
-        .join(', ');
-      if (appContainers.length > 3) {
-        targetsLabel += ` +${appContainers.length - 3}`;
-      }
-    }
-    return {
-      name: p.name,
-      label: `${p.name} (${targetsLabel})`,
-    };
-  });
+const projectOptions = computed<Select2Option[]>(() => {
+  const list: Select2Option[] = panelStore.projects.map((p) => ({
+    value: p.name,
+    label: p.name,
+    badge:
+      p.status === 'running'
+        ? 'ACTIVO'
+        : p.status === 'partial'
+        ? 'PARCIAL'
+        : 'DETENIDO',
+  }));
+  if (
+    selectedProject.value &&
+    !list.some(
+      (o) => String(o.value).toLowerCase() === selectedProject.value.toLowerCase()
+    )
+  ) {
+    list.push({
+      value: selectedProject.value,
+      label: selectedProject.value,
+    });
+  }
+  return list;
 });
 
 const selectedProjectInfo = computed<ProjectInfo | undefined>(() => {
@@ -267,28 +267,14 @@ async function deleteDomain(id: string): Promise<void> {
         <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div>
             <label class="block text-[11px] text-slate-400 mb-1">Proyecto Relacionado</label>
-            <select
+            <SearchableSelect
               v-model="selectedProject"
-              @change="onProjectSelectChange"
+              :options="projectOptions"
+              placeholder="Selecciona un proyecto..."
+              search-placeholder="Buscar proyecto..."
               required
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-            >
-              <option value="">Selecciona un proyecto...</option>
-              <option v-for="opt in projectOptions" :key="opt.name" :value="opt.name">
-                {{ opt.label }}
-              </option>
-              <option
-                v-if="
-                  selectedProject &&
-                  !projectOptions.some(
-                    (o) => o.name.toLowerCase() === selectedProject.toLowerCase()
-                  )
-                "
-                :value="selectedProject"
-              >
-                {{ selectedProject }}
-              </option>
-            </select>
+              @change="onProjectSelectChange"
+            />
           </div>
 
           <div>

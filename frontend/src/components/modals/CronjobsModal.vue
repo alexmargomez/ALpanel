@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import { apiFetch, panelStore, showToast } from '../../composables/usePanelStore';
 import type { ProjectCronjob } from '../../types/panel';
 
@@ -24,6 +27,14 @@ const project = computed(() =>
 );
 
 const containers = computed(() => project.value?.containers || []);
+
+const containerOptions = computed<Select2Option[]>(() =>
+  containers.value.map((c) => ({
+    value: c.name,
+    label: c.name,
+    badge: c.role,
+  }))
+);
 
 const schedulePresets = [
   { label: 'Cada minuto', expr: '* * * * *' },
@@ -318,15 +329,17 @@ function close(): void {
                   <option value="container">Contenedor Docker</option>
                   <option value="host">Carpeta Host</option>
                 </select>
-                <select
-                  v-if="form.targetType === 'container'"
-                  v-model="form.containerName"
-                  class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
-                >
-                  <option v-for="c in containers" :key="c.name" :value="c.name">
-                    {{ c.name }} ({{ c.role }})
-                  </option>
-                </select>
+                <div v-if="form.targetType === 'container'" class="flex-1 min-w-0">
+                  <SearchableSelect
+                    v-model="form.containerName"
+                    :options="containerOptions"
+                    placeholder="Selecciona contenedor..."
+                    search-placeholder="Buscar contenedor..."
+                    size="sm"
+                    mono
+                    accent="teal"
+                  />
+                </div>
               </div>
             </div>
           </div>
