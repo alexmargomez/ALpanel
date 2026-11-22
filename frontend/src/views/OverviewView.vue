@@ -100,7 +100,6 @@ const totalAllocatedProjectRam = computed(() =>
   )
 );
 
-// Datos para el Gráfico Vertical de Barras (Imagen 1)
 const chartBars = computed(() => {
   const list = filteredProjects.value.slice(0, 12);
   if (list.length === 0) return [];
@@ -138,7 +137,6 @@ const chartBars = computed(() => {
   });
 });
 
-// Proyectos ordenados por consumo para la tarjeta lateral "Pipeline by stage" (Imagen 1 derecha)
 const rankedProjects = computed(() => {
   const sorted = [...panelStore.projects].sort(
     (a, b) => (b.resources?.memoryBytes || 0) - (a.resources?.memoryBytes || 0)
@@ -147,24 +145,27 @@ const rankedProjects = computed(() => {
     ...sorted.map((p) => p.resources?.memoryBytes || 0),
     1
   );
-  const barPalette = ['#7DB4D8', '#E5D5A7', '#7DB4D8', '#7DB4D8', '#B9F249'];
+  const barClasses = [
+    'bg-emerald-500',
+    'bg-indigo-500',
+    'bg-violet-500',
+    'bg-cyan-500',
+    'bg-amber-500',
+  ];
 
   return sorted.slice(0, 6).map((p, idx) => {
     const mem = p.resources?.memoryBytes || 0;
     const pct = Math.max(10, Math.round((mem / maxMem) * 100));
-    const color =
-      idx === 0 ? '#B9F249' : barPalette[idx % barPalette.length];
     return {
       project: p,
       pct,
-      color,
+      barClass: barClasses[idx % barClasses.length],
       memFormatted: formatBytes(mem),
       containersCount: p.containers?.length || 0,
     };
   });
 });
 
-// Tarjetas Concéntricas para la vista Pipeline & Capacidad (Imágenes 2 & 3)
 const capacityCards = computed(() => {
   const list = filteredProjects.value;
   const maxDisk = Math.max(
@@ -244,9 +245,9 @@ const nextBestMove = computed(() => {
     };
   }
   return {
-    tag: 'MEJOR SIGUIENTE PASO',
+    tag: 'ACCIONES RÁPIDAS DEL CLÚSTER',
     title: 'Desplegar Nuevo Servicio',
-    subtitle: 'Clúster saludable y puertos auto-balanceados listos.',
+    subtitle: 'RAM Guard activo y puertos auto-balanceados listos.',
     actionLabel: 'Clonar Repositorio',
     run: () => {
       panelStore.modals.clone.open = true;
@@ -261,47 +262,45 @@ function openClone(): void {
 
 <template>
   <section class="space-y-5 pb-6">
-    <!-- HERO HEADER EDITORIAL (Estilo Sylva Imagen 1 & 2) -->
+    <!-- HERO HEADER CON TIPOGRAFÍA Y PALETA ORIGINAL DE ALPANEL -->
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-1">
       <div class="space-y-2">
         <div>
-          <h1
-            class="font-editorial text-3xl sm:text-[40px] leading-none text-white tracking-tight inline-block"
-          >
+          <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             {{
               viewMode === 'overview'
                 ? `${greetingText}, ${firstName}`
                 : 'Pipeline de Infraestructura'
             }}
           </h1>
-          <div class="h-[3px] w-44 rounded-full bg-[#B9F249] mt-1.5"></div>
+          <div class="h-1 w-32 rounded-full bg-indigo-500 mt-1.5"></div>
         </div>
 
         <p class="text-xs text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span class="text-slate-200 font-medium">
+          <span class="text-slate-200 font-semibold">
             {{ panelStore.host.distro || 'Linux VPS' }}
           </span>
           <span>·</span>
           <span>{{ formattedToday }}</span>
           <span>·</span>
-          <span class="text-[#B9F249] font-medium">
+          <span class="text-emerald-400 font-semibold">
             {{ runningProjectsCount }} proyectos activos
           </span>
           <span>·</span>
-          <span>{{ runningContainersCount }} contenedores hoy</span>
+          <span>{{ runningContainersCount }} contenedores corriendo</span>
           <span>·</span>
           <span>Uptime {{ formatUptime(panelStore.host.uptimeSeconds) }}</span>
         </p>
 
-        <!-- Selector de Vista Estilo Sylva (Overview / Pipeline / Tablero Completo) -->
+        <!-- Selector de Vista (Overview / Forecast & Capacidad / Gestión Detallada) -->
         <div class="flex flex-wrap items-center gap-1.5 pt-1">
           <button
             @click="viewMode = 'overview'"
             class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition border"
             :class="
               viewMode === 'overview'
-                ? 'bg-white/[0.12] text-white border-white/25'
-                : 'bg-white/[0.04] text-slate-400 hover:text-white border-white/[0.08]'
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border-slate-800'
             "
           >
             Overview
@@ -311,15 +310,15 @@ function openClone(): void {
             class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition border"
             :class="
               viewMode === 'pipeline'
-                ? 'bg-white/[0.12] text-white border-white/25'
-                : 'bg-white/[0.04] text-slate-400 hover:text-white border-white/[0.08]'
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border-slate-800'
             "
           >
             Forecast & Capacidad
           </button>
           <button
             @click="switchTab('projects')"
-            class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white/[0.04] hover:bg-white/[0.09] text-slate-400 hover:text-white border border-white/[0.08] transition flex items-center gap-1.5"
+            class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition flex items-center gap-1.5"
           >
             <span>Gestión Detallada</span>
             <i class="fa-solid fa-arrow-right text-[10px]"></i>
@@ -331,16 +330,16 @@ function openClone(): void {
         <button
           v-if="hasPerm('security', 'view')"
           @click="switchTab('audit')"
-          class="px-3.5 py-2 rounded-full bg-white/[0.06] hover:bg-white/[0.11] border border-white/10 text-xs font-semibold text-slate-200 flex items-center gap-2 transition"
+          class="px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-200 flex items-center gap-2 transition"
         >
-          <i class="fa-solid fa-shield-halved text-[#7DB4D8] text-[11px]"></i>
+          <i class="fa-solid fa-shield-halved text-indigo-400 text-[11px]"></i>
           <span>Auditoría</span>
         </button>
 
         <button
           v-if="hasPerm('git', 'create')"
           @click="openClone"
-          class="sylva-lime-btn rounded-full px-4 py-2 text-xs flex items-center gap-1.5"
+          class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/25"
         >
           <i class="fa-solid fa-plus text-[10px]"></i>
           <span>Nuevo proyecto</span>
@@ -349,16 +348,17 @@ function openClone(): void {
     </div>
 
     <!-- =======================================================================
-         MODO 1: OVERVIEW EJECUTIVO (IMAGEN 1)
+         MODO 1: OVERVIEW EJECUTIVO
          ======================================================================= -->
     <template v-if="viewMode === 'overview'">
-      <!-- 4 TARJETAS BENTO KPI TINTADAS -->
+      <!-- 4 TARJETAS BENTO KPI (Indigo / Emerald / Amber / Slate — Alto Contraste Día/Noche) -->
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
-        <!-- KPI 1: Slate-Blue (CPU) -->
-        <div class="sylva-card-slate rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
+        <!-- KPI 1: Indigo (CPU) -->
+        <div class="bento-kpi-indigo rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
           <div>
-            <div class="text-xs font-medium text-slate-200/90">
-              Carga CPU del Host
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
+              <span>Carga CPU del Host</span>
+              <i class="fa-solid fa-microchip text-indigo-400"></i>
             </div>
             <div class="text-3xl font-extrabold text-white tracking-tight mt-1">
               {{ panelStore.host.cpu.usagePercent }}%
@@ -366,30 +366,31 @@ function openClone(): void {
           </div>
 
           <div class="space-y-2 mt-3">
-            <div class="w-full h-2 bg-black/25 rounded-full overflow-hidden">
+            <div class="w-full h-2 bg-slate-950/50 border border-slate-700/60 rounded-full overflow-hidden">
               <div
-                class="h-full bg-white rounded-full transition-all duration-500"
+                class="h-full bg-indigo-500 rounded-full transition-all duration-500"
                 :style="{
                   width: `${Math.max(6, Math.min(100, panelStore.host.cpu.usagePercent))}%`,
                 }"
               ></div>
             </div>
             <div class="flex items-center justify-between text-[11px]">
-              <span class="text-slate-200/80">
+              <span class="text-slate-400 font-medium">
                 {{ panelStore.host.cpu.cores }} vCPU disponibles
               </span>
-              <span class="text-[#B9F249] font-semibold">
+              <span class="text-emerald-400 font-bold">
                 ▲ {{ runningContainersCount }} activos
               </span>
             </div>
           </div>
         </div>
 
-        <!-- KPI 2: Olive-Green (Memoria RAM) -->
-        <div class="sylva-card-olive rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
+        <!-- KPI 2: Emerald (Memoria RAM) -->
+        <div class="bento-kpi-emerald rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
           <div>
-            <div class="text-xs font-medium text-slate-200/90">
-              Memoria RAM en Uso
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
+              <span>Memoria RAM en Uso</span>
+              <i class="fa-solid fa-memory text-emerald-400"></i>
             </div>
             <div class="text-3xl font-extrabold text-white tracking-tight mt-1">
               {{ formatBytes(panelStore.host.memory.usedBytes) }}
@@ -397,28 +398,27 @@ function openClone(): void {
           </div>
 
           <div class="space-y-2 mt-3">
-            <div class="w-full h-1.5 bg-black/25 rounded-full overflow-hidden">
+            <div class="w-full h-2 bg-slate-950/50 border border-slate-700/60 rounded-full overflow-hidden">
               <div
-                class="h-full bg-[#B9F249] rounded-full transition-all duration-500"
+                class="h-full bg-emerald-500 rounded-full transition-all duration-500"
                 :style="{
                   width: `${Math.max(6, Math.min(100, panelStore.host.memory.usagePercent))}%`,
                 }"
               ></div>
             </div>
-            <div class="text-[11px] text-slate-200/85">
+            <div class="text-[11px] text-slate-400 font-medium">
               {{ panelStore.host.memory.usagePercent }}% de
               {{ formatBytes(panelStore.host.memory.totalBytes) }} totales
             </div>
           </div>
         </div>
 
-        <!-- KPI 3: Terracotta (Disco NVMe) -->
-        <div
-          class="sylva-card-terracotta rounded-2xl p-5 flex flex-col justify-between min-h-[146px]"
-        >
+        <!-- KPI 3: Amber (Disco SSD) -->
+        <div class="bento-kpi-amber rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
           <div>
-            <div class="text-xs font-medium text-slate-200/90">
-              Almacenamiento SSD
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
+              <span>Almacenamiento SSD</span>
+              <i class="fa-solid fa-hard-drive text-amber-400"></i>
             </div>
             <div class="text-3xl font-extrabold text-white tracking-tight mt-1">
               {{ formatBytes(panelStore.host.disk.usedBytes) }}
@@ -426,29 +426,28 @@ function openClone(): void {
           </div>
 
           <div class="space-y-2 mt-3">
-            <div class="w-full h-1.5 bg-black/25 rounded-full overflow-hidden">
+            <div class="w-full h-2 bg-slate-950/50 border border-slate-700/60 rounded-full overflow-hidden">
               <div
-                class="h-full bg-[#E09F87] rounded-full transition-all duration-500"
+                class="h-full bg-amber-500 rounded-full transition-all duration-500"
                 :style="{
                   width: `${Math.max(6, Math.min(100, panelStore.host.disk.usagePercent))}%`,
                 }"
               ></div>
             </div>
-            <div class="text-[11px] text-slate-200/85">
+            <div class="text-[11px] text-slate-400 font-medium">
               {{ panelStore.host.disk.usagePercent }}% de
               {{ formatBytes(panelStore.host.disk.totalBytes) }} ·
-              <code class="font-mono">{{ panelStore.projectsRoot }}</code>
+              <code class="font-mono text-indigo-400">{{ panelStore.projectsRoot }}</code>
             </div>
           </div>
         </div>
 
-        <!-- KPI 4: Charcoal Glass (Salud del Clúster) -->
-        <div
-          class="sylva-card-charcoal rounded-2xl p-5 flex flex-col justify-between min-h-[146px]"
-        >
+        <!-- KPI 4: Slate (Salud del Clúster) -->
+        <div class="bento-kpi-slate rounded-2xl p-5 flex flex-col justify-between min-h-[146px]">
           <div>
-            <div class="text-xs font-medium text-slate-300">
-              Salud del Clúster
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
+              <span>Salud del Clúster</span>
+              <i class="fa-solid fa-heart-pulse text-cyan-400"></i>
             </div>
             <div class="text-3xl font-extrabold text-white tracking-tight mt-1">
               {{ healthRatePercent }}%
@@ -456,12 +455,12 @@ function openClone(): void {
           </div>
 
           <div class="space-y-1.5 mt-3 text-[11px] text-slate-400">
-            <div>
+            <div class="font-medium">
               {{ runningProjectsCount }} de
               {{ panelStore.projects.length }} proyectos corriendo
             </div>
-            <div class="flex items-center gap-2 text-slate-300">
-              <span class="w-2 h-2 rounded-full bg-[#B9F249]"></span>
+            <div class="flex items-center gap-2 text-slate-300 font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span>
                 {{ panelStore.domainRoutes.length }} dominios HTTPS activos
               </span>
@@ -472,8 +471,10 @@ function openClone(): void {
 
       <!-- GRID PRINCIPAL DE ANALÍTICA (8 COLS BARRAS VERTICALES + 4 COLS RANKING HORIZONTAL) -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
-        <!-- Tarjeta Izquierda (8 cols): Gráfico Vertical de Barras Redondeadas -->
-        <div class="lg:col-span-8 sylva-card-charcoal rounded-2xl p-5 flex flex-col justify-between">
+        <!-- Tarjeta Izquierda (8 cols): Gráfico Vertical de Barras -->
+        <div
+          class="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-xl"
+        >
           <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <h2 class="text-sm font-bold text-white">
@@ -487,22 +488,24 @@ function openClone(): void {
             <div class="flex flex-wrap items-center gap-3">
               <div class="hidden sm:flex items-center gap-3 text-[11px] text-slate-400">
                 <span class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-[#7DB4D8]"></span>
+                  <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
                   Proyecto
                 </span>
                 <span class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-[#B9F249]"></span>
+                  <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                   Mayor carga
                 </span>
               </div>
 
-              <div class="flex items-center bg-white/[0.05] p-0.5 rounded-full border border-white/10 text-[11px]">
+              <div
+                class="flex items-center bg-slate-950 p-0.5 rounded-full border border-slate-800 text-[11px]"
+              >
                 <button
                   @click="chartMetric = 'ram'"
                   class="px-2.5 py-1 rounded-full font-semibold transition"
                   :class="
                     chartMetric === 'ram'
-                      ? 'bg-white text-[#11150D]'
+                      ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white'
                   "
                 >
@@ -513,7 +516,7 @@ function openClone(): void {
                   class="px-2.5 py-1 rounded-full font-semibold transition"
                   :class="
                     chartMetric === 'cpu'
-                      ? 'bg-white text-[#11150D]'
+                      ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white'
                   "
                 >
@@ -524,7 +527,7 @@ function openClone(): void {
                   class="px-2.5 py-1 rounded-full font-semibold transition"
                   :class="
                     chartMetric === 'disk'
-                      ? 'bg-white text-[#11150D]'
+                      ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white'
                   "
                 >
@@ -534,16 +537,16 @@ function openClone(): void {
             </div>
           </div>
 
-          <!-- Lienzo del Gráfico de Barras Estilo Sylva -->
           <div
             v-if="chartBars.length > 0"
-            class="relative h-60 pt-6 pb-1 px-1 flex items-end gap-2.5 sm:gap-3.5 border-b border-white/[0.07]"
+            class="relative h-60 pt-6 pb-1 px-1 flex items-end gap-2.5 sm:gap-3.5 border-b border-slate-800"
           >
-            <!-- Línea punteada de referencia superior -->
             <div
-              class="absolute left-0 right-0 top-12 border-t border-dashed border-white/20 pointer-events-none flex justify-end pr-2"
+              class="absolute left-0 right-0 top-12 border-t border-dashed border-slate-700 pointer-events-none flex justify-end pr-2"
             >
-              <span class="text-[9px] uppercase tracking-wider text-slate-500 -mt-4 bg-[#181B17] px-1.5 rounded">
+              <span
+                class="text-[9px] uppercase tracking-wider text-slate-400 -mt-4 bg-slate-900 px-1.5 rounded"
+              >
                 Umbral Pico
               </span>
             </div>
@@ -555,24 +558,21 @@ function openClone(): void {
               class="group relative flex-1 h-full flex flex-col justify-end items-center min-w-0 focus:outline-none"
               :title="`${bar.project.name}: ${bar.formatted}`"
             >
-              <!-- Fondo de carril vertical (idéntico a Sylva Imagen 1) -->
               <div
-                class="w-full h-full bg-white/[0.03] group-hover:bg-white/[0.06] rounded-xl flex flex-col justify-end overflow-hidden p-0.5 transition"
+                class="w-full h-full bg-slate-950/70 group-hover:bg-slate-800/80 border border-slate-800/60 rounded-xl flex flex-col justify-end overflow-hidden p-0.5 transition"
               >
-                <!-- Tooltip flotante en hover -->
                 <span
                   class="opacity-0 group-hover:opacity-100 transition text-[10px] font-mono font-bold text-white mb-1 text-center truncate px-1"
                 >
                   {{ bar.formatted }}
                 </span>
 
-                <!-- Barra activa redondeada -->
                 <div
                   class="w-full rounded-xl transition-all duration-500 group-hover:brightness-110"
                   :class="
                     bar.isPeak
-                      ? 'bg-[#B9F249] shadow-[0_0_24px_rgba(185,242,73,0.35)]'
-                      : 'bg-[#7DB4D8]'
+                      ? 'bg-emerald-500 shadow-lg shadow-emerald-500/25'
+                      : 'bg-indigo-500'
                   "
                   :style="{ height: `${bar.heightPct}%` }"
                 ></div>
@@ -588,7 +588,7 @@ function openClone(): void {
               v-for="bar in chartBars"
               :key="`lbl-${bar.project.name}`"
               class="flex-1 min-w-0 text-center text-[10px] font-medium truncate"
-              :class="bar.isPeak ? 'text-[#B9F249] font-bold' : 'text-slate-400'"
+              :class="bar.isPeak ? 'text-emerald-400 font-bold' : 'text-slate-400'"
             >
               {{ bar.shortName }}
             </div>
@@ -603,14 +603,16 @@ function openClone(): void {
           </div>
         </div>
 
-        <!-- Tarjeta Derecha (4 cols): Proyectos por Carga (Estilo "Pipeline by stage" Imagen 1) -->
-        <div class="lg:col-span-4 sylva-card-charcoal rounded-2xl p-5 flex flex-col justify-between">
+        <!-- Tarjeta Derecha (4 cols): Proyectos por Carga -->
+        <div
+          class="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-xl"
+        >
           <div>
             <div class="flex items-center justify-between mb-1">
               <h2 class="text-sm font-bold text-white">Proyectos por Carga</h2>
               <button
                 @click="switchTab('projects')"
-                class="text-[11px] font-semibold text-slate-300 hover:text-[#B9F249] flex items-center gap-1 transition"
+                class="text-[11px] font-semibold text-indigo-400 hover:underline flex items-center gap-1 transition"
               >
                 <span>Tablero</span>
                 <i class="fa-solid fa-chevron-right text-[9px]"></i>
@@ -629,7 +631,7 @@ function openClone(): void {
               >
                 <div class="col-span-4 min-w-0">
                   <div
-                    class="text-xs font-semibold text-white group-hover:text-[#B9F249] truncate transition"
+                    class="text-xs font-semibold text-white group-hover:text-indigo-400 truncate transition"
                   >
                     {{ item.project.name }}
                   </div>
@@ -640,13 +642,11 @@ function openClone(): void {
                 </div>
 
                 <div class="col-span-5">
-                  <div class="w-full h-2 bg-white/[0.07] rounded-full overflow-hidden">
+                  <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
-                      :style="{
-                        width: `${item.pct}%`,
-                        backgroundColor: item.color,
-                      }"
+                      :class="item.barClass"
+                      :style="{ width: `${item.pct}%` }"
                     ></div>
                   </div>
                 </div>
@@ -661,7 +661,7 @@ function openClone(): void {
           </div>
 
           <div
-            class="mt-5 pt-3 border-t border-white/[0.07] flex items-center justify-between text-[11px] text-slate-400"
+            class="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400"
           >
             <span>Total contenedores</span>
             <strong class="text-white font-mono">
@@ -671,19 +671,23 @@ function openClone(): void {
         </div>
       </div>
 
-      <!-- FILA INFERIOR DE 3 TARJETAS DE ACCIÓN (Estilo "Battery bank / Today / Leaderboard" Imagen 1) -->
+      <!-- FILA INFERIOR DE 3 TARJETAS DE ACCIÓN -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        <!-- Card 1 (Olive): Next Best Move -->
-        <div class="sylva-card-olive rounded-2xl p-4 flex flex-col justify-between gap-3">
+        <!-- Card 1: Siguiente Paso / Acción Rápida -->
+        <div
+          class="bento-kpi-indigo rounded-2xl p-4 flex flex-col justify-between gap-3"
+        >
           <div>
-            <div class="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-[#B9F249]">
+            <div
+              class="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-indigo-400"
+            >
               <i class="fa-solid fa-wand-magic-sparkles"></i>
               <span>{{ nextBestMove.tag }}</span>
             </div>
             <div class="text-base font-bold text-white mt-1">
               {{ nextBestMove.title }}
             </div>
-            <p class="text-[11px] text-slate-200/85 mt-0.5">
+            <p class="text-[11px] text-slate-300 mt-0.5">
               {{ nextBestMove.subtitle }}
             </p>
           </div>
@@ -691,27 +695,29 @@ function openClone(): void {
           <div class="flex items-center justify-between pt-1">
             <button
               @click="nextBestMove.run"
-              class="sylva-lime-btn rounded-full px-3.5 py-1.5 text-[11px]"
+              class="px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition shadow"
             >
               {{ nextBestMove.actionLabel }}
             </button>
             <button
               @click="viewMode = 'pipeline'"
-              class="text-[11px] text-slate-200 hover:text-white font-semibold"
+              class="text-[11px] text-indigo-400 hover:underline font-semibold"
             >
               Ver Forecast ›
             </button>
           </div>
         </div>
 
-        <!-- Card 2 (Charcoal): Dominios & Proxy SSL -->
-        <div class="sylva-card-charcoal rounded-2xl p-4 flex flex-col justify-between gap-3">
+        <!-- Card 2: Dominios & Proxy SSL -->
+        <div
+          class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-xl"
+        >
           <div>
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold text-white">Dominios & SSL</span>
               <button
                 @click="switchTab('domains')"
-                class="text-[11px] text-slate-400 hover:text-[#B9F249] font-semibold"
+                class="text-[11px] text-indigo-400 hover:underline font-semibold"
               >
                 Rutas SSL ›
               </button>
@@ -724,14 +730,14 @@ function openClone(): void {
               <div
                 v-for="r in panelStore.domainRoutes.slice(0, 3)"
                 :key="r.id"
-                class="flex items-center justify-between text-xs bg-white/[0.03] px-2.5 py-1.5 rounded-xl"
+                class="flex items-center justify-between text-xs bg-slate-950 border border-slate-800/80 px-2.5 py-1.5 rounded-xl"
               >
                 <a
                   :href="`https://${r.domain}`"
                   target="_blank"
-                  class="text-slate-200 hover:text-[#B9F249] truncate font-medium flex items-center gap-1.5"
+                  class="text-slate-200 hover:text-indigo-400 truncate font-medium flex items-center gap-1.5"
                 >
-                  <i class="fa-solid fa-lock text-[9px] text-[#B9F249]"></i>
+                  <i class="fa-solid fa-lock text-[9px] text-emerald-400"></i>
                   <span class="truncate">{{ r.domain }}</span>
                 </a>
                 <span class="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
@@ -748,30 +754,32 @@ function openClone(): void {
           </div>
         </div>
 
-        <!-- Card 3 (Charcoal): Escudo DDoS & Seguridad -->
-        <div class="sylva-card-charcoal rounded-2xl p-4 flex flex-col justify-between gap-3">
+        <!-- Card 3: Escudo DDoS & RAM Guard -->
+        <div
+          class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-xl"
+        >
           <div>
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-white">Escudo & Telemetría</span>
+              <span class="text-xs font-bold text-white">Escudo & RAM Guard</span>
               <button
                 @click="switchTab('audit')"
-                class="text-[11px] text-slate-400 hover:text-[#B9F249] font-semibold"
+                class="text-[11px] text-indigo-400 hover:underline font-semibold"
               >
                 Seguridad ›
               </button>
             </div>
             <div class="text-[11px] text-slate-400 mt-0.5">
-              Token Bucket en memoria & Batch SQL
+              Token Bucket + Watchdog Anti-OOM (400ms)
             </div>
 
             <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div class="bg-white/[0.03] rounded-xl p-2.5">
+              <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5">
                 <div class="text-[10px] text-slate-400">Estado Escudo</div>
-                <div class="font-bold text-[#B9F249] text-xs mt-0.5">
+                <div class="font-bold text-emerald-400 text-xs mt-0.5">
                   {{ panelStore.securityShield?.protectionMode || 'ACTIVO' }}
                 </div>
               </div>
-              <div class="bg-white/[0.03] rounded-xl p-2.5">
+              <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5">
                 <div class="text-[10px] text-slate-400">Tareas Async</div>
                 <div class="font-bold text-white text-xs mt-0.5">
                   {{ panelStore.backgroundTasks.length }} recientes
@@ -784,10 +792,10 @@ function openClone(): void {
     </template>
 
     <!-- =======================================================================
-         MODO 2: PIPELINE & CAPACIDAD CONCÉNTRICA (IMÁGENES 2 & 3)
+         MODO 2: PIPELINE & CAPACIDAD CONCÉNTRICA
          ======================================================================= -->
     <template v-else>
-      <div class="sylva-card-charcoal rounded-2xl p-5 space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5 shadow-xl">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div class="text-xs font-bold text-white">
@@ -806,16 +814,15 @@ function openClone(): void {
             </div>
           </div>
 
-          <!-- Selector de Filtro Estilo Sylva ("Commit / Likely / Best case") -->
           <div
-            class="flex items-center bg-white/[0.05] p-1 rounded-full border border-white/10 text-xs"
+            class="flex items-center bg-slate-950 p-1 rounded-full border border-slate-800 text-xs"
           >
             <button
               @click="pipelineFilter = 'all'"
               class="px-3 py-1 rounded-full font-semibold transition"
               :class="
                 pipelineFilter === 'all'
-                  ? 'bg-white text-[#11150D]'
+                  ? 'bg-indigo-600 text-white'
                   : 'text-slate-400 hover:text-white'
               "
             >
@@ -826,7 +833,7 @@ function openClone(): void {
               class="px-3 py-1 rounded-full font-semibold transition"
               :class="
                 pipelineFilter === 'active'
-                  ? 'bg-white text-[#11150D]'
+                  ? 'bg-indigo-600 text-white'
                   : 'text-slate-400 hover:text-white'
               "
             >
@@ -837,7 +844,7 @@ function openClone(): void {
               class="px-3 py-1 rounded-full font-semibold transition"
               :class="
                 pipelineFilter === 'db'
-                  ? 'bg-white text-[#11150D]'
+                  ? 'bg-indigo-600 text-white'
                   : 'text-slate-400 hover:text-white'
               "
             >
@@ -846,7 +853,7 @@ function openClone(): void {
           </div>
         </div>
 
-        <!-- Tarjetas Visuales de Bloques Concéntricos (Idénticas a Imágenes 2 & 3) -->
+        <!-- Tarjetas Visuales de Bloques Concéntricos (Slate -> Indigo -> Emerald) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <button
             v-for="card in capacityCards"
@@ -855,28 +862,28 @@ function openClone(): void {
             class="text-left group focus:outline-none space-y-2.5"
           >
             <div
-              class="relative h-44 rounded-2xl bg-[#272B26] border border-white/[0.07] group-hover:border-[#B9F249]/40 overflow-hidden flex items-end justify-center transition"
+              class="relative h-44 rounded-2xl bg-slate-950 border border-slate-800 group-hover:border-indigo-500/60 overflow-hidden flex items-end justify-center transition"
             >
-              <!-- Capa 1: Disco / Huella Total (Slate Exterior) -->
+              <!-- Capa 1: Disco / Huella Total -->
               <div
-                class="rounded-t-2xl bg-[#526473]/75 transition-all duration-500 flex items-end justify-center"
+                class="rounded-t-2xl bg-indigo-500/20 border-t border-x border-indigo-500/30 transition-all duration-500 flex items-end justify-center"
                 :style="{
                   width: `${card.diskRatio}%`,
                   height: `${card.diskRatio}%`,
                 }"
               >
-                <!-- Capa 2: Memoria RAM (Sky-Blue Intermedia) -->
+                <!-- Capa 2: Memoria RAM -->
                 <div
-                  class="rounded-t-xl bg-[#8BC0E4] transition-all duration-500 flex items-end justify-center"
+                  class="rounded-t-xl bg-indigo-500/75 transition-all duration-500 flex items-end justify-center"
                   :style="{
                     width: '78%',
                     height: `${Math.max(35, card.ramRatio)}%`,
                   }"
                 >
-                  <!-- Capa 3: Salud / Contenedores Activos (Lima Brillante Interior) -->
+                  <!-- Capa 3: Salud / Contenedores Activos -->
                   <div
                     v-if="card.healthRatio > 0"
-                    class="rounded-t-lg bg-[#B9F249] shadow-[0_0_20px_rgba(185,242,73,0.35)] transition-all duration-500"
+                    class="rounded-t-lg bg-emerald-400 shadow-lg shadow-emerald-500/30 transition-all duration-500"
                     :style="{
                       width: '68%',
                       height: `${Math.max(40, card.healthRatio)}%`,
@@ -886,7 +893,7 @@ function openClone(): void {
               </div>
 
               <span
-                class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/40 text-slate-200 backdrop-blur-sm"
+                class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-900/90 border border-slate-700 text-slate-200"
               >
                 {{ card.activeCont }}/{{ card.totalCont }} online
               </span>
@@ -894,7 +901,7 @@ function openClone(): void {
 
             <div class="px-0.5">
               <div
-                class="text-xs font-bold text-white group-hover:text-[#B9F249] truncate transition"
+                class="text-xs font-bold text-white group-hover:text-indigo-400 truncate transition"
               >
                 {{ card.project.name }}
               </div>
@@ -909,32 +916,34 @@ function openClone(): void {
         <!-- Leyenda de Capas -->
         <div class="flex flex-wrap items-center gap-5 pt-1 text-[11px] text-slate-400">
           <span class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full bg-[#B9F249]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
             Contenedores Activos
           </span>
           <span class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full bg-[#8BC0E4]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
             Memoria RAM
           </span>
           <span class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full bg-[#526473]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500/30 border border-indigo-500/50"></span>
             Huella en Disco
           </span>
         </div>
       </div>
 
-      <!-- Columnas Inferiores de Detalle Rápido por Proyecto (Estilo columnas inferiores Imagen 2 & 3) -->
+      <!-- Columnas Inferiores de Detalle Rápido por Proyecto -->
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
         <div
           v-for="card in capacityCards"
           :key="`detail-${card.project.name}`"
-          class="sylva-card-charcoal rounded-2xl p-4 flex flex-col justify-between space-y-3"
+          class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-xl"
         >
           <div>
-            <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-white/[0.07]">
+            <div
+              class="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800"
+            >
               <button
                 @click="focusProjectCard(card.project.name)"
-                class="text-xs font-bold text-white hover:text-[#B9F249] truncate"
+                class="text-xs font-bold text-white hover:text-indigo-400 truncate"
               >
                 {{ card.project.name }}
               </button>
@@ -950,11 +959,13 @@ function openClone(): void {
                 class="flex items-center justify-between text-[11px] gap-2"
               >
                 <div class="min-w-0">
-                  <div class="font-medium text-slate-200 truncate flex items-center gap-1.5">
+                  <div
+                    class="font-medium text-slate-200 truncate flex items-center gap-1.5"
+                  >
                     <span
                       class="w-1.5 h-1.5 rounded-full shrink-0"
                       :class="
-                        c.state === 'running' ? 'bg-[#B9F249]' : 'bg-rose-500'
+                        c.state === 'running' ? 'bg-emerald-400' : 'bg-rose-500'
                       "
                     ></span>
                     <span class="truncate">{{ c.name }}</span>
@@ -970,29 +981,31 @@ function openClone(): void {
             </div>
           </div>
 
-          <div class="pt-2.5 border-t border-white/[0.06] flex flex-wrap items-center gap-1.5">
+          <div
+            class="pt-2.5 border-t border-slate-800 flex flex-wrap items-center gap-1.5"
+          >
             <button
               @click="openLogsModal(card.project.name)"
-              class="px-2.5 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] font-semibold text-slate-200 transition"
+              class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-200 transition"
             >
               Logs
             </button>
             <button
               @click="openTerminalModal(card.project.name, '', 'shell')"
-              class="px-2.5 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] font-semibold text-slate-200 transition"
+              class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-200 transition"
             >
               Terminal
             </button>
             <button
               v-if="card.dbContainerName"
               @click="openErdModal(card.project.name, card.dbContainerName)"
-              class="px-2.5 py-1 rounded-lg bg-[#7DB4D8]/15 hover:bg-[#7DB4D8]/25 text-[10px] font-semibold text-[#7DB4D8] transition"
+              class="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-[10px] font-semibold text-indigo-300 transition"
             >
               DER / ERD
             </button>
             <button
               @click="focusProjectCard(card.project.name)"
-              class="ml-auto text-[10px] font-semibold text-[#B9F249] hover:underline"
+              class="ml-auto text-[10px] font-semibold text-indigo-400 hover:underline"
             >
               Abrir ›
             </button>

@@ -17,16 +17,17 @@ const emit = defineEmits<{
 }>();
 
 const spaceBadges = [
-  { bg: '#7DB4D8', text: '#0D1720', icon: 'fa-bolt' },
-  { bg: '#B9F249', text: '#11150D', icon: 'fa-cubes' },
-  { bg: '#F28B66', text: '#1F0F0A', icon: 'fa-server' },
-  { bg: '#E5D5A7', text: '#1F1A0C', icon: 'fa-database' },
+  { bgClass: 'bg-indigo-600 keep-white', icon: 'fa-bolt' },
+  { bgClass: 'bg-emerald-600 keep-white', icon: 'fa-cubes' },
+  { bgClass: 'bg-violet-600 keep-white', icon: 'fa-server' },
+  { bgClass: 'bg-amber-600 keep-white', icon: 'fa-database' },
 ];
 
 const featuredSpaces = computed(() => {
   return panelStore.projects.slice(0, 4).map((p, idx) => {
     const palette = spaceBadges[idx % spaceBadges.length];
-    const primaryDomain = p.domains?.[0] || p.stack?.[0] || p.git?.branch || 'Docker';
+    const primaryDomain =
+      p.domains?.[0] || p.stack?.[0] || p.git?.branch || 'Docker';
     const statusLabel =
       p.status === 'running'
         ? 'Activo'
@@ -37,8 +38,7 @@ const featuredSpaces = computed(() => {
       project: p,
       name: p.name,
       subtitle: `${primaryDomain} · ${statusLabel}`,
-      bg: palette.bg,
-      text: palette.text,
+      bgClass: palette.bgClass,
       icon: p.microservices?.isMicroservicesArchitecture
         ? 'fa-cubes'
         : p.database?.hasDatabase
@@ -65,7 +65,7 @@ const menuItems = computed(() => {
     {
       id: 'projects',
       mod: 'projects',
-      icon: 'fa-chart-simple',
+      icon: 'fa-layer-group',
       label: 'Pipeline & Proyectos',
       badge: panelStore.projects.length || undefined,
     },
@@ -79,20 +79,20 @@ const menuItems = computed(() => {
     {
       id: 'guide',
       mod: 'git',
-      icon: 'fa-code-branch',
+      icon: 'fa-book-open',
       label: 'Guía Multi-Stack',
     },
     {
       id: 'users',
       mod: 'users',
-      icon: 'fa-user-group',
-      label: 'Equipo & Roles',
+      icon: 'fa-users-gear',
+      label: 'Usuarios & Roles',
       badge: panelStore.users.length || undefined,
     },
     {
       id: 'permissions',
       mod: 'users',
-      icon: 'fa-sliders',
+      icon: 'fa-user-shield',
       label: 'Permisos RBAC',
     },
     {
@@ -143,10 +143,10 @@ function isSpaceSelected(name: string): boolean {
   <div
     v-if="panelStore.mobileSidebarOpen"
     @click="panelStore.mobileSidebarOpen = false"
-    class="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+    class="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-sm lg:hidden"
   ></div>
 
-  <!-- Sidebar Flotante Dual (Expandido Sylva / Rail Colapsado) -->
+  <!-- Sidebar Flotante Dual (Expandido / Rail Colapsado) con Paleta Original ALpanel -->
   <aside
     class="fixed lg:sticky top-0 lg:top-3 left-0 z-40 h-screen lg:h-[calc(100vh-1.5rem)] transition-all duration-300 shrink-0 flex flex-col"
     :class="[
@@ -156,10 +156,10 @@ function isSpaceSelected(name: string): boolean {
       panelStore.sidebarCollapsed ? 'lg:w-[62px]' : 'lg:w-[254px]',
     ]"
   >
-    <!-- MODO EXPANDIDO (Imagen 1 & 2) -->
+    <!-- MODO EXPANDIDO -->
     <div
       v-if="!panelStore.sidebarCollapsed || panelStore.mobileSidebarOpen"
-      class="sylva-sidebar rounded-2xl flex-1 flex flex-col justify-between p-3.5 overflow-y-auto scrollbar-thin"
+      class="bg-slate-900 border border-slate-800 shadow-2xl rounded-2xl flex-1 flex flex-col justify-between p-3.5 overflow-y-auto scrollbar-thin"
     >
       <div class="space-y-5">
         <!-- Brand Header -->
@@ -169,16 +169,18 @@ function isSpaceSelected(name: string): boolean {
             class="flex items-center gap-2.5 text-left group"
           >
             <div
-              class="w-7 h-7 rounded-lg bg-[#B9F249] text-[#11150D] flex items-center justify-center font-extrabold shadow-md shadow-[#B9F249]/25 group-hover:scale-105 transition"
+              class="w-8 h-8 rounded-xl bg-indigo-600 keep-white flex items-center justify-center font-bold shadow-lg shadow-indigo-600/30 group-hover:scale-105 transition"
             >
               <i class="fa-solid fa-bolt text-xs"></i>
             </div>
             <div class="flex items-baseline gap-1.5">
-              <span class="font-bold text-[15px] tracking-tight text-white">
+              <span class="font-bold text-base tracking-tight text-white">
                 ALpanel
               </span>
-              <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                CLOUD
+              <span
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+              >
+                LIVE
               </span>
             </div>
           </button>
@@ -189,23 +191,25 @@ function isSpaceSelected(name: string): boolean {
                 ? (panelStore.mobileSidebarOpen = false)
                 : toggleSidebar()
             "
-            class="w-7 h-7 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition"
+            class="w-7 h-7 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition"
             title="Contraer barra lateral"
           >
             <i class="fa-solid fa-table-columns text-xs"></i>
           </button>
         </div>
 
-        <!-- SPACES (Nodos / Proyectos Rápidos) -->
+        <!-- SPACES (Proyectos Rápidos) -->
         <div v-if="featuredSpaces.length > 0" class="space-y-1.5">
           <div class="flex items-center justify-between px-2">
-            <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+            <span
+              class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500"
+            >
               Spaces
             </span>
             <button
               v-if="panelStore.projectSearchQuery"
               @click="panelStore.projectSearchQuery = ''"
-              class="text-[10px] text-[#B9F249] hover:underline"
+              class="text-[10px] text-indigo-400 hover:underline font-semibold"
             >
               Ver todos
             </button>
@@ -219,22 +223,24 @@ function isSpaceSelected(name: string): boolean {
               class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl text-left transition group"
               :class="
                 isSpaceSelected(sp.name)
-                  ? 'bg-white/[0.09] ring-1 ring-white/15'
-                  : 'hover:bg-white/[0.05]'
+                  ? 'bg-slate-800 border border-indigo-500/40'
+                  : 'hover:bg-slate-800/70 border border-transparent'
               "
             >
               <div
                 class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs shadow-sm transition group-hover:scale-105"
-                :style="{ backgroundColor: sp.bg, color: sp.text }"
+                :class="sp.bgClass"
               >
                 <i class="fa-solid" :class="sp.icon"></i>
               </div>
               <div class="min-w-0 flex-1">
-                <div class="text-xs font-semibold text-white truncate flex items-center gap-1.5">
+                <div
+                  class="text-xs font-semibold text-white truncate flex items-center gap-1.5"
+                >
                   <span class="truncate">{{ sp.name }}</span>
                   <span
                     v-if="sp.project.status === 'running'"
-                    class="w-1.5 h-1.5 rounded-full bg-[#B9F249] shrink-0"
+                    class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"
                   ></span>
                 </div>
                 <div class="text-[10px] text-slate-400 truncate">
@@ -248,7 +254,9 @@ function isSpaceSelected(name: string): boolean {
         <!-- MENÚ PRINCIPAL -->
         <div class="space-y-1.5">
           <div class="px-2">
-            <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+            <span
+              class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500"
+            >
               Menú
             </span>
           </div>
@@ -261,8 +269,8 @@ function isSpaceSelected(name: string): boolean {
               class="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition"
               :class="
                 panelStore.activeTab === item.id
-                  ? 'bg-white/[0.09] text-white font-semibold shadow-inner'
-                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium'
+                  ? 'bg-indigo-500/15 text-indigo-400 font-semibold border border-indigo-500/25'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/70 font-medium border border-transparent'
               "
             >
               <div class="flex items-center gap-2.5 min-w-0">
@@ -271,20 +279,20 @@ function isSpaceSelected(name: string): boolean {
                   :class="[
                     item.icon,
                     panelStore.activeTab === item.id
-                      ? 'text-white'
+                      ? 'text-indigo-400'
                       : 'text-slate-400',
                   ]"
                 ></i>
                 <span class="truncate">{{ item.label }}</span>
                 <span
                   v-if="panelStore.activeTab === item.id"
-                  class="w-1.5 h-1.5 rounded-full bg-[#B9F249] shrink-0 shadow-[0_0_8px_#B9F249]"
+                  class="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"
                 ></span>
               </div>
 
               <span
                 v-if="item.badge !== undefined"
-                class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-white/[0.07] text-slate-300 min-w-[20px] text-center"
+                class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 min-w-[20px] text-center"
               >
                 {{ item.badge }}
               </span>
@@ -293,12 +301,12 @@ function isSpaceSelected(name: string): boolean {
         </div>
       </div>
 
-      <!-- FOOTER DE UTILIDADES + TEMA + PERFIL -->
-      <div class="pt-4 mt-4 border-t border-white/[0.07] space-y-1">
+      <!-- FOOTER DE UTILIDADES + MODO DÍA/NOCHE + PERFIL -->
+      <div class="pt-4 mt-4 border-t border-slate-800 space-y-1">
         <button
           v-if="hasPerm('security', 'deploy')"
           @click="pruneServerDocker"
-          class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] transition"
+          class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-amber-400 hover:bg-slate-800/70 transition"
         >
           <i class="fa-solid fa-broom w-4 text-center text-[12px]"></i>
           <span>Limpiar Caché Docker</span>
@@ -306,59 +314,63 @@ function isSpaceSelected(name: string): boolean {
 
         <button
           @click="refreshAll"
-          class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] transition"
+          class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800/70 transition"
         >
-          <i class="fa-solid fa-arrows-rotate w-4 text-center text-[12px]"></i>
+          <i class="fa-solid fa-rotate w-4 text-center text-[12px]"></i>
           <span>Sincronizar Servidor</span>
         </button>
 
-        <!-- Toggle Switch Modo Oscuro / Día (Idéntico a Sylva) -->
+        <!-- Toggle Switch Modo Noche / Día -->
         <div
           @click="toggleTheme"
-          class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] cursor-pointer select-none transition"
+          class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800/70 cursor-pointer select-none transition"
         >
           <div class="flex items-center gap-2.5">
             <i
               class="fa-solid w-4 text-center text-[12px]"
-              :class="panelStore.theme === 'dark' ? 'fa-moon' : 'fa-sun text-amber-500'"
+              :class="
+                panelStore.theme === 'dark'
+                  ? 'fa-moon text-indigo-400'
+                  : 'fa-sun text-amber-500'
+              "
             ></i>
-            <span>Dark mode</span>
+            <span>{{ panelStore.theme === 'dark' ? 'Modo Noche' : 'Modo Día' }}</span>
           </div>
 
           <div
             class="w-9 h-5 rounded-full p-0.5 transition-colors flex items-center"
             :class="
               panelStore.theme === 'dark'
-                ? 'bg-[#B9F249] justify-end'
-                : 'bg-slate-400/40 justify-start'
+                ? 'bg-indigo-600 justify-end'
+                : 'bg-slate-400/50 justify-start'
             "
           >
-            <span
-              class="w-4 h-4 rounded-full shadow transition"
-              :class="
-                panelStore.theme === 'dark' ? 'bg-[#11150D]' : 'bg-white'
-              "
-            ></span>
+            <span class="w-4 h-4 rounded-full bg-white shadow transition"></span>
           </div>
         </div>
 
         <!-- Perfil de Usuario -->
         <div
           v-if="panelStore.currentUser"
-          class="mt-2 pt-2.5 border-t border-white/[0.07] flex items-center justify-between gap-2 px-1.5"
+          class="mt-2 pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2 px-1.5"
         >
           <div class="flex items-center gap-2.5 min-w-0">
             <div
-              class="w-8 h-8 rounded-full bg-gradient-to-br from-[#7DB4D8] to-[#B9F249] text-[#11150D] font-extrabold text-[11px] flex items-center justify-center shrink-0 shadow"
+              class="w-8 h-8 rounded-full bg-indigo-600 keep-white font-bold text-[11px] flex items-center justify-center shrink-0 shadow"
             >
               {{ userInitials }}
             </div>
             <div class="min-w-0">
               <div class="text-xs font-bold text-white truncate">
-                {{ panelStore.currentUser.fullName || panelStore.currentUser.username }}
+                {{
+                  panelStore.currentUser.fullName ||
+                  panelStore.currentUser.username
+                }}
               </div>
               <div class="text-[10px] text-slate-400 truncate">
-                {{ panelStore.currentUser.roleName || panelStore.currentUser.role }}
+                {{
+                  panelStore.currentUser.roleName || panelStore.currentUser.role
+                }}
               </div>
             </div>
           </div>
@@ -368,27 +380,27 @@ function isSpaceSelected(name: string): boolean {
             class="w-7 h-7 rounded-lg hover:bg-rose-500/15 text-slate-400 hover:text-rose-400 flex items-center justify-center transition shrink-0"
             title="Cerrar sesión"
           >
-            <i class="fa-solid fa-right-from-bracket text-xs"></i>
+            <i class="fa-solid fa-power-off text-xs"></i>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- MODO RAIL COLAPSADO (Imagen 3) -->
+    <!-- MODO RAIL COLAPSADO -->
     <div
       v-else
-      class="sylva-sidebar rounded-2xl flex-1 hidden lg:flex flex-col items-center justify-between py-3 px-1.5"
+      class="bg-slate-900 border border-slate-800 shadow-2xl rounded-2xl flex-1 hidden lg:flex flex-col items-center justify-between py-3 px-1.5"
     >
       <div class="flex flex-col items-center gap-3 w-full">
         <button
           @click="toggleSidebar"
-          class="w-9 h-9 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white flex items-center justify-center transition"
+          class="w-9 h-9 rounded-xl hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition"
           title="Expandir barra lateral"
         >
           <i class="fa-solid fa-table-columns text-xs"></i>
         </button>
 
-        <div class="w-6 h-px bg-white/10"></div>
+        <div class="w-6 h-px bg-slate-800"></div>
 
         <nav class="flex flex-col items-center gap-1.5 w-full">
           <button
@@ -399,14 +411,14 @@ function isSpaceSelected(name: string): boolean {
             class="relative w-9 h-9 rounded-xl flex items-center justify-center transition"
             :class="
               panelStore.activeTab === item.id
-                ? 'bg-white/[0.11] text-white shadow-inner'
-                : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
             "
           >
             <i class="fa-solid text-xs" :class="item.icon"></i>
             <span
               v-if="panelStore.activeTab === item.id"
-              class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#B9F249]"
+              class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-400"
             ></span>
           </button>
         </nav>
@@ -416,26 +428,34 @@ function isSpaceSelected(name: string): boolean {
         <button
           @click="refreshAll"
           title="Sincronizar Servidor"
-          class="w-9 h-9 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.05] flex items-center justify-center transition"
+          class="w-9 h-9 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition"
         >
-          <i class="fa-solid fa-arrows-rotate text-xs"></i>
+          <i class="fa-solid fa-rotate text-xs"></i>
         </button>
 
         <button
           @click="toggleTheme"
-          :title="panelStore.theme === 'dark' ? 'Cambiar a Modo Día' : 'Cambiar a Modo Oscuro'"
-          class="w-9 h-9 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.05] flex items-center justify-center transition"
+          :title="
+            panelStore.theme === 'dark'
+              ? 'Cambiar a Modo Día'
+              : 'Cambiar a Modo Noche'
+          "
+          class="w-9 h-9 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition"
         >
           <i
             class="fa-solid text-xs"
-            :class="panelStore.theme === 'dark' ? 'fa-moon text-[#B9F249]' : 'fa-sun text-amber-500'"
+            :class="
+              panelStore.theme === 'dark'
+                ? 'fa-moon text-indigo-400'
+                : 'fa-sun text-amber-500'
+            "
           ></i>
         </button>
 
         <button
           @click="emit('logout')"
           title="Cerrar sesión"
-          class="w-8 h-8 rounded-full bg-gradient-to-br from-[#7DB4D8] to-[#B9F249] text-[#11150D] font-extrabold text-[10px] flex items-center justify-center shadow hover:opacity-90 transition"
+          class="w-8 h-8 rounded-full bg-indigo-600 keep-white font-bold text-[10px] flex items-center justify-center shadow hover:bg-indigo-500 transition"
         >
           {{ userInitials }}
         </button>

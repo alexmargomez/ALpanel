@@ -41,61 +41,65 @@ async function handleSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center p-4">
+  <div
+    class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950"
+  >
     <div
-      class="w-full max-w-md sylva-sidebar rounded-3xl p-8 backdrop-blur-xl space-y-6"
+      class="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-8 backdrop-blur"
     >
-      <div class="flex items-start justify-between gap-3">
-        <div class="space-y-2">
-          <div class="flex items-center gap-2.5">
-            <div
-              class="w-10 h-10 rounded-xl bg-[#B9F249] text-[#11150D] flex items-center justify-center text-lg font-extrabold shadow-lg shadow-[#B9F249]/25"
-            >
-              <i class="fa-solid fa-bolt"></i>
-            </div>
-            <div>
-              <span class="font-bold text-base text-white tracking-tight">
-                ALpanel
-              </span>
-              <span class="ml-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                CLOUD
-              </span>
-            </div>
+      <div class="flex items-center justify-between gap-3 mb-6">
+        <div class="flex items-center gap-3">
+          <div
+            class="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 text-2xl"
+          >
+            <i class="fa-solid fa-bolt"></i>
           </div>
-
           <div>
-            <h1 class="font-editorial text-3xl text-white leading-tight">
-              Acceso al Clúster
-            </h1>
-            <div class="h-[3px] w-28 rounded-full bg-[#B9F249] mt-1"></div>
+            <h1 class="text-xl font-bold text-white">ALpanel</h1>
+            <p class="text-xs text-slate-400">
+              Orquestador Modular • Vue 3 + TypeScript + Prisma ORM
+            </p>
           </div>
         </div>
-
         <button
           type="button"
           @click="toggleTheme"
-          class="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold transition flex items-center gap-1.5 shrink-0"
-          :class="panelStore.theme === 'light' ? 'text-amber-500' : 'text-[#B9F249]'"
+          class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5 shrink-0"
+          :class="
+            panelStore.theme === 'light' ? 'text-amber-500' : 'text-indigo-300'
+          "
+          :title="
+            panelStore.theme === 'light'
+              ? 'Cambiar a Modo Noche'
+              : 'Cambiar a Modo Día'
+          "
         >
-          <i class="fa-solid" :class="panelStore.theme === 'light' ? 'fa-sun' : 'fa-moon'"></i>
+          <i
+            class="fa-solid"
+            :class="panelStore.theme === 'light' ? 'fa-sun' : 'fa-moon'"
+          ></i>
           <span>{{ panelStore.theme === 'light' ? 'Día' : 'Noche' }}</span>
         </button>
       </div>
 
       <form @submit.prevent="handleSubmit" class="space-y-4">
         <div>
-          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+          <label
+            class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1"
+          >
             Usuario
           </label>
           <input
             v-model="username"
             type="text"
             required
-            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#B9F249]"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
         <div>
-          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+          <label
+            class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1"
+          >
             Contraseña
           </label>
           <input
@@ -103,21 +107,21 @@ async function handleSubmit(): Promise<void> {
             type="password"
             placeholder="••••••••••••"
             required
-            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#B9F249]"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
         <div
           v-if="errorMsg"
-          class="text-xs text-rose-400 bg-rose-950/50 border border-rose-800 rounded-xl p-3"
+          class="text-xs text-rose-400 bg-rose-950/50 border border-rose-800 rounded-lg p-3"
         >
           {{ errorMsg }}
         </div>
         <button
           type="submit"
           :disabled="loading"
-          class="w-full sylva-lime-btn py-3 rounded-full text-sm disabled:opacity-60"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition shadow-lg shadow-indigo-600/25"
         >
-          <i class="fa-solid fa-arrow-right-to-bracket mr-2"></i>
+          <i class="fa-solid fa-right-to-bracket mr-2"></i>
           {{ loading ? 'Autenticando...' : 'Ingresar a ALpanel' }}
         </button>
       </form>

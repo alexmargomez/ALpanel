@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ALpanel — Cloud & Docker Orchestrator</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23B9F249'/%3E%3Cpath d='M36.5 14L19 36h13l-2.5 14L47 28H34l2.5-14z' fill='%2311150D' stroke='%2311150D' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <title>ALpanel</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%235850EC'/%3E%3Cpath d='M36.5 14L19 36h13l-2.5 14L47 28H34l2.5-14z' fill='%23FFFFFF' stroke='%23FFFFFF' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="stylesheet" href="/css/panel.css" />
@@ -29,27 +29,15 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
-            serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'monospace'],
           },
           colors: {
-            sylva: {
-              bg: '#10120F',
-              sidebar: '#171A16',
-              card: '#1B1E1A',
-              elevated: '#222620',
-              lime: '#B9F249',
-              limeHover: '#C8F765',
-              sky: '#7DB4D8',
-              sand: '#E5D5A7',
-              coral: '#E09F87',
-            },
             panel: {
-              bg: '#10120F',
-              card: '#1B1E1A',
-              border: '#2A2F28',
-              accent: '#B9F249',
+              bg: '#0B0F19',
+              card: '#111827',
+              border: '#1F2937',
+              accent: '#6366F1',
             }
           }
         }
@@ -57,11 +45,8 @@
     }
   </script>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-[#B9F249] selection:text-[#11150D]">
-  <!-- Punto de montaje de la SPA Vue 3 + TypeScript -->
+<body class="min-h-screen flex flex-col antialiased">
   <div id="app" class="min-h-screen flex flex-col"></div>
-
-  <!-- Bundle compilado por Vite (Vue 3 + TypeScript) -->
   <script type="module" src="/assets/app.js"></script>
 </body>
 </html>
