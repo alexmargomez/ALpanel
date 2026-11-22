@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ProjectNameVO } from '../../domain/value-objects/project-name.vo';
 import { GitRepoUrlVO } from '../../domain/value-objects/git-repo-url.vo';
+import { InsufficientServerMemoryException } from '../../domain/exceptions/project.exception';
 import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import {
@@ -13,6 +14,7 @@ import {
 } from './manage-container-power.use-case';
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
+import { resourceGuardService } from '../../../../shared/infrastructure/services/resource-guard.service';
 
 const execAsync = promisify(exec);
 
@@ -172,15 +174,33 @@ export class DeployGitProjectUseCase {
       };
     }
 
+    const estimatedInitialContainers = Array.isArray(payload.selectedMicroservices)
+      ? payload.selectedMicroservices.length + 2
+      : 2;
+
+    // 1. Validación preventiva de RAM ANTES de clonar siquiera el repositorio
+    resourceGuardService.assertMemoryAvailableForOperation({
+      operation: 'clonar y desplegar nuevo proyecto',
+      targetProject: cleanName,
+      requiresBuild: Boolean(payload.autoStart),
+      additionalContainersCount: payload.autoStart ? estimatedInitialContainers : 0,
+    });
+
     DeployGitProjectUseCase.activeDeployments.add(lockKey);
     const logs: string[] = [];
+    let clonedOnDisk = false;
     try {
       const branchArg = safeBranch ? `-b "${safeBranch}"` : '';
       logs.push(`==> Clonando ${safeRepoUrl} en ${targetDir}...`);
-      const cloneRes = await execAsync(
+      const cloneRes = await resourceGuardService.execWithMemoryWatchdog(
         `git -c core.hooksPath=/dev/null clone ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
-        { timeout: 180000 }
+        {
+          timeout: 180000,
+          operation: 'git clone',
+          targetProject: cleanName,
+        }
       );
+      clonedOnDisk = true;
       await this.hardenGitDirPermissions(targetDir);
       this.onInvalidateCache?.();
       if (cloneRes.stdout) logs.push(cloneRes.stdout.trim());
@@ -252,6 +272,7 @@ export class DeployGitProjectUseCase {
         logs.push('==> Archivo .env creado atómicamente con permisos restringidos (0600).');
       }
 
+      let activeServicesToStart = 2;
       if (Array.isArray(payload.selectedMicroservices)) {
         const msSummary =
           manageProjectMicroservicesUseCase.saveSelectionToProjectDir(
@@ -259,6 +280,8 @@ export class DeployGitProjectUseCase {
             payload.selectedMicroservices
           );
         if (msSummary.isMicroservicesArchitecture) {
+          activeServicesToStart =
+            msSummary.coreServices.length + msSummary.enabledMicroservicesCount;
           logs.push(
             `==> 🧩 Arquitectura de Microservicios configurada (${
               msSummary.enabledMicroservicesCount
@@ -304,10 +327,14 @@ export class DeployGitProjectUseCase {
                 targetDir,
                 fallbackSelection
               );
+            activeServicesToStart =
+              savedMs.coreServices.length + savedMs.enabledMicroservicesCount;
             logs.push(
               `==> 🛡️ Protección Anti-OOM activada: Clúster grande detectado (${msSummary.totalMicroservices} microservicios). Integrando automáticamente Core + ${savedMs.enabledMicroservicesCount} esenciales (${savedMs.enabledServiceNames.join(', ')}). Puedes activar más módulos cuando desees desde el botón "Microservicios".`
             );
           } else {
+            activeServicesToStart =
+              msSummary.coreServices.length + msSummary.totalMicroservices;
             logs.push(
               `==> 🧩 Clúster de Microservicios detectado (${msSummary.totalMicroservices} microservicios de dominio + ${msSummary.coreServices.length} servicios core).`
             );
@@ -320,8 +347,16 @@ export class DeployGitProjectUseCase {
         (fs.existsSync(path.join(targetDir, 'docker-compose.yml')) ||
           fs.existsSync(path.join(targetDir, 'docker-compose.yaml')))
       ) {
+        // 2. Validar RAM exacta para la cantidad real de contenedores a construir y encender
+        resourceGuardService.assertMemoryAvailableForOperation({
+          operation: `desplegar ${activeServicesToStart} contenedores`,
+          targetProject: cleanName,
+          requiresBuild: true,
+          additionalContainersCount: activeServicesToStart,
+        });
+
         logs.push(
-          '==> Construyendo y levantando contenedores Docker (docker compose up -d --build)...'
+          '==> Construyendo y levantando contenedores Docker con monitoreo activo de RAM (RAM Watchdog)...'
         );
         const upRes = await runDockerComposeSafe(
           targetDir,
@@ -337,6 +372,18 @@ export class DeployGitProjectUseCase {
       logs.push(`✅ Proyecto ${cleanName} creado exitosamente.`);
       return { success: true, output: logs.join('\n') };
     } catch (error: any) {
+      if (error instanceof InsufficientServerMemoryException) {
+        // Si falló por memoria tras clonar, detener cualquier contenedor parcial para liberar la RAM de inmediato
+        if (clonedOnDisk && fs.existsSync(targetDir)) {
+          await execAsync(`docker compose down --remove-orphans 2>/dev/null || true`, {
+            cwd: targetDir,
+            env: getCleanComposeEnv(targetDir),
+            timeout: 30000,
+          }).catch(() => null);
+          this.onInvalidateCache?.(targetDir);
+        }
+        throw error;
+      }
       logs.push(`❌ Error: ${error?.stderr || error?.message}`);
       return { success: false, output: logs.join('\n') };
     } finally {

@@ -17,3 +17,10 @@ export class ProjectNotFoundException extends DomainException {
     super(`El proyecto '${name}' no fue encontrado.`, 404);
   }
 }
+
+export class InsufficientServerMemoryException extends DomainException {
+  constructor(message: string) {
+    super(message, 507);
+  }
+}
+

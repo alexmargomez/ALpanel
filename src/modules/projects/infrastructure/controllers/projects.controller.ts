@@ -429,7 +429,13 @@ export class ProjectsController {
       }
       return res;
     } catch (error: any) {
-      return reply.code(400).send({
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_MICROSERVICES_UPDATE',
+        name,
+        request.ip,
+        'error'
+      );
+      return reply.code(error?.statusCode || 400).send({
         error:
           error?.message || 'Error aplicando configuración de microservicios',
       });
