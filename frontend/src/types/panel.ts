@@ -345,6 +345,53 @@ export interface ProjectErdSchema {
   mermaidCode: string;
 }
 
+export interface ProcessTopEntry {
+  pid: number;
+  ppid: number;
+  state: string;
+  cpuPercent: number;
+  memPercent: number;
+  rssMb: number;
+  elapsed: string;
+  command: string;
+  args: string;
+}
+
+export interface TaskContainerStateItem {
+  name: string;
+  state: string;
+  status: string;
+}
+
+export interface TaskLiveTelemetryPayload {
+  taskId: string;
+  phase: string;
+  targetProject: string;
+  elapsedMs: number;
+  host: {
+    cpuCores: number;
+    loadAvg1m: number;
+    loadAvg5m: number;
+    ramTotalMb: number;
+    ramUsedMb: number;
+    ramAvailableMb: number;
+    ramPercent: number;
+    safetyFloorMb: number;
+  };
+  processes: ProcessTopEntry[];
+  containers: TaskContainerStateItem[];
+  timestamp: string;
+}
+
+export interface TaskStreamChunkPayload {
+  taskId: string;
+  chunk: string;
+  isError: boolean;
+  phase?: string;
+  summaryLine?: string;
+  timestamp: string;
+}
+
 export type PanelTab =
   | 'overview'
   | 'projects'
@@ -353,5 +400,6 @@ export type PanelTab =
   | 'users'
   | 'permissions'
   | 'audit';
+
 
 

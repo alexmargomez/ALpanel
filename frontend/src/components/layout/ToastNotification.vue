@@ -33,9 +33,9 @@ function formatDuration(task: BackgroundTaskItem): string {
 </script>
 
 <template>
-  <!-- Centro de Tareas Asíncronas y Alertas en la Parte Inferior Izquierda -->
+  <!-- Centro de Tareas Asíncronas y Telemetría en la Parte Inferior Izquierda -->
   <div
-    class="fixed bottom-4 left-4 z-50 flex flex-col gap-2.5 max-w-md w-[calc(100vw-2rem)] sm:w-96 pointer-events-none"
+    class="fixed bottom-4 left-4 z-50 flex flex-col gap-2.5 max-w-md w-[calc(100vw-2rem)] sm:w-[410px] pointer-events-none"
   >
     <!-- Notificación Toast Rápida -->
     <div
@@ -43,45 +43,42 @@ function formatDuration(task: BackgroundTaskItem): string {
       class="pointer-events-auto text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-2 transition-all border"
       :class="
         panelStore.toast.isError
-          ? 'bg-rose-600/95 border-rose-400/40'
-          : 'bg-indigo-600/95 border-indigo-400/40'
+          ? 'bg-rose-600 border-rose-400/40'
+          : 'bg-indigo-600 border-indigo-400/40'
       "
     >
       <div class="flex items-center gap-2 min-w-0">
         <i
-          class="fa-solid shrink-0"
+          class="fa-solid shrink-0 keep-white"
           :class="
             panelStore.toast.isError
               ? 'fa-circle-exclamation'
               : 'fa-circle-check'
           "
         ></i>
-        <span class="truncate">{{ panelStore.toast.message }}</span>
+        <span class="truncate keep-white">{{ panelStore.toast.message }}</span>
       </div>
       <button
         @click="panelStore.toast.visible = false"
-        class="text-white/80 hover:text-white shrink-0 px-1"
+        class="text-white/80 hover:text-white shrink-0 px-1 keep-white"
       >
         <i class="fa-solid fa-xmark"></i>
       </button>
     </div>
 
-    <!-- Tarjetas de Procesos en Segundo Plano y Alertas de Finalización -->
+    <!-- Tarjetas de Procesos en Segundo Plano con Telemetría Viva -->
     <div
       v-for="task in panelStore.backgroundTasks"
       :key="task.id"
-      class="pointer-events-auto rounded-2xl p-3.5 shadow-2xl border backdrop-blur-md transition-all"
+      class="pointer-events-auto rounded-2xl p-3.5 shadow-2xl border backdrop-blur-md transition-all bg-slate-900/95"
       :class="{
-        'bg-slate-900/95 border-indigo-500/50 shadow-indigo-950/50':
-          task.status === 'running',
-        'bg-slate-900/95 border-emerald-500/60 shadow-emerald-950/50':
-          task.status === 'success',
-        'bg-slate-900/95 border-rose-500/60 shadow-rose-950/50':
-          task.status === 'error',
+        'border-indigo-500/50': task.status === 'running',
+        'border-emerald-500/60': task.status === 'success',
+        'border-rose-500/60': task.status === 'error',
       }"
     >
       <div class="flex items-start justify-between gap-2.5">
-        <div class="flex items-start gap-2.5 min-w-0">
+        <div class="flex items-start gap-2.5 min-w-0 flex-1">
           <!-- Icono de Estado -->
           <div
             class="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
@@ -116,7 +113,7 @@ function formatDuration(task: BackgroundTaskItem): string {
               >
                 {{
                   task.status === 'running'
-                    ? 'En segundo plano'
+                    ? task.phase || 'En ejecución'
                     : task.status === 'success'
                       ? 'Completado'
                       : 'Error'
@@ -131,9 +128,32 @@ function formatDuration(task: BackgroundTaskItem): string {
               {{ task.title }}
             </div>
 
-            <p class="text-[11px] text-slate-300 line-clamp-2 mt-0.5 break-words">
+            <!-- Línea actual del stream en tiempo real -->
+            <p
+              class="text-[11px] text-slate-300 line-clamp-2 mt-0.5 break-words font-mono"
+            >
               {{ task.message }}
             </p>
+
+            <!-- Mini Telemetría TOP en Vivo -->
+            <div
+              v-if="task.status === 'running' && task.telemetry"
+              class="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1"
+            >
+              <span class="text-indigo-400 font-semibold">
+                <i class="fa-solid fa-microchip mr-1"></i>{{
+                  task.telemetry.processes.length
+                }}
+                procs
+              </span>
+              <span>·</span>
+              <span class="text-emerald-400 font-semibold">
+                RAM libre: {{ task.telemetry.host.ramAvailableMb }} MB
+              </span>
+              <span v-if="task.telemetry.processes[0]" class="truncate max-w-[130px]">
+                · {{ task.telemetry.processes[0].command }}
+              </span>
+            </div>
 
             <div class="mt-2 flex items-center gap-2">
               <button
@@ -152,8 +172,8 @@ function formatDuration(task: BackgroundTaskItem): string {
                 <span>
                   {{
                     task.status === 'running'
-                      ? 'Ver consola'
-                      : 'Ver detalles / Logs'
+                      ? 'Monitor TOP & Consola en vivo'
+                      : 'Ver salida completa / Logs'
                   }}
                 </span>
               </button>
@@ -184,4 +204,3 @@ function formatDuration(task: BackgroundTaskItem): string {
     </div>
   </div>
 </template>
-
