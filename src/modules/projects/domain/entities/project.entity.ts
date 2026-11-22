@@ -10,7 +10,10 @@ export interface ContainerStatInfo {
   memoryLimitBytes: number;
   memoryPercent: number;
   ports: string[];
-  role: 'frontend' | 'backend' | 'database' | 'proxy' | 'other';
+  internalPort?: string;
+  isGateway?: boolean;
+  suggestedPathPrefix?: string;
+  role: 'frontend' | 'backend' | 'database' | 'proxy' | 'gateway' | 'other';
 }
 
 export interface DatabaseConnectionInfo {

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import {
   copyText,
   loadSelectedContainerLogs,
@@ -38,6 +41,14 @@ const projectContainers = computed(() => {
   );
   return proj?.containers || [];
 });
+
+const containerOptions = computed<Select2Option[]>(() =>
+  projectContainers.value.map((c) => ({
+    value: c.name,
+    label: c.name,
+    badge: c.role,
+  }))
+);
 
 const effectiveOutput = computed(() => {
   if (activeTask.value) {
@@ -228,19 +239,19 @@ function close(): void {
 
           <!-- Selector de Contenedor cuando se abren Logs normales -->
           <template v-if="panelStore.modals.console.showContainerSelect">
-            <select
-              v-model="panelStore.modals.console.selectedContainer"
-              @change="loadSelectedContainerLogs"
-              class="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white"
-            >
-              <option
-                v-for="c in projectContainers"
-                :key="c.name"
-                :value="c.name"
-              >
-                {{ c.name }} ({{ c.role }})
-              </option>
-            </select>
+            <div class="w-56">
+              <SearchableSelect
+                v-model="panelStore.modals.console.selectedContainer"
+                :options="containerOptions"
+                placeholder="Contenedor..."
+                search-placeholder="Buscar contenedor..."
+                size="xs"
+                mono
+                accent="indigo"
+                :min-dropdown-width="260"
+                @change="loadSelectedContainerLogs"
+              />
+            </div>
             <button
               @click="loadSelectedContainerLogs"
               class="p-1.5 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"

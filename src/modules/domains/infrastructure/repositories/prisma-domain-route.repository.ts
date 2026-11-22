@@ -2,7 +2,34 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '../../../../shared/infrastructure/database/prisma.service';
 import { DomainRouteRepositoryPort } from '../../application/ports/repositories/domain-route-repository.port';
-import { DomainRouteEntity } from '../../domain/entities/domain-route.entity';
+import {
+  DomainMicroserviceRoute,
+  DomainRouteEntity,
+} from '../../domain/entities/domain-route.entity';
+
+const EXTRA_ROUTES_SETTING_KEY = 'domain_extra_routes_v1';
+
+function sanitizeExtraRoutes(
+  raw?: DomainMicroserviceRoute[]
+): DomainMicroserviceRoute[] {
+  if (!Array.isArray(raw)) return [];
+  const cleaned: DomainMicroserviceRoute[] = [];
+  for (const item of raw) {
+    let prefix = String(item?.pathPrefix || '').trim();
+    const target = String(item?.target || '').trim();
+    if (!prefix || !target) continue;
+    if (!prefix.startsWith('/')) {
+      prefix = `/${prefix}`;
+    }
+    cleaned.push({
+      pathPrefix: prefix,
+      target,
+      stripPrefix: Boolean(item?.stripPrefix),
+      serviceName: item?.serviceName ? String(item.serviceName).trim() : undefined,
+    });
+  }
+  return cleaned;
+}
 
 export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
   private readonly dataFile: string;
@@ -16,11 +43,58 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
     this.dataFile = path.join(dataDir, 'domains.json');
   }
 
+  private async readExtraRoutesMap(): Promise<
+    Record<string, DomainMicroserviceRoute[]>
+  > {
+    try {
+      const row = await prisma.panelSetting.findUnique({
+        where: { settingKey: EXTRA_ROUTES_SETTING_KEY },
+      });
+      if (row?.settingValue) {
+        const parsed = JSON.parse(row.settingValue);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      }
+    } catch {
+      const mirror = this.readMirrorFile();
+      const fallback: Record<string, DomainMicroserviceRoute[]> = {};
+      for (const m of mirror) {
+        if (m.id && Array.isArray(m.extraRoutes) && m.extraRoutes.length > 0) {
+          fallback[m.id] = sanitizeExtraRoutes(m.extraRoutes);
+        }
+      }
+      return fallback;
+    }
+    return {};
+  }
+
+  private async writeExtraRoutesMap(
+    map: Record<string, DomainMicroserviceRoute[]>
+  ): Promise<void> {
+    try {
+      const serialized = JSON.stringify(map);
+      await prisma.panelSetting.upsert({
+        where: { settingKey: EXTRA_ROUTES_SETTING_KEY },
+        update: { settingValue: serialized },
+        create: {
+          settingKey: EXTRA_ROUTES_SETTING_KEY,
+          settingValue: serialized,
+        },
+      });
+    } catch {
+      // Fallback handled by domains.json mirror
+    }
+  }
+
   async listRoutes(): Promise<DomainRouteEntity[]> {
     try {
-      const rows = await prisma.domainRoute.findMany({
-        orderBy: { createdAt: 'asc' },
-      });
+      const [rows, extraMap] = await Promise.all([
+        prisma.domainRoute.findMany({
+          orderBy: { createdAt: 'asc' },
+        }),
+        this.readExtraRoutesMap(),
+      ]);
       const mapped: DomainRouteEntity[] = [];
       for (const r of rows) {
         let frontendTarget = String(r.frontendTarget || '');
@@ -50,6 +124,7 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
           frontendTarget,
           apiPathPrefix: r.apiPathPrefix || '',
           backendTarget,
+          extraRoutes: sanitizeExtraRoutes(extraMap[r.id]),
           sslEnabled: r.sslEnabled,
           createdAt: r.createdAt.toISOString(),
         });
@@ -112,6 +187,15 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
       },
     });
 
+    const extraRoutes = sanitizeExtraRoutes(route.extraRoutes);
+    const extraMap = await this.readExtraRoutesMap();
+    if (extraRoutes.length > 0) {
+      extraMap[saved.id] = extraRoutes;
+    } else {
+      delete extraMap[saved.id];
+    }
+    await this.writeExtraRoutesMap(extraMap);
+
     return {
       id: saved.id,
       domain: saved.domain,
@@ -119,6 +203,7 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
       frontendTarget: saved.frontendTarget,
       apiPathPrefix: saved.apiPathPrefix,
       backendTarget: saved.backendTarget,
+      extraRoutes,
       sslEnabled: saved.sslEnabled,
       createdAt: saved.createdAt.toISOString(),
     };
@@ -126,6 +211,11 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
 
   async deleteRoute(id: string): Promise<boolean> {
     await prisma.domainRoute.deleteMany({ where: { id } });
+    const extraMap = await this.readExtraRoutesMap();
+    if (extraMap[id]) {
+      delete extraMap[id];
+      await this.writeExtraRoutesMap(extraMap);
+    }
     return true;
   }
 }

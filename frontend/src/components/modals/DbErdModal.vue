@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import {
   apiFetch,
   copyText,
@@ -23,6 +26,14 @@ const searchQuery = ref('');
 const selectedTable = ref<string | null>(null);
 const hoveredTable = ref<string | null>(null);
 const viewMode = ref<'canvas' | 'mermaid'>('canvas');
+
+const erdDatabaseOptions = computed<Select2Option[]>(() =>
+  (schema.value?.availableDatabases || []).map((dbItem) => ({
+    value: dbItem,
+    label: dbItem,
+    badge: schema.value?.engine,
+  }))
+);
 
 const zoom = ref(0.9);
 const pan = reactive({ x: 40, y: 40 });
@@ -109,10 +120,10 @@ async function loadErd(): Promise<void> {
   }
 }
 
-function onSelectDatabase(e: Event): void {
-  const target = e.target as HTMLSelectElement;
-  if (!target?.value) return;
-  panelStore.modals.erd.databaseName = target.value;
+function onSelectDatabase(val: string | number): void {
+  const dbVal = String(val || '').trim();
+  if (!dbVal) return;
+  panelStore.modals.erd.databaseName = dbVal;
   loadErd();
 }
 
@@ -365,21 +376,22 @@ function close(): void {
               >
                 <i class="fa-solid fa-database mr-1"></i>{{ panelStore.modals.erd.containerName || schema?.containerName }}
               </span>
-              <select
+              <div
                 v-if="schema?.availableDatabases && schema.availableDatabases.length > 0"
-                :value="schema.databaseName"
-                @change="onSelectDatabase"
-                class="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-indigo-950/80 text-indigo-200 border border-indigo-500/40 font-mono focus:outline-none focus:border-fuchsia-400 cursor-pointer"
-                title="Cambiar de Base de Datos (Control Plane / Demo / Clientes)"
+                class="w-56"
               >
-                <option
-                  v-for="dbItem in schema.availableDatabases"
-                  :key="dbItem"
-                  :value="dbItem"
-                >
-                  🗄️ {{ dbItem }} ({{ schema.engine }})
-                </option>
-              </select>
+                <SearchableSelect
+                  :model-value="schema.databaseName"
+                  :options="erdDatabaseOptions"
+                  placeholder="Base de datos..."
+                  search-placeholder="Buscar base de datos..."
+                  size="xs"
+                  mono
+                  accent="fuchsia"
+                  :min-dropdown-width="260"
+                  @change="onSelectDatabase"
+                />
+              </div>
               <span
                 v-else-if="schema"
                 class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"

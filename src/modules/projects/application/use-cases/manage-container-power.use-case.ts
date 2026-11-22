@@ -257,41 +257,48 @@ export function normalizeDomainRouteTargets<
         panelSelfDir
       );
       if (fs.existsSync(projectDir)) {
-        const containerNames = extractComposeContainerNames(projectDir);
-        const frontContainer = containerNames.find((c) =>
-          c.toLowerCase().includes('front')
-        );
-        const backContainer = containerNames.find((c) => {
-          const l = c.toLowerCase();
-          return (
-            !l.includes('front') &&
-            !l.includes('db') &&
-            !l.includes('mariadb') &&
-            !l.includes('mysql') &&
-            !l.includes('postgres') &&
-            !l.includes('redis') &&
-            !l.includes('caddy')
+        const msSummary =
+          manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+            projectDir,
+            []
           );
-        });
+        if (!msSummary.isMicroservicesArchitecture) {
+          const containerNames = extractComposeContainerNames(projectDir);
+          const frontContainer = containerNames.find((c) =>
+            c.toLowerCase().includes('front')
+          );
+          const backContainer = containerNames.find((c) => {
+            const l = c.toLowerCase();
+            return (
+              !l.includes('front') &&
+              !l.includes('db') &&
+              !l.includes('mariadb') &&
+              !l.includes('mysql') &&
+              !l.includes('postgres') &&
+              !l.includes('redis') &&
+              !l.includes('caddy')
+            );
+          });
 
-        if (frontContainer && backContainer) {
-          const envMap = readEnvMap(projectDir);
-          const frontPort = envMap.FRONTEND_PORT || '5174';
-          const backPort = envMap.BACKEND_PORT || envMap.PORT || '8000';
+          if (frontContainer && backContainer) {
+            const envMap = readEnvMap(projectDir);
+            const frontPort = envMap.FRONTEND_PORT || '5174';
+            const backPort = envMap.BACKEND_PORT || envMap.PORT || '8000';
 
-          const currentFront = (copy.frontendTarget || '').trim();
-          const currentBack = (copy.backendTarget || '').trim();
+            const currentFront = (copy.frontendTarget || '').trim();
+            const currentBack = (copy.backendTarget || '').trim();
 
-          if (!currentBack && currentFront.startsWith(`${backContainer}:`)) {
-            copy.backendTarget = currentFront;
-            copy.frontendTarget = `${frontContainer}:${frontPort}`;
-            copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
-          } else if (
-            !currentBack &&
-            currentFront.startsWith(`${frontContainer}:`)
-          ) {
-            copy.backendTarget = `${backContainer}:${backPort}`;
-            copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+            if (!currentBack && currentFront.startsWith(`${backContainer}:`)) {
+              copy.backendTarget = currentFront;
+              copy.frontendTarget = `${frontContainer}:${frontPort}`;
+              copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+            } else if (
+              !currentBack &&
+              currentFront.startsWith(`${frontContainer}:`)
+            ) {
+              copy.backendTarget = `${backContainer}:${backPort}`;
+              copy.apiPathPrefix = copy.apiPathPrefix || '/api*';
+            }
           }
         }
       }
@@ -362,32 +369,42 @@ export function syncDomainRoutePortsToProjectEnv(
     }
   }
 
+  const msSummary =
+    manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+      projectDir,
+      []
+    );
   const envMap = readEnvMap(projectDir);
   const updates: Record<string, string> = {};
-  if (frontPort && backPort) {
-    updates.FRONTEND_PORT = frontPort;
-    updates.BACKEND_PORT = backPort;
-    if (/^\s*PORT\s*=/m.test(combinedText)) {
-      updates.PORT = backPort;
-    }
-  } else if (frontPort && !backPort) {
-    const isFrontendContainer = (route.frontendTarget || '')
-      .toLowerCase()
-      .includes('front');
-    if (isFrontendContainer) {
+
+  // En clústeres de microservicios NO sobrescribir PORT ni BACKEND_PORT con puertos de contenedores internos,
+  // para preservar intacta la comunicación interna entre microservicios y el Gateway/Core (ej. GATEWAY_URL=http://core:4000)
+  if (!msSummary.isMicroservicesArchitecture) {
+    if (frontPort && backPort) {
       updates.FRONTEND_PORT = frontPort;
-    } else {
-      if (/\bBACKEND_PORT\b/.test(combinedText)) {
-        updates.BACKEND_PORT = frontPort;
+      updates.BACKEND_PORT = backPort;
+      if (/^\s*PORT\s*=/m.test(combinedText)) {
+        updates.PORT = backPort;
       }
-      if (/\bPORT\b/.test(combinedText) || !updates.BACKEND_PORT) {
-        updates.PORT = frontPort;
+    } else if (frontPort && !backPort) {
+      const isFrontendContainer = (route.frontendTarget || '')
+        .toLowerCase()
+        .includes('front');
+      if (isFrontendContainer) {
+        updates.FRONTEND_PORT = frontPort;
+      } else {
+        if (/\bBACKEND_PORT\b/.test(combinedText)) {
+          updates.BACKEND_PORT = frontPort;
+        }
+        if (/\bPORT\b/.test(combinedText) || !updates.BACKEND_PORT) {
+          updates.PORT = frontPort;
+        }
       }
-    }
-  } else if (backPort && !frontPort) {
-    updates.BACKEND_PORT = backPort;
-    if (/^\s*PORT\s*=/m.test(combinedText)) {
-      updates.PORT = backPort;
+    } else if (backPort && !frontPort) {
+      updates.BACKEND_PORT = backPort;
+      if (/^\s*PORT\s*=/m.test(combinedText)) {
+        updates.PORT = backPort;
+      }
     }
   }
 
@@ -432,6 +449,20 @@ export function syncDomainRoutePortsToProjectEnv(
         }
       }
       updates.CSRF_TRUSTED_ORIGINS = currentOrigins.join(',');
+    }
+    if (/\bALLOWED_ORIGINS\b/.test(combinedText)) {
+      const currentAllowed = (
+        envMap.ALLOWED_ORIGINS || 'http://localhost:4000,http://localhost:5173'
+      )
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      for (const origin of [`https://${cleanDomain}`, `http://${cleanDomain}`]) {
+        if (!currentAllowed.includes(origin)) {
+          currentAllowed.push(origin);
+        }
+      }
+      updates.ALLOWED_ORIGINS = currentAllowed.join(',');
     }
   }
 
@@ -644,53 +675,77 @@ export async function autoAssignAndPersistProjectPorts(
   }
 
   // 4. Si el puerto efectivo en .env cambió respecto a la ruta de Caddy (ej. BACKEND_PORT reasignado de 3000 a 3001 por colisión),
-  // sincronizar automáticamente la ruta en Dominios & SSL y recargar Caddy para evitar 502 Bad Gateway
+  // sincronizar automáticamente la ruta en Dominios & SSL únicamente cuando el puerto interno del contenedor también usa dicha variable
   try {
-    const routes = await domainsService.listRoutes();
-    const matchingRoute = routes.find(
-      (r) => (r.projectName || '').toLowerCase() === projectName.toLowerCase()
-    );
-    if (matchingRoute) {
-      let routeChanged = false;
-      const replaceTargetPort = (target: string, newPort?: string): string => {
-        if (!target || !newPort) return target;
-        const hostPart = target.replace(/:\d+\s*$/, '').trim();
-        const updated = `${hostPart}:${newPort}`;
-        if (updated !== target) {
-          routeChanged = true;
-        }
-        return updated;
-      };
-
-      let nextFront = matchingRoute.frontendTarget || '';
-      let nextBack = matchingRoute.backendTarget || '';
-
-      if (nextFront && nextBack) {
-        if (envMap.FRONTEND_PORT) {
-          nextFront = replaceTargetPort(nextFront, envMap.FRONTEND_PORT);
-        }
-        if (envMap.BACKEND_PORT || envMap.PORT) {
-          nextBack = replaceTargetPort(
-            nextBack,
-            envMap.BACKEND_PORT || envMap.PORT
+    const msCheck =
+      manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+        projectDir,
+        []
+      );
+    if (!msCheck.isMicroservicesArchitecture) {
+      const routes = await domainsService.listRoutes();
+      const matchingRoute = routes.find(
+        (r) => (r.projectName || '').toLowerCase() === projectName.toLowerCase()
+      );
+      if (matchingRoute) {
+        let routeChanged = false;
+        const hasFixedInternalPort = (varName: string): boolean => {
+          const fixedInternalRegex = new RegExp(
+            `\\$\\{${varName}(?::-[^}]*)?\\}:(\\d+)`,
+            'm'
           );
-        }
-      } else if (nextFront && !nextBack) {
-        const isFront = nextFront.toLowerCase().includes('front');
-        const desiredPort = isFront
-          ? envMap.FRONTEND_PORT
-          : envMap.BACKEND_PORT || envMap.PORT || envMap.FRONTEND_PORT;
-        if (desiredPort) {
-          nextFront = replaceTargetPort(nextFront, desiredPort);
-        }
-      }
+          return fixedInternalRegex.test(composeContent);
+        };
 
-      if (routeChanged) {
-        await domainsService.saveRoute({
-          ...matchingRoute,
-          frontendTarget: nextFront,
-          backendTarget: nextBack,
-        });
+        const replaceTargetPort = (target: string, newPort?: string): string => {
+          if (!target || !newPort) return target;
+          const hostPart = target.replace(/:\d+\s*$/, '').trim();
+          const updated = `${hostPart}:${newPort}`;
+          if (updated !== target) {
+            routeChanged = true;
+          }
+          return updated;
+        };
+
+        let nextFront = matchingRoute.frontendTarget || '';
+        let nextBack = matchingRoute.backendTarget || '';
+
+        if (nextFront && nextBack) {
+          if (envMap.FRONTEND_PORT && !hasFixedInternalPort('FRONTEND_PORT')) {
+            nextFront = replaceTargetPort(nextFront, envMap.FRONTEND_PORT);
+          }
+          const backVar = envMap.BACKEND_PORT ? 'BACKEND_PORT' : 'PORT';
+          if (
+            (envMap.BACKEND_PORT || envMap.PORT) &&
+            !hasFixedInternalPort(backVar)
+          ) {
+            nextBack = replaceTargetPort(
+              nextBack,
+              envMap.BACKEND_PORT || envMap.PORT
+            );
+          }
+        } else if (nextFront && !nextBack) {
+          const isFront = nextFront.toLowerCase().includes('front');
+          const chosenVar = isFront
+            ? 'FRONTEND_PORT'
+            : envMap.BACKEND_PORT
+            ? 'BACKEND_PORT'
+            : envMap.PORT
+            ? 'PORT'
+            : 'FRONTEND_PORT';
+          const desiredPort = envMap[chosenVar];
+          if (desiredPort && !hasFixedInternalPort(chosenVar)) {
+            nextFront = replaceTargetPort(nextFront, desiredPort);
+          }
+        }
+
+        if (routeChanged) {
+          await domainsService.saveRoute({
+            ...matchingRoute,
+            frontendTarget: nextFront,
+            backendTarget: nextBack,
+          });
+        }
       }
     }
   } catch {
@@ -840,20 +895,57 @@ export async function runDockerComposeSafe(
           projectDir,
           []
         );
-      const disabledContainers = new Set(
-        msSummary.microservices
-          .filter((m) => !m.enabled)
-          .map((m) => m.containerName.toLowerCase())
-      );
-      const appContainers = extractComposeContainerNames(projectDir).filter(
-        (c) =>
-          !isDatabaseContainerName(c) &&
-          !disabledContainers.has(c.toLowerCase())
-      );
-      for (const appC of appContainers) {
-        await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
-          timeout: 45000,
-        }).catch(() => null);
+      if (msSummary.isMicroservicesArchitecture) {
+        // En clústeres de microservicios: reiniciar primero Gateway/Core (sin tocar DB),
+        // esperar a que el Gateway abra su puerto interno, y luego reiniciar los microservicios habilitados
+        // para que todos se auto-registren inmediatamente en el Gateway/Core.
+        const coreAppServices = msSummary.coreServices
+          .filter((c) => c.category !== 'database')
+          .map((c) => c.serviceName.replace(/[^a-zA-Z0-9._-]/g, ''))
+          .filter(Boolean);
+        const enabledMsServices = msSummary.microservices
+          .filter((m) => m.enabled)
+          .map((m) => m.serviceName.replace(/[^a-zA-Z0-9._-]/g, ''))
+          .filter(Boolean);
+
+        if (coreAppServices.length > 0) {
+          taskTelemetryService.emitTaskStep(
+            `==> Sincronizando plano de control / Gateway (${coreAppServices.join(', ')})...`,
+            'Sincronizando Gateway Core'
+          );
+          await execAsync(
+            `docker compose restart ${coreAppServices.join(' ')} 2>/dev/null || true`,
+            { cwd: projectDir, env, timeout: 60000 }
+          ).catch(() => null);
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+
+        if (enabledMsServices.length > 0) {
+          taskTelemetryService.emitTaskStep(
+            `==> Enlazando microservicios activos con Core (${enabledMsServices.join(', ')})...`,
+            'Registrando Microservicios en Core'
+          );
+          await execAsync(
+            `docker compose restart ${enabledMsServices.join(' ')} 2>/dev/null || true`,
+            { cwd: projectDir, env, timeout: 90000 }
+          ).catch(() => null);
+        }
+      } else {
+        const disabledContainers = new Set(
+          msSummary.microservices
+            .filter((m) => !m.enabled)
+            .map((m) => m.containerName.toLowerCase())
+        );
+        const appContainers = extractComposeContainerNames(projectDir).filter(
+          (c) =>
+            !isDatabaseContainerName(c) &&
+            !disabledContainers.has(c.toLowerCase())
+        );
+        for (const appC of appContainers) {
+          await execAsync(`docker restart "${appC}" 2>/dev/null || true`, {
+            timeout: 45000,
+          }).catch(() => null);
+        }
       }
     }
     return upRes;

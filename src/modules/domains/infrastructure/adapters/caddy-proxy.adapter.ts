@@ -27,7 +27,7 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
     const list = rawList.map((r) => normalizeDomainRouteTargets(r));
     const blocks: string[] = [
       '# Archivo autogenerado por ALpanel (Prisma ORM)',
-      '# Enruta múltiples dominios (Frontend + Backend) con HTTPS automático',
+      '# Enruta múltiples dominios (Frontend + Backend + Microservicios) con HTTPS automático',
       '',
     ];
 
@@ -41,11 +41,37 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
       const safeBack = sanitizeToken(r.backendTarget || '');
       if (!safeDomain || !safeFront) continue;
 
+      const extraList = Array.isArray(r.extraRoutes)
+        ? r.extraRoutes
+            .map((er) => ({
+              pathPrefix: sanitizeToken(er.pathPrefix),
+              target: sanitizeToken(er.target),
+              stripPrefix: Boolean(er.stripPrefix),
+            }))
+            .filter((er) => er.pathPrefix && er.target)
+        : [];
+
+      const hasMainBack = Boolean(safePrefix && safeBack && safeBack !== safeFront);
+      const hasExtraRoutes = extraList.length > 0;
+
       blocks.push(`${safeDomain} {`);
-      if (safePrefix && safeBack && safeBack !== safeFront) {
-        blocks.push(`    handle ${safePrefix} {`);
-        blocks.push(`        reverse_proxy ${safeBack}`);
-        blocks.push(`    }`);
+      if (hasMainBack || hasExtraRoutes) {
+        // 1. Rutas específicas de microservicios primero (mayor especificidad que /api/*)
+        for (const er of extraList) {
+          const directive = er.stripPrefix ? 'handle_path' : 'handle';
+          blocks.push(`    ${directive} ${er.pathPrefix} {`);
+          blocks.push(`        reverse_proxy ${er.target}`);
+          blocks.push(`    }`);
+        }
+
+        // 2. Ruta general de Backend (/api/*) si aplica
+        if (hasMainBack) {
+          blocks.push(`    handle ${safePrefix} {`);
+          blocks.push(`        reverse_proxy ${safeBack}`);
+          blocks.push(`    }`);
+        }
+
+        // 3. Fallback hacia Contenedor Principal / Frontend / Gateway Core
         blocks.push(`    handle {`);
         blocks.push(`        reverse_proxy ${safeFront}`);
         blocks.push(`    }`);
@@ -66,18 +92,28 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
     const routes = rawRoutes.map((r) => normalizeDomainRouteTargets(r));
     const caddyfileContent = await this.generateCaddyfile(routes);
     try {
+      const uniqueHosts = new Set<string>();
       for (const r of routes) {
-        for (const t of [r.frontendTarget, r.backendTarget]) {
+        const allTargets = [
+          r.frontendTarget,
+          r.backendTarget,
+          ...(r.extraRoutes || []).map((er) => er.target),
+        ];
+        for (const t of allTargets) {
           const host = (t || '')
             .split(':')[0]
             .trim()
             .replace(/[^a-zA-Z0-9._-]/g, '');
           if (host && host !== 'localhost' && host !== '127.0.0.1') {
-            await execAsync(
-              `docker network connect alpanel_proxy_net ${host} 2>/dev/null || true`
-            ).catch(() => null);
+            uniqueHosts.add(host);
           }
         }
+      }
+
+      for (const host of uniqueHosts) {
+        await execAsync(
+          `docker network connect alpanel_proxy_net ${host} 2>/dev/null || true`
+        ).catch(() => null);
       }
 
       const { stdout } = await execAsync(

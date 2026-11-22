@@ -221,7 +221,7 @@ export class ManageProjectMicroservicesUseCase {
 
       if (/^\s{4}[a-zA-Z0-9._-]+\s*:/.test(line)) {
         inEnvBlock = /^\s{4}environment\s*:/.test(line);
-        inPortsBlock = /^\s{4}ports\s*:/.test(line);
+        inPortsBlock = /^\s{4}(?:ports|expose)\s*:/.test(line);
       }
 
       const containerMatch =
@@ -246,21 +246,36 @@ export class ManageProjectMicroservicesUseCase {
         const portClean = trimmed
           .replace(/^-\s*['"]?/, '')
           .replace(/['"]?\s*$/, '');
-        const pMatch = /:(\d+)(?:\/tcp)?$/.exec(portClean);
+        const pMatch =
+          /:(\d+)(?:\/tcp)?$/.exec(portClean) ||
+          /^(\d+)(?:\/tcp)?$/.exec(portClean);
         if (pMatch && !currentService.port) {
           currentService.port = pMatch[1];
         }
         continue;
       }
 
-      if (inEnvBlock && /^\s{6,}[A-Za-z0-9_]+\s*:/.test(line)) {
-        const envMatch = /^\s{6,}([A-Za-z0-9_]+)\s*:\s*(.+)$/.exec(line);
+      if (inEnvBlock) {
+        const envMatch =
+          /^\s{6,}([A-Za-z0-9_]+)\s*:\s*(.+)$/.exec(line) ||
+          /^\s{4,}-\s*['"]?([A-Za-z0-9_]+)\s*=\s*([^'"]+)['"]?$/.exec(line);
         if (envMatch) {
           const k = envMatch[1].trim();
           const v = envMatch[2].trim().replace(/^['"]|['"]$/g, '');
           currentService.env[k] = v;
-          if (k === 'PORT' && !currentService.port && /^\d+$/.test(v)) {
-            currentService.port = v;
+          if ((k === 'PORT' || k === 'HTTP_PORT') && !currentService.port) {
+            const directNum = /^(\d+)$/.exec(v);
+            const fallbackNum = /\$\{[A-Za-z0-9_]+:-(\d+)\}/.exec(v);
+            if (directNum) {
+              currentService.port = directNum[1];
+            } else if (fallbackNum) {
+              currentService.port = fallbackNum[1];
+            }
+          } else if (k === 'SERVICE_PUBLIC_URL' && !currentService.port) {
+            const urlPort = /:(\d+)(?:\/|$)/.exec(v);
+            if (urlPort) {
+              currentService.port = urlPort[1];
+            }
           }
         }
       }

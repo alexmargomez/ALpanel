@@ -471,6 +471,9 @@ function openAppUsersModal(projectName: string): void {
                 <span v-else-if="c.role === 'proxy'" class="text-emerald-400">
                   <i class="fa-solid fa-shield-halved mr-1"></i>SSL Proxy
                 </span>
+                <span v-else-if="c.isGateway || c.role === 'gateway'" class="text-emerald-300 font-semibold">
+                  <i class="fa-solid fa-network-wired mr-1"></i>Gateway / Core
+                </span>
                 <span v-else-if="c.role === 'frontend'" class="text-sky-400">
                   <i class="fa-solid fa-desktop mr-1"></i>Frontend
                 </span>
@@ -489,8 +492,8 @@ function openAppUsersModal(projectName: string): void {
               <span>
                 RAM: <strong class="text-emerald-400">{{ formatBytes(c.memoryBytes) }}</strong>
               </span>
-              <span v-if="c.ports.length" class="text-slate-400 hidden sm:inline">
-                <i class="fa-solid fa-plug mr-1"></i>{{ c.ports.join(', ') }}
+              <span v-if="c.ports.length" class="text-indigo-300 font-mono">
+                <i class="fa-solid fa-plug mr-1 text-slate-400"></i>{{ c.ports.join(', ') }}
               </span>
             </div>
 

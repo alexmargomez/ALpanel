@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import SearchableSelect, {
+  type Select2Option,
+} from '../common/SearchableSelect.vue';
 import {
   apiFetch,
   buildPermissionMapFromRole,
@@ -28,6 +31,14 @@ const selectableRoles = computed(() => {
   }
   return panelStore.roles.filter((r) => r.code !== 'superadmin');
 });
+
+const roleOptions = computed<Select2Option[]>(() =>
+  selectableRoles.value.map((r) => ({
+    value: r.id,
+    label: isSuperEditing.value ? 'Super Administrador — Rol Único' : r.name,
+    badge: r.code,
+  }))
+);
 
 const selectedRoleObj = computed(() =>
   panelStore.roles.find((r) => r.id === Number(selectedRoleId.value))
@@ -162,21 +173,17 @@ async function handleSubmit(): Promise<void> {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-slate-400 mb-1">Rol Asignado</label>
-            <select
+            <SearchableSelect
               v-model="selectedRoleId"
+              :options="roleOptions"
               :disabled="isSuperEditing"
-              @change="syncPermissionDraftFromSelectedRole"
+              placeholder="Selecciona un rol..."
+              search-placeholder="Buscar rol..."
+              size="md"
               required
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500 disabled:opacity-60"
-            >
-              <option v-for="r in selectableRoles" :key="r.id" :value="r.id">
-                {{
-                  isSuperEditing
-                    ? 'Super Administrador (superadmin) — Rol Único'
-                    : `${r.name} (${r.code})`
-                }}
-              </option>
-            </select>
+              accent="indigo"
+              @change="syncPermissionDraftFromSelectedRole"
+            />
           </div>
           <div>
             <label class="block text-slate-400 mb-1">
