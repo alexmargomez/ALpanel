@@ -83,6 +83,9 @@ export class ManageProjectDbUseCase {
       (dbContainer?.image || '').toLowerCase().includes('postgres') ||
       Boolean(merged.POSTGRES_DB || merged.POSTGRES_USER) ||
       internalPort === '5432';
+    if (isPostgres && (!internalPort || internalPort === '-' || internalPort === '3306')) {
+      internalPort = '5432';
+    }
     const isMaria = (dbContainer?.image || '').toLowerCase().includes('mariadb');
 
     const engine = isPostgres

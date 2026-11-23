@@ -188,15 +188,37 @@ export class DockerodeRuntimeAdapter implements ContainerRuntimePort {
 
     try {
       const inspectData = await this.docker.getContainer(containerId).inspect();
+      const imgLower = String(inspectData.Config?.Image || '').toLowerCase();
+      if (imgLower.includes('postgres')) {
+        internalPort = '5432';
+      } else if (imgLower.includes('mongo')) {
+        internalPort = '27017';
+      } else if (imgLower.includes('redis')) {
+        internalPort = '6379';
+      }
+
       for (const e of inspectData.Config?.Env || []) {
         const idx = e.indexOf('=');
         if (idx > 0) {
           env[e.slice(0, idx)] = e.slice(idx + 1);
         }
       }
+
+      const exposedPorts = inspectData.Config?.ExposedPorts || {};
+      for (const exposedKey of Object.keys(exposedPorts)) {
+        const expP = exposedKey.split('/')[0];
+        if (expP && /^\d+$/.test(expP)) {
+          internalPort = expP;
+          break;
+        }
+      }
+
       const ports = inspectData.NetworkSettings?.Ports || {};
       for (const [internalKey, bindings] of Object.entries(ports)) {
         const intP = internalKey.split('/')[0];
+        if (intP && /^\d+$/.test(intP)) {
+          internalPort = intP;
+        }
         if (
           Array.isArray(bindings) &&
           bindings.length > 0 &&
