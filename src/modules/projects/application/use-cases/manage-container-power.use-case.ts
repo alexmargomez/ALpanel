@@ -1293,10 +1293,27 @@ export class ManageContainerPowerUseCase {
           ).catch(() => ({ stdout: '' }));
           targetService = svcOut.trim();
         }
+
+        if (
+          PROTECTED_PANEL_CONTAINERS.has(cleanContainer) ||
+          isDatabaseContainerName(cleanContainer) ||
+          isDatabaseContainerName(targetService)
+        ) {
+          return {
+            success: false,
+            output: `⛔ Por protección de datos e infraestructura, no está permitido ejecutar Rebuild sobre contenedores de Base de Datos ni de Proxy SSL (${cleanContainer || targetService}).`,
+          };
+        }
+
         const logs: string[] = [];
+        const labelTarget = targetService || cleanContainer;
         logs.push(
-          `==> [1/2] Reconstruyendo imagen sin caché para [${targetService || cleanContainer}] (conservando volúmenes de datos)...`
+          taskTelemetryService.emitTaskStep(
+            `==> [Paso 1/2] Reconstruyendo imagen sin caché para [${labelTarget}] (sin afectar los demás contenedores ni volúmenes)...`,
+            `Rebuild Contenedor [${labelTarget}]`
+          )
         );
+
         if (targetService) {
           resourceGuardService.assertMemoryAvailableForOperation({
             operation: `rebuild --no-cache (${targetService})`,
@@ -1305,12 +1322,12 @@ export class ManageContainerPowerUseCase {
             additionalContainersCount: 0,
           });
           const buildRes = await resourceGuardService.execWithMemoryWatchdog(
-            `docker compose build --no-cache "${targetService}"`,
+            `docker compose --ansi never build --no-cache --progress=plain "${targetService}"`,
             {
               cwd: projectDir,
               env,
               timeout: 600000,
-              operation: `rebuild --no-cache ${targetService}`,
+              operation: `Rebuild [${targetService}]`,
               targetProject: projectName,
               cleanupComposeDir: projectDir,
             }
@@ -1319,28 +1336,65 @@ export class ManageContainerPowerUseCase {
           if (buildRes.stderr) logs.push(buildRes.stderr.trim());
 
           logs.push(
-            `\n==> [2/2] Recreando contenedor [${cleanContainer || targetService}] sin afectar los demás servicios...`
+            taskTelemetryService.emitTaskStep(
+              `==> [Paso 2/2] Recreando únicamente el servicio [${labelTarget}] en caliente...`,
+              `Recreando [${labelTarget}]`
+            )
           );
           const upRes = await resourceGuardService.execWithMemoryWatchdog(
-            `docker compose up -d --no-deps --force-recreate "${targetService}"`,
+            `docker compose --ansi never up -d --no-deps --force-recreate "${targetService}"`,
             {
               cwd: projectDir,
               env,
               timeout: 180000,
-              operation: `recreate ${targetService}`,
+              operation: `Recreate [${targetService}]`,
               targetProject: projectName,
               cleanupComposeDir: projectDir,
             }
           );
           if (upRes.stdout) logs.push(upRes.stdout.trim());
           if (upRes.stderr) logs.push(upRes.stderr.trim());
+
+          // Si se reconstruyó únicamente el contenedor Core / Gateway de un clúster de microservicios,
+          // re-enlazar los microservicios activos para que se registren de inmediato en el nuevo Core
+          const msSummary =
+            manageProjectMicroservicesUseCase.detectMicroservicesInDirectory(
+              projectDir,
+              []
+            );
+          const sLower = targetService.toLowerCase();
+          if (
+            msSummary.isMicroservicesArchitecture &&
+            (sLower === 'core' ||
+              sLower === 'gateway' ||
+              sLower === 'api-gateway' ||
+              sLower === 'control-plane')
+          ) {
+            const enabledMsServices = msSummary.microservices
+              .filter((m) => m.enabled)
+              .map((m) => m.serviceName.replace(/[^a-zA-Z0-9._-]/g, ''))
+              .filter(Boolean);
+            if (enabledMsServices.length > 0) {
+              logs.push(
+                taskTelemetryService.emitTaskStep(
+                  `==> Sincronizando registro de ${enabledMsServices.length} microservicio(s) contra el nuevo Gateway [${targetService}]...`,
+                  'Enlazando microservicios con Core'
+                )
+              );
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              await execAsync(
+                `docker compose restart ${enabledMsServices.join(' ')} 2>/dev/null || true`,
+                { cwd: projectDir, env, timeout: 90000 }
+              ).catch(() => null);
+            }
+          }
         } else if (cleanContainer) {
           await execAsync(`docker restart "${cleanContainer}"`, { timeout: 60000 });
         }
+
         await domainsService.reloadCaddy().catch(() => null);
-        logs.push(
-          `\n✅ Rebuild de [${cleanContainer || targetService}] completado conservando sus volúmenes.`
-        );
+        const doneMsg = `✅ Rebuild individual de [${cleanContainer || targetService}] completado exitosamente conservando intactos los demás contenedores y bases de datos.`;
+        logs.push(`\n${taskTelemetryService.emitTaskStep(doneMsg, 'Completado')}`);
         return { success: true, output: logs.join('\n') };
       }
 

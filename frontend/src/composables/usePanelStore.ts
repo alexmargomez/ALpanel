@@ -710,11 +710,20 @@ export async function runProjectAction(
   action: string,
   body: Record<string, any> = {}
 ): Promise<void> {
+  const targetContainer = body?.containerName ? String(body.containerName) : '';
+  const scopeLabel = targetContainer
+    ? `${projectName} [${targetContainer}]`
+    : projectName;
+
   const titleMap: Record<string, string> = {
     pull: `Git Pull & Deploy — ${projectName}`,
-    restart: `Reiniciando Docker — ${projectName}`,
+    restart: targetContainer
+      ? `Reiniciando Contenedor [${targetContainer}] — ${projectName}`
+      : `Reiniciando Docker — ${projectName}`,
     'clear-cache': `Limpiando Caché — ${projectName}`,
-    rebuild: `Rebuild Seguro — ${projectName}`,
+    rebuild: targetContainer
+      ? `Rebuild Contenedor [${targetContainer}] — ${projectName}`
+      : `Rebuild Seguro — ${projectName}`,
     'rebuild-destroy': `Rebuild Destroy Total — ${projectName}`,
     delete: `Eliminando Proyecto — ${projectName}`,
     start: `Iniciando Contenedores — ${projectName}`,
@@ -723,9 +732,13 @@ export async function runProjectAction(
 
   const runningMessageMap: Record<string, string> = {
     pull: 'Descargando cambios de Git y actualizando contenedores...',
-    restart: 'Reiniciando contenedores Docker en segundo plano...',
+    restart: targetContainer
+      ? `Reiniciando contenedor ${targetContainer} en segundo plano...`
+      : 'Reiniciando contenedores Docker en segundo plano...',
     'clear-cache': 'Limpiando caché interna del proyecto...',
-    rebuild: 'Reconstruyendo imágenes y contenedores en segundo plano...',
+    rebuild: targetContainer
+      ? `Reconstruyendo imagen y recreando únicamente ${targetContainer}...`
+      : 'Reconstruyendo imágenes y contenedores en segundo plano...',
     'rebuild-destroy': 'Destruyendo y reconstruyendo contenedores desde cero...',
     delete: 'Deteniendo contenedores y eliminando proyecto...',
     start: 'Levantando contenedores del proyecto...',
@@ -733,11 +746,11 @@ export async function runProjectAction(
   };
 
   enqueueBackgroundTask({
-    title: titleMap[action] || `Ejecutando ${action} — ${projectName}`,
+    title: titleMap[action] || `Ejecutando ${action} — ${scopeLabel}`,
     projectName,
     action,
     runningMessage: runningMessageMap[action] || `Ejecutando ${action} en segundo plano...`,
-    initialOutput: `⏳ Ejecutando ${action} en ${projectName}...\n`,
+    initialOutput: `⏳ Ejecutando ${action} en ${scopeLabel}...\n`,
     taskFn: () =>
       apiFetch<{ output: string }>(
         `/api/projects/${encodeURIComponent(projectName)}/${action}`,
