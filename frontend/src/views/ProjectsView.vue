@@ -531,6 +531,19 @@ function openAppUsersModal(projectName: string): void {
                 <i class="fa-solid fa-rotate"></i> Restart
               </button>
               <button
+                v-if="canDeployProjects && c.role !== 'database' && c.role !== 'proxy'"
+                @click="
+                  runProjectAction(p.name, 'rebuild', {
+                    containerName: c.name,
+                    serviceName: c.serviceName,
+                  })
+                "
+                class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition"
+                :title="`Reconstruir imagen sin caché (--no-cache) y recrear únicamente el contenedor ${c.name} sin tocar la BD ni los demás servicios`"
+              >
+                <i class="fa-solid fa-hammer"></i> Rebuild
+              </button>
+              <button
                 v-if="canViewLogs"
                 @click="openLogsModal(p.name, c.name)"
                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]"
