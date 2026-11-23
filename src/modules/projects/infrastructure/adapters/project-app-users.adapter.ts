@@ -4,6 +4,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
 import { projectsService } from '../../application/use-cases/projects-facade.use-case';
+import { upsertEnvFileVariables } from '../../application/use-cases/manage-container-power.use-case';
+import {
+  hashProvekoArgon2id,
+  verifyProvekoArgon2id,
+} from '../../../../shared/infrastructure/services/argon2id.util';
 
 const execAsync = promisify(exec);
 
@@ -158,6 +163,8 @@ export class ProjectUsersService {
 
   private collectCandidatePasswords(projectDir: string, usernames: string[]): string[] {
     const candidates = new Set<string>([
+      'AdminPlataforma2026*',
+      'ChangeMeSuperAdmin2026*',
       'admin123',
       '123456',
       'admin',
@@ -259,10 +266,23 @@ export class ProjectUsersService {
       unresolved.map((u) => u.user.username)
     );
 
-    // 1. Verificar PBKDF2 (Django) o SHA1 (Symfony) directamente en memoria de Node
+    // 1. Verificar Argon2id (Proveko Go), PBKDF2 (Django) o SHA1 (Symfony) directamente en memoria de Node
     const bcryptUnresolved: Array<{ user: AppUserRecord; hash: string }> = [];
     for (const item of unresolved) {
-      if (item.hash.startsWith('pbkdf2_sha256$')) {
+      if (item.hash.startsWith('argon2id$')) {
+        for (const cand of candidates.slice(0, 3)) {
+          if (verifyProvekoArgon2id(cand, item.hash)) {
+            item.user.knownPassword = cand;
+            this.storeVaultPassword(
+              projectName,
+              item.user.username,
+              cand,
+              item.hash
+            );
+            break;
+          }
+        }
+      } else if (item.hash.startsWith('pbkdf2_sha256$')) {
         const parts = item.hash.split('$');
         if (parts.length === 4) {
           const iterations = Number(parts[1]) || 600000;
@@ -425,13 +445,23 @@ export class ProjectUsersService {
     const candidateContainers = (proj.containers || [])
       .filter((c) => c.role !== 'database' && c.role !== 'proxy')
       .sort((a, b) => {
-        if (a.role === 'backend' && b.role !== 'backend') return -1;
-        if (a.role !== 'backend' && b.role === 'backend') return 1;
-        return 0;
+        const rank = (x: { role: string; isGateway?: boolean }) => {
+          if (x.isGateway || x.role === 'gateway') return 0;
+          if (x.role === 'backend') return 1;
+          return 2;
+        };
+        return rank(a) - rank(b);
       });
     const appContainerNames = candidateContainers
       .map((c) => c.name.replace(/[^a-zA-Z0-9._-]/g, ''))
       .filter(Boolean);
+
+    let resolvedInternalPort = isPostgres ? '5432' : '3306';
+    if (db.internalPort && db.internalPort !== '-') {
+      if (!(isPostgres && db.internalPort === '3306')) {
+        resolvedInternalPort = db.internalPort;
+      }
+    }
 
     return {
       projectDir: proj.path,
@@ -442,7 +472,7 @@ export class ProjectUsersService {
       database: db.database,
       username: isPostgres ? db.username : (db.rootPassword && db.rootPassword !== '-' ? 'root' : db.username),
       password: isPostgres ? db.password : (db.rootPassword && db.rootPassword !== '-' ? db.rootPassword : db.password),
-      internalPort: db.internalPort && db.internalPort !== '-' ? db.internalPort : (isPostgres ? '5432' : '3306'),
+      internalPort: resolvedInternalPort,
     };
   }
 
@@ -451,7 +481,11 @@ export class ProjectUsersService {
     const b64Pass = Buffer.from(ctx.password, 'utf-8').toString('base64');
 
     if (ctx.isPostgres) {
-      const cmd = `docker exec ${ctx.containerName} sh -c 'export PGPASSWORD="$(echo ${b64Pass} | base64 -d)"; echo ${b64Sql} | base64 -d | psql -X -U "${ctx.username}" -p "${ctx.internalPort}" -d "${ctx.database}" -t -A -F "|"'`;
+      const pgPort =
+        ctx.internalPort && ctx.internalPort !== '3306' && ctx.internalPort !== '-'
+          ? ctx.internalPort
+          : '5432';
+      const cmd = `docker exec ${ctx.containerName} sh -c 'export PGPASSWORD="$(echo ${b64Pass} | base64 -d)"; SQL="$(echo ${b64Sql} | base64 -d)"; (printf "%s" "$SQL" | psql -X -U "${ctx.username}" -p "${pgPort}" -d "${ctx.database}" -t -A -F "|" 2>/dev/null) || (printf "%s" "$SQL" | psql -X -h 127.0.0.1 -U "${ctx.username}" -p "${pgPort}" -d "${ctx.database}" -t -A -F "|")'`;
       const { stdout } = await execAsync(cmd, { timeout: 15000 });
       return stdout.trim();
     } else {
@@ -461,10 +495,33 @@ export class ProjectUsersService {
     }
   }
 
-  private async detectTableColumns(ctx: DbExecContext, tableName: string): Promise<string[]> {
+  private readProjectEnvVar(projectDir: string, key: string, fallback = ''): string {
+    for (const file of ['.env', '.env.example']) {
+      const p = path.join(projectDir, file);
+      if (!fs.existsSync(p)) continue;
+      try {
+        const content = fs.readFileSync(p, 'utf-8');
+        const m = new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm').exec(content);
+        if (m) {
+          const val = m[1].trim().replace(/^['"]|['"]$/g, '');
+          if (val) return val;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return fallback;
+  }
+
+  private async detectTableColumns(
+    ctx: DbExecContext,
+    tableName: string,
+    schemaName = 'public'
+  ): Promise<string[]> {
     const safeTable = this.escapeSqlLiteral(tableName);
+    const safeSchema = this.escapeSqlLiteral(schemaName);
     const sql = ctx.isPostgres
-      ? `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${safeTable}' ORDER BY ordinal_position;`
+      ? `SELECT column_name FROM information_schema.columns WHERE table_schema = '${safeSchema}' AND table_name = '${safeTable}' ORDER BY ordinal_position;`
       : `SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_SCHEMA = '${this.escapeSqlLiteral(ctx.database)}' AND TABLE_NAME = '${safeTable}' ORDER BY ORDINAL_POSITION;`;
 
     const out = await this.runSql(ctx, sql);
@@ -477,6 +534,85 @@ export class ProjectUsersService {
 
   async getProjectUsers(projectName: string): Promise<AppUsersOverview> {
     const ctx = await this.resolveDbContext(projectName);
+
+    // 0. Verificar arquitectura Multi-Tenant Control Plane en PostgreSQL (`core_control.tenants` + SuperAdmin .env)
+    if (ctx.isPostgres) {
+      const controlTenantsCols = await this.detectTableColumns(
+        ctx,
+        'tenants',
+        'core_control'
+      );
+      if (
+        controlTenantsCols.includes('admin_username') &&
+        controlTenantsCols.includes('password_hash')
+      ) {
+        const superEmail = this.readProjectEnvVar(
+          ctx.projectDir,
+          'SUPERADMIN_EMAIL',
+          'superadmin@plataforma.local'
+        );
+        const superPass = this.readProjectEnvVar(
+          ctx.projectDir,
+          'SUPERADMIN_PASSWORD',
+          'ChangeMeSuperAdmin2026*'
+        );
+
+        const raw = await this.runSql(
+          ctx,
+          `SELECT tenant_id, admin_username, COALESCE(company_name, ''), COALESCE(role, 'cliente'), COALESCE(status, 'ACTIVE'), COALESCE(password_hash, '') FROM core_control.tenants ORDER BY created_at ASC;`
+        );
+
+        const tenantRecords = raw
+          ? raw
+              .split('\n')
+              .filter(Boolean)
+              .map((line) => {
+                const [tId, adminUser, company, role, status, passHash] =
+                  line.split('|');
+                const cleanUser = String(adminUser || '').trim();
+                const cleanCompany = String(company || '').trim();
+                return {
+                  user: {
+                    id: String(tId || '').trim(),
+                    username: cleanUser,
+                    email: cleanCompany
+                      ? `${cleanCompany} (${tId})`
+                      : String(tId || ''),
+                    role: String(role || 'cliente').trim(),
+                    isActive:
+                      String(status || 'ACTIVE').trim().toUpperCase() !==
+                      'SUSPENDED',
+                  } as AppUserRecord,
+                  hash: String(passHash || '').trim(),
+                };
+              })
+          : [];
+
+        await this.resolveKnownPasswords(projectName, ctx, tenantRecords);
+
+        const superAdminRecord: AppUserRecord = {
+          id: '__superadmin__',
+          username: superEmail,
+          email: 'SuperAdmin Global (.env Control Plane)',
+          role: 'superadmin',
+          isActive: true,
+          knownPassword: superPass,
+        };
+
+        return {
+          projectName,
+          supported: true,
+          engine: 'PostgreSQL (Multi-Tenant Control Plane)',
+          tableName: 'core_control.tenants',
+          schemaLabel: 'Control Plane SaaS (SuperAdmin + Empresas/Tenants)',
+          hashAlgorithm: 'argon2id (RFC 9106)',
+          hasEmail: true,
+          hasRole: true,
+          hasActive: true,
+          users: [superAdminRecord, ...tenantRecords.map((r) => r.user)],
+        };
+      }
+    }
 
     // 1. Verificar tabla Django `auth_user`
     const authUserCols = await this.detectTableColumns(ctx, 'auth_user');
@@ -632,7 +768,7 @@ export class ProjectUsersService {
       hasRole: false,
       hasActive: false,
       users: [],
-      message: 'No se encontró una tabla de usuarios reconocida (users, auth_user o sf_guard_user) en esta base de datos. Asegúrate de que el contenedor Backend haya ejecutado sus migraciones iniciales.',
+      message: 'No se encontró una tabla de usuarios reconocida (core_control.tenants, users, auth_user o sf_guard_user) en esta base de datos. Asegúrate de que el contenedor Backend haya ejecutado sus migraciones iniciales.',
     };
   }
 
@@ -657,6 +793,128 @@ export class ProjectUsersService {
 
     if (!cleanUser) {
       throw new Error('El nombre de usuario es obligatorio.');
+    }
+
+    // 0. Arquitectura Multi-Tenant Control Plane (`core_control.tenants` + SuperAdmin .env)
+    if (ctx.isPostgres) {
+      const controlTenantsCols = await this.detectTableColumns(
+        ctx,
+        'tenants',
+        'core_control'
+      );
+      if (
+        controlTenantsCols.includes('admin_username') &&
+        controlTenantsCols.includes('password_hash')
+      ) {
+        const currentSuperEmail = this.readProjectEnvVar(
+          ctx.projectDir,
+          'SUPERADMIN_EMAIL',
+          'superadmin@plataforma.local'
+        );
+
+        if (
+          payload.id === '__superadmin__' ||
+          rawUsername.toLowerCase() === currentSuperEmail.toLowerCase()
+        ) {
+          const envUpdates: Record<string, string> = {
+            SUPERADMIN_EMAIL: rawUsername.toLowerCase(),
+          };
+          if (rawPass) {
+            envUpdates.SUPERADMIN_PASSWORD = rawPass;
+          }
+          upsertEnvFileVariables(ctx.projectDir, envUpdates);
+          if (ctx.appContainerName) {
+            await execAsync(
+              `cd "${ctx.projectDir}" && docker compose up -d "${ctx.appContainerName.includes('core') ? 'core' : ''}" 2>/dev/null || docker restart "${ctx.appContainerName}" 2>/dev/null || true`,
+              { timeout: 45000 }
+            ).catch(() => null);
+          }
+          return {
+            success: true,
+            message: `SuperAdmin Global (${rawUsername.toLowerCase()}) actualizado en .env y sincronizado en Core.`,
+          };
+        }
+
+        if (payload.id) {
+          const safeTenantId = this.escapeSqlLiteral(payload.id.trim());
+          const normalizedRole =
+            cleanRole.toLowerCase().includes('super')
+              ? 'superadmin'
+              : 'cliente';
+          const statusVal = isActive ? 'ACTIVE' : 'SUSPENDED';
+          const updates: string[] = [
+            `admin_username = '${this.escapeSqlLiteral(rawUsername.toLowerCase())}'`,
+            `role = '${normalizedRole}'`,
+            `status = '${statusVal}'`,
+          ];
+          if (rawPass) {
+            const rawHash = hashProvekoArgon2id(rawPass);
+            updates.push(`password_hash = '${this.escapeSqlLiteral(rawHash)}'`);
+            this.storeVaultPassword(
+              projectName,
+              rawUsername.toLowerCase(),
+              rawPass,
+              rawHash
+            );
+          }
+          await this.runSql(
+            ctx,
+            `UPDATE core_control.tenants SET ${updates.join(', ')} WHERE tenant_id = '${safeTenantId}';`
+          );
+          return {
+            success: true,
+            message: `Usuario administrador ${rawUsername.toLowerCase()} actualizado en core_control.tenants (Argon2id).`,
+          };
+        } else {
+          if (!rawPass) {
+            throw new Error(
+              'Debes ingresar una contraseña para aprovisionar la nueva cuenta.'
+            );
+          }
+          if (!ctx.appContainerName) {
+            throw new Error(
+              'El contenedor Gateway/Core debe estar en ejecución para aprovisionar la base de datos del nuevo tenant.'
+            );
+          }
+          const companyLabel =
+            (payload.email || '').trim() ||
+            `Empresa ${rawUsername.split('@')[0] || rawUsername}`;
+          const registerBody = JSON.stringify({
+            companyName: companyLabel,
+            nit: `900.${Math.floor(100000 + Math.random() * 899999)}-1`,
+            adminUsername: rawUsername.toLowerCase(),
+            adminEmail: rawUsername.includes('@')
+              ? rawUsername.toLowerCase()
+              : `${rawUsername.toLowerCase()}@empresa.local`,
+            password: rawPass,
+            businessPreset: 'full',
+          });
+          const b64Body = Buffer.from(registerBody, 'utf-8').toString('base64');
+          const { stdout: regOut } = await execAsync(
+            `docker exec ${ctx.appContainerName} sh -c 'BODY="$(echo ${b64Body} | base64 -d)"; wget -qO- --header="Content-Type: application/json" --post-data="$BODY" http://127.0.0.1:4000/api/v1/auth/register-tenant 2>&1 || true'`,
+            { timeout: 30000 }
+          );
+          if (regOut && regOut.includes('"ok":true')) {
+            const rawHash = await this.runSql(
+              ctx,
+              `SELECT COALESCE(password_hash, '') FROM core_control.tenants WHERE admin_username = '${this.escapeSqlLiteral(rawUsername.toLowerCase())}' LIMIT 1;`
+            ).catch(() => '');
+            this.storeVaultPassword(
+              projectName,
+              rawUsername.toLowerCase(),
+              rawPass,
+              rawHash.trim()
+            );
+            return {
+              success: true,
+              message: `Cuenta empresarial ${rawUsername.toLowerCase()} y su base de datos aislada aprovisionadas exitosamente en ${projectName}.`,
+            };
+          }
+          throw new Error(
+            `El Gateway rechazó el aprovisionamiento: ${regOut || 'verifica el formato de usuario/contraseña (mín. 8 caracteres)'}`
+          );
+        }
+      }
     }
 
     // 1. Django `auth_user`
@@ -814,6 +1072,32 @@ export class ProjectUsersService {
 
   async deleteProjectUser(projectName: string, userId: string): Promise<{ success: boolean; message: string }> {
     const ctx = await this.resolveDbContext(projectName);
+
+    if (ctx.isPostgres) {
+      const controlTenantsCols = await this.detectTableColumns(
+        ctx,
+        'tenants',
+        'core_control'
+      );
+      if (controlTenantsCols.includes('admin_username')) {
+        if (userId === '__superadmin__') {
+          throw new Error(
+            'La cuenta SuperAdmin Global del plano de control no puede eliminarse (puedes cambiar su correo o contraseña editándola).'
+          );
+        }
+        const safeId = this.escapeSqlLiteral(String(userId || '').trim());
+        if (!safeId) throw new Error('ID de tenant inválido.');
+        await this.runSql(
+          ctx,
+          `DELETE FROM core_control.tenants WHERE tenant_id = '${safeId}';`
+        );
+        return {
+          success: true,
+          message: `Cuenta empresarial "${userId}" eliminada de core_control.tenants.`,
+        };
+      }
+    }
+
     const cleanId = Number(userId);
     if (!cleanId) throw new Error('ID de usuario inválido.');
 
@@ -842,4 +1126,5 @@ export class ProjectUsersService {
 }
 
 export const projectUsersService = new ProjectUsersService();
+
 
