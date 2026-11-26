@@ -176,4 +176,64 @@ export async function registerProjectsRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requirePermission('git', 'create')] },
     (req, reply) => projectsController.detectRemoteMicroservices(req, reply)
   );
+
+  app.post(
+    '/api/projects/create-empty',
+    { preHandler: [authenticate, requirePermission('projects', 'create')] },
+    (req, reply) => projectsController.createEmptyWorkspace(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/containers',
+    { preHandler: [authenticate, requirePermission('projects', 'deploy')] },
+    (req, reply) => projectsController.addContainer(req, reply)
+  );
+
+  app.get(
+    '/api/projects/:name/files',
+    { preHandler: [authenticate, requirePermission('projects', 'view')] },
+    (req, reply) => projectsController.listFiles(req, reply)
+  );
+
+  app.get(
+    '/api/projects/:name/files/content',
+    { preHandler: [authenticate, requirePermission('projects', 'view')] },
+    (req, reply) => projectsController.readFile(req, reply)
+  );
+
+  app.put(
+    '/api/projects/:name/files/content',
+    { preHandler: [authenticate, requirePermission('projects', 'edit')] },
+    (req, reply) => projectsController.writeFile(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/files/restore',
+    { preHandler: [authenticate, requirePermission('projects', 'edit')] },
+    (req, reply) => projectsController.restoreFileBackup(req, reply)
+  );
+
+  app.post(
+    '/api/projects/:name/files/create',
+    { preHandler: [authenticate, requirePermission('projects', 'edit')] },
+    (req, reply) => projectsController.createFileEntry(req, reply)
+  );
+
+  app.delete(
+    '/api/projects/:name/files',
+    { preHandler: [authenticate, requirePermission('projects', 'delete')] },
+    (req, reply) => projectsController.deleteFileEntry(req, reply)
+  );
+
+  app.get(
+    '/api/projects/:name/git-inspector',
+    { preHandler: [authenticate, requirePermission('git', 'view')] },
+    (req, reply) => projectsController.inspectGit(req, reply)
+  );
+
+  app.get(
+    '/api/projects/:name/git-inspector/diff',
+    { preHandler: [authenticate, requirePermission('git', 'view')] },
+    (req, reply) => projectsController.inspectGitDiff(req, reply)
+  );
 }

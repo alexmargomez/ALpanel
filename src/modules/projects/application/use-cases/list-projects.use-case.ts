@@ -12,6 +12,7 @@ import { ContainerRuntimePort } from '../ports/container-runtime.port';
 import { GitRepositoryPort } from '../ports/git-repository.port';
 import { ManageProjectDbUseCase } from './manage-project-db.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
+import { manageProjectWorkspaceUseCase } from './manage-project-workspace.use-case';
 
 export class ListProjectsUseCase {
   constructor(
@@ -44,6 +45,7 @@ export class ListProjectsUseCase {
         if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
         const fullPath = path.join(this.projectsRoot, entry.name);
         const hasProjectMarkers =
+          fs.existsSync(path.join(fullPath, '.alpanel-project.json')) ||
           fs.existsSync(path.join(fullPath, 'docker-compose.yml')) ||
           fs.existsSync(path.join(fullPath, 'docker-compose.yaml')) ||
           fs.existsSync(path.join(fullPath, 'Dockerfile')) ||
@@ -267,9 +269,16 @@ export class ListProjectsUseCase {
           stackList.unshift('Microservices');
         }
 
+        const workspaceManifest =
+          manageProjectWorkspaceUseCase.readManifest(projectDir);
+
         return {
           name: displayName,
           path: projectDir,
+          serverId: workspaceManifest?.serverId || 'local',
+          serverName: workspaceManifest?.serverName || 'Nodo Central (Local)',
+          isolatedNetwork: workspaceManifest?.isolatedNetwork,
+          linkedUpstreams: workspaceManifest?.linkedUpstreams || [],
           stack: stackList,
           status,
           domains,

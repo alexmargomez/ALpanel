@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   apiFetch,
   enqueueBackgroundTask,
+  loadServers,
+  openProjectWorkspace,
   panelStore,
+  refreshAll,
   showToast,
 } from '../../composables/usePanelStore';
 import {
@@ -12,19 +15,70 @@ import {
   injectSecretInEnvText,
 } from '../../services/api';
 import type { ProjectMicroservicesSummary } from '../../types/panel';
+import SearchableSelect from '../common/SearchableSelect.vue';
+
+const mode = ref<'empty' | 'git'>('empty');
+const serverId = ref('local');
+const projectName = ref('');
+const description = ref('');
 
 const repoUrl = ref('');
-const projectName = ref('');
 const branch = ref('');
+const gitCredentialId = ref('');
 const envContent = ref('');
 const autoStart = ref(true);
 
+const creatingEmpty = ref(false);
 const detectingArchitecture = ref(false);
 const detectedSummary = ref<ProjectMicroservicesSummary | null>(null);
 const selectedMicroservices = ref<string[]>([]);
 
+const serverOptions = computed(() =>
+  panelStore.servers.map((s) => ({
+    value: s.id,
+    label: s.name,
+    sublabel: s.isLocal
+      ? `Local (${panelStore.host.publicIp || s.host})`
+      : `${s.sshUser}@${s.host}:${s.sshPort}`,
+    badge: s.status === 'online' ? 'ONLINE' : s.status.toUpperCase(),
+  }))
+);
+
+const gitCredentialOptions = computed(() => [
+  {
+    value: '',
+    label: 'Sin credencial (Repositorio público o SSH)',
+    sublabel: 'Clonado directo sin token',
+  },
+  ...panelStore.gitCredentials.map((c) => ({
+    value: c.id,
+    label: c.label,
+    sublabel: `${c.provider.toUpperCase()} · ${c.username || 'token'}`,
+  })),
+]);
+
+watch(
+  () => panelStore.modals.clone.open,
+  (isOpen) => {
+    if (isOpen && panelStore.servers.length === 0) {
+      loadServers().catch(() => {});
+    }
+  }
+);
+
 function close(): void {
   panelStore.modals.clone.open = false;
+}
+
+function resetForm(): void {
+  projectName.value = '';
+  description.value = '';
+  repoUrl.value = '';
+  branch.value = '';
+  gitCredentialId.value = '';
+  envContent.value = '';
+  detectedSummary.value = null;
+  selectedMicroservices.value = [];
 }
 
 function onRepoUrlInput(): void {
@@ -161,12 +215,10 @@ async function detectRepoArchitecture(): Promise<void> {
     if (res.summary.isMicroservicesArchitecture) {
       syncEnabledMicroservicesInEnvText();
       showToast(
-        `🧩 Detectados ${res.summary.totalMicroservices} microservicios de dominio y ${res.summary.coreServices.length} servicios Core`
+        `Detectados ${res.summary.totalMicroservices} microservicios y ${res.summary.coreServices.length} servicios Core`
       );
     } else {
-      showToast(
-        '📦 Proyecto estándar / monolítico detectado (sin microservicios independientes)'
-      );
+      showToast('Proyecto estándar detectado (sin microservicios independientes)');
     }
   } catch (err: any) {
     showToast(`Error inspeccionando repositorio: ${err.message}`, true);
@@ -177,13 +229,13 @@ async function detectRepoArchitecture(): Promise<void> {
 
 function generateSecret(keyName: string): void {
   envContent.value = injectSecretInEnvText(envContent.value, keyName, 32);
-  showToast(`🔑 ${keyName} criptográfico generado y aplicado`);
+  showToast(`${keyName} criptográfico generado y aplicado`);
 }
 
 function generateDbPassword(): void {
   const res = injectDbPasswordInEnvText(envContent.value);
   envContent.value = res.text;
-  showToast(`🎲 ${res.keyUpdated} actualizado con contraseña segura`);
+  showToast(`${res.keyUpdated} actualizado con contraseña segura`);
 }
 
 async function autoFetchRepoEnvExample(): Promise<void> {
@@ -219,26 +271,59 @@ async function autoFetchRepoEnvExample(): Promise<void> {
           text += `\nJWT_SECRET=${jwtSecret}`;
         }
         envContent.value = text;
-        showToast(
-          '✨ .env.example cargado del repositorio + JWT_SECRET generado automáticamente'
-        );
+        showToast('.env.example cargado + JWT_SECRET generado automáticamente');
         return;
       }
     } catch {
-      // Intentar siguiente rama
+      // Try next branch
     }
   }
 
   generateSecret('JWT_SECRET');
 }
 
+async function handleCreateEmpty(): Promise<void> {
+  const name = projectName.value.trim();
+  if (!name) {
+    showToast('Ingresa un nombre válido para el proyecto.', true);
+    return;
+  }
+  creatingEmpty.value = true;
+  try {
+    await apiFetch('/api/projects/create-empty', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectName: name,
+        serverId: serverId.value || 'local',
+        description: description.value.trim(),
+      }),
+    });
+    showToast(`Proyecto aislado "${name}" creado. Abriendo espacio de trabajo...`);
+    close();
+    resetForm();
+    await refreshAll();
+    await openProjectWorkspace(name, 'containers');
+  } catch (err: any) {
+    showToast(`Error creando proyecto: ${err.message}`, true);
+  } finally {
+    creatingEmpty.value = false;
+  }
+}
+
 async function handleSubmit(): Promise<void> {
+  if (mode.value === 'empty') {
+    await handleCreateEmpty();
+    return;
+  }
+
   const payload: Record<string, any> = {
     name: projectName.value.trim(),
     repoUrl: repoUrl.value.trim(),
     branch: branch.value.trim(),
     envContent: envContent.value,
     autoStart: autoStart.value,
+    serverId: serverId.value || 'local',
+    gitCredentialId: gitCredentialId.value || undefined,
   };
 
   if (detectedSummary.value?.isMicroservicesArchitecture) {
@@ -246,12 +331,7 @@ async function handleSubmit(): Promise<void> {
   }
 
   close();
-  repoUrl.value = '';
-  projectName.value = '';
-  branch.value = '';
-  envContent.value = '';
-  detectedSummary.value = null;
-  selectedMicroservices.value = [];
+  resetForm();
 
   enqueueBackgroundTask({
     title: `Clonando y Desplegando ${payload.name}`,
@@ -272,6 +352,7 @@ async function handleSubmit(): Promise<void> {
   <div
     v-if="panelStore.modals.clone.open"
     class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+    @click.self="close"
   >
     <div
       class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl my-auto max-h-[92vh] overflow-y-auto"
@@ -279,149 +360,251 @@ async function handleSubmit(): Promise<void> {
       <div
         class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4"
       >
-        <h3 class="text-sm font-bold text-white">
-          <i class="fa-brands fa-git-alt text-indigo-400 mr-2"></i>Clonar y
-          Desplegar Nuevo Proyecto
-        </h3>
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-layer-group text-indigo-400"></i>
+            <span>Crear Nuevo Proyecto</span>
+          </h3>
+          <p class="text-[11px] text-slate-400">
+            Cada proyecto opera con red Docker aislada, archivos propios y dominios independientes.
+          </p>
+        </div>
         <button @click="close" class="text-slate-400 hover:text-white">
           <i class="fa-solid fa-xmark text-lg"></i>
         </button>
       </div>
 
-      <form @submit.prevent="handleSubmit" class="space-y-3.5 text-xs">
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="block text-slate-400">
-              URL del Repositorio Git (HTTPS o SSH)
-            </label>
-            <button
-              type="button"
-              :disabled="detectingArchitecture || !repoUrl.trim()"
-              @click="detectRepoArchitecture"
-              class="px-2.5 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 disabled:opacity-50 text-violet-300 border border-violet-500/30 text-[11px] font-semibold flex items-center gap-1.5 transition"
-              title="Analiza el repositorio remoto para detectar si tiene microservicios y elegir cuáles integrar"
-            >
-              <i
-                class="fa-solid"
-                :class="
-                  detectingArchitecture
-                    ? 'fa-circle-notch fa-spin'
-                    : 'fa-cubes'
-                "
-              ></i>
-              {{
-                detectingArchitecture
-                  ? 'Analizando arquitectura...'
-                  : 'Detectar Microservicios'
-              }}
-            </button>
+      <!-- Selector de Modo de Creación -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+        <button
+          type="button"
+          @click="mode = 'empty'"
+          class="p-3 rounded-xl border text-left transition flex items-start gap-2.5"
+          :class="
+            mode === 'empty'
+              ? 'bg-indigo-500/15 border-indigo-500/50 text-white'
+              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+          "
+        >
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            :class="
+              mode === 'empty'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-400'
+            "
+          >
+            <i class="fa-solid fa-cube text-xs"></i>
           </div>
-          <input
-            v-model="repoUrl"
-            @input="onRepoUrlInput"
-            type="text"
-            placeholder="https://github.com/usuario/proyecto.git"
-            required
-            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white"
+          <div>
+            <div class="text-xs font-bold">Proyecto Vacío Aislado</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">
+              Crea el workspace con red aislada y luego agrega contenedores de Git, otro servidor o Docker.
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          @click="mode = 'git'"
+          class="p-3 rounded-xl border text-left transition flex items-start gap-2.5"
+          :class="
+            mode === 'git'
+              ? 'bg-indigo-500/15 border-indigo-500/50 text-white'
+              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+          "
+        >
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            :class="
+              mode === 'git'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-400'
+            "
+          >
+            <i class="fa-brands fa-git-alt text-xs"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold">Clonar Repositorio Completo</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">
+              Importa un repositorio completo de GitHub o GitLab con detección automática de microservicios.
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <form @submit.prevent="handleSubmit" class="space-y-3.5 text-xs">
+        <!-- Selector de Servidor Destino (Select2) -->
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">
+            Servidor Destino
+          </label>
+          <SearchableSelect
+            v-model="serverId"
+            :options="serverOptions"
+            placeholder="Seleccionar servidor destino..."
+            search-placeholder="Buscar servidor o IP..."
           />
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <div class="sm:col-span-2">
-            <label class="block text-slate-400 mb-1">
-              Nombre de la Carpeta del Proyecto
+        <!-- MODO 1: PROYECTO VACÍO AISLADO -->
+        <template v-if="mode === 'empty'">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">
+              Nombre del Proyecto *
             </label>
             <input
               v-model="projectName"
               type="text"
-              placeholder="ej. Proveko"
+              placeholder="Ej: Proveko-Core, Facturacion-VPS2"
+              required
+              class="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-white focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">
+              Descripción / Propósito (Opcional)
+            </label>
+            <input
+              v-model="description"
+              type="text"
+              placeholder="Ej: Cluster de microservicios SaaS multi-tenant"
+              class="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-white focus:outline-none"
+            />
+          </div>
+
+          <div
+            class="p-3.5 rounded-xl bg-slate-950/80 border border-indigo-500/20 text-[11px] text-slate-300 space-y-1"
+          >
+            <div class="font-semibold text-indigo-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-halved"></i>
+              <span>Aislamiento Automático Garantizado</span>
+            </div>
+            <p class="text-slate-400">
+              Se creará la carpeta del proyecto, el manifiesto <code class="text-slate-200">.alpanel-project.json</code>, un <code class="text-slate-200">docker-compose.yml</code> base y la red privada dedicada <code class="text-emerald-300">alpanel_isolated_&lt;proyecto&gt;_net</code>.
+            </p>
+          </div>
+        </template>
+
+        <!-- MODO 2: CLONAR REPOSITORIO GIT COMPLETO -->
+        <template v-else>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-slate-300 font-semibold">
+                URL del Repositorio Git (HTTPS o SSH) *
+              </label>
+              <button
+                type="button"
+                :disabled="detectingArchitecture || !repoUrl.trim()"
+                @click="detectRepoArchitecture"
+                class="px-2.5 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 disabled:opacity-50 text-violet-300 border border-violet-500/30 text-[11px] font-semibold flex items-center gap-1.5 transition"
+              >
+                <i
+                  class="fa-solid"
+                  :class="
+                    detectingArchitecture
+                      ? 'fa-circle-notch fa-spin'
+                      : 'fa-cubes'
+                  "
+                ></i>
+                {{
+                  detectingArchitecture
+                    ? 'Analizando arquitectura...'
+                    : 'Detectar Microservicios'
+                }}
+              </button>
+            </div>
+            <input
+              v-model="repoUrl"
+              @input="onRepoUrlInput"
+              type="text"
+              placeholder="https://github.com/usuario/proyecto.git"
               required
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white"
             />
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Rama (Opcional)</label>
-            <input
-              v-model="branch"
-              type="text"
-              placeholder="main"
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white"
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div class="sm:col-span-2">
+              <label class="block text-slate-400 mb-1">
+                Nombre de la Carpeta del Proyecto *
+              </label>
+              <input
+                v-model="projectName"
+                type="text"
+                placeholder="ej. Proveko"
+                required
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white"
+              />
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Rama (Opcional)</label>
+              <input
+                v-model="branch"
+                type="text"
+                placeholder="main"
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white"
+              />
+            </div>
+          </div>
+
+          <div v-if="panelStore.gitCredentials.length > 0">
+            <label class="block text-slate-400 mb-1">
+              Credencial Git Privada (Opcional)
+            </label>
+            <SearchableSelect
+              v-model="gitCredentialId"
+              :options="gitCredentialOptions"
+              placeholder="Repositorio público..."
+              search-placeholder="Buscar token GitHub / GitLab..."
             />
           </div>
-        </div>
 
-        <!-- Selector de Microservicios Detectados -->
-        <div
-          v-if="detectedSummary?.isMicroservicesArchitecture"
-          class="bg-slate-950/90 border border-violet-500/30 rounded-xl p-3.5 space-y-3"
-        >
+          <!-- Selector de Microservicios Detectados -->
           <div
-            class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5"
+            v-if="detectedSummary?.isMicroservicesArchitecture"
+            class="bg-slate-950/90 border border-violet-500/30 rounded-xl p-3.5 space-y-3"
           >
-            <div class="flex items-center gap-2">
-              <span
-                class="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 font-bold text-[10px]"
-              >
-                <i class="fa-solid fa-cubes mr-1"></i>ARQUITECTURA DE
-                MICROSERVICIOS
-              </span>
-              <span class="text-slate-300 font-semibold text-[11px]">
-                {{ selectedMicroservices.length }} de
-                {{ detectedSummary.totalMicroservices }} microservicios a
-                integrar
-              </span>
+            <div
+              class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 font-bold text-[10px]"
+                >
+                  <i class="fa-solid fa-cubes mr-1"></i>ARQUITECTURA DE MICROSERVICIOS
+                </span>
+                <span class="text-slate-300 font-semibold text-[11px]">
+                  {{ selectedMicroservices.length }} de {{ detectedSummary.totalMicroservices }} seleccionados
+                </span>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  @click="selectAllMicroservices"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold"
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  @click="selectEssentialMicroservices"
+                  class="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold"
+                >
+                  Esenciales
+                </button>
+                <button
+                  type="button"
+                  @click="selectCoreOnlyMicroservices"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-semibold"
+                >
+                  Solo Core
+                </button>
+              </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                @click="selectAllMicroservices"
-                class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold"
-              >
-                Todos
-              </button>
-              <button
-                type="button"
-                @click="selectEssentialMicroservices"
-                class="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold"
-              >
-                Esenciales (CRM/Inv/Fact)
-              </button>
-              <button
-                type="button"
-                @click="selectCoreOnlyMicroservices"
-                class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-semibold"
-              >
-                Solo Core
-              </button>
-            </div>
-          </div>
-
-          <!-- Servicios Core Obligatorios -->
-          <div v-if="detectedSummary.coreServices.length">
-            <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">
-              Servicios Core Base (Integrados automáticamente)
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="core in detectedSummary.coreServices"
-                :key="core.serviceName"
-                class="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-emerald-300 text-[11px] font-medium flex items-center gap-1.5"
-              >
-                <i class="fa-solid fa-check-circle text-[10px] text-emerald-400"></i>
-                {{ core.displayName }}
-                <code v-if="core.port !== '-'" class="text-[10px] text-slate-400">
-                  :{{ core.port }}
-                </code>
-              </span>
-            </div>
-          </div>
-
-          <!-- Microservicios de Dominio Seleccionables -->
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">
-              Decide qué Microservicios de Dominio integrar y levantar:
-            </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div
                 v-for="ms in detectedSummary.microservices"
@@ -442,9 +625,7 @@ async function handleSubmit(): Promise<void> {
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <span class="font-bold text-[11px] truncate">
-                      {{ ms.displayName }}
-                    </span>
+                    <span class="font-bold text-[11px] truncate">{{ ms.displayName }}</span>
                     <code
                       v-if="ms.port !== '-'"
                       class="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 text-violet-300"
@@ -452,96 +633,57 @@ async function handleSubmit(): Promise<void> {
                       :{{ ms.port }}
                     </code>
                   </div>
-                  <div
-                    v-if="ms.subModules.length"
-                    class="flex flex-wrap gap-1 mt-1"
-                  >
-                    <span
-                      v-for="mod in ms.subModules"
-                      :key="mod"
-                      class="px-1.5 py-0.2 rounded bg-slate-950 text-slate-300 text-[9px] font-mono"
-                    >
-                      {{ mod }}
-                    </span>
-                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div
-          v-else-if="detectedSummary && !detectedSummary.isMicroservicesArchitecture"
-          class="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-[11px] text-slate-300 flex items-center gap-2"
-        >
-          <i class="fa-solid fa-cube text-emerald-400"></i>
-          <span>
-            <strong>{{ detectedSummary.architectureLabel }}</strong> — Se
-            desplegarán sus servicios estándar completos.
-          </span>
-        </div>
-
-        <div>
-          <div
-            class="flex flex-wrap items-center justify-between gap-1.5 mb-1.5"
-          >
-            <label class="text-slate-400">
-              Variables .env iniciales (Opcional)
-            </label>
-            <div class="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                @click="autoFetchRepoEnvExample"
-                class="px-2 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold flex items-center gap-1"
-                title="Carga el .env.example del repositorio de GitHub y genera JWT_SECRET automáticamente"
-              >
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Cargar
-                .env.example
-              </button>
-              <button
-                type="button"
-                @click="generateSecret('JWT_SECRET')"
-                class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-semibold flex items-center gap-1"
-                title="Genera un JWT_SECRET criptográfico de 256 bits"
-              >
-                <i class="fa-solid fa-key"></i> + JWT_SECRET
-              </button>
-              <button
-                type="button"
-                @click="generateDbPassword"
-                class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold flex items-center gap-1"
-                title="Genera una contraseña aleatoria segura para la base de datos"
-              >
-                <i class="fa-solid fa-dice"></i> + Password DB
-              </button>
+          <div>
+            <div class="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+              <label class="text-slate-400">Variables .env iniciales (Opcional)</label>
+              <div class="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  @click="autoFetchRepoEnvExample"
+                  class="px-2 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold flex items-center gap-1"
+                >
+                  <i class="fa-solid fa-wand-magic-sparkles"></i> Cargar .env.example
+                </button>
+                <button
+                  type="button"
+                  @click="generateSecret('JWT_SECRET')"
+                  class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-semibold flex items-center gap-1"
+                >
+                  <i class="fa-solid fa-key"></i> + JWT_SECRET
+                </button>
+                <button
+                  type="button"
+                  @click="generateDbPassword"
+                  class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold flex items-center gap-1"
+                >
+                  <i class="fa-solid fa-dice"></i> + Password DB
+                </button>
+              </div>
             </div>
+            <textarea
+              v-model="envContent"
+              rows="4"
+              placeholder="Si lo dejas vacío y el repositorio tiene .env.example, ALpanel lo copiará y generará JWT_SECRET automáticamente."
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-emerald-300"
+            ></textarea>
           </div>
-          <textarea
-            v-model="envContent"
-            rows="5"
-            placeholder="Si lo dejas vacío y el repositorio tiene .env.example, ALpanel lo copiará y generará JWT_SECRET automáticamente."
-            class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-emerald-300"
-          ></textarea>
-          <p class="text-[10px] text-slate-500 mt-1">
-            <i class="fa-solid fa-circle-info text-indigo-400 mr-1"></i>Si no
-            escribes un <code class="text-slate-300">JWT_SECRET</code>, ALpanel
-            generará uno criptográfico de 256 bits automáticamente al clonar.
-          </p>
-        </div>
 
-        <label class="flex items-center gap-2 text-slate-300 pt-1">
-          <input
-            v-model="autoStart"
-            type="checkbox"
-            class="rounded bg-slate-950 border-slate-700 text-indigo-600"
-          />
-          Ejecutar
-          <code class="text-indigo-400">docker compose up -d --build</code>
-          automáticamente al terminar (solo levantará los microservicios
-          integrados)
-        </label>
+          <label class="flex items-center gap-2 text-slate-300 pt-1">
+            <input
+              v-model="autoStart"
+              type="checkbox"
+              class="rounded bg-slate-950 border-slate-700 text-indigo-600"
+            />
+            Ejecutar <code class="text-indigo-400">docker compose up -d --build</code> al terminar
+          </label>
+        </template>
 
-        <div class="pt-3 flex justify-end gap-2">
+        <div class="pt-3 flex justify-end gap-2 border-t border-slate-800">
           <button
             type="button"
             @click="close"
@@ -551,9 +693,22 @@ async function handleSubmit(): Promise<void> {
           </button>
           <button
             type="submit"
-            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+            :disabled="creatingEmpty"
+            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/20"
           >
-            <i class="fa-solid fa-rocket mr-1"></i> Clonar y Desplegar
+            <i
+              class="fa-solid"
+              :class="
+                creatingEmpty
+                  ? 'fa-spinner fa-spin'
+                  : mode === 'empty'
+                    ? 'fa-folder-plus'
+                    : 'fa-rocket'
+              "
+            ></i>
+            <span>
+              {{ mode === 'empty' ? 'Crear Proyecto Vacío' : 'Clonar y Desplegar' }}
+            </span>
           </button>
         </div>
       </form>

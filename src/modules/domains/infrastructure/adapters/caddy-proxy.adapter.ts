@@ -6,6 +6,8 @@ import { ReverseProxyPort } from '../../application/ports/services/reverse-proxy
 import { DomainRouteEntity } from '../../domain/entities/domain-route.entity';
 import { prismaDomainRouteRepository } from '../repositories/prisma-domain-route.repository';
 import { normalizeDomainRouteTargets } from '../../../projects/application/use-cases/manage-container-power.use-case';
+import { manageServersUseCase } from '../../../servers/application/use-cases/manage-servers.use-case';
+import { remoteExecutorService } from '../../../servers/infrastructure/services/remote-executor.service';
 
 const execAsync = promisify(exec);
 
@@ -22,12 +24,10 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
       process.env.CADDYFILE_PATH || path.join(dataDir, 'Caddyfile');
   }
 
-  async generateCaddyfile(routes?: DomainRouteEntity[]): Promise<string> {
-    const rawList = routes || (await prismaDomainRouteRepository.listRoutes());
-    const list = rawList.map((r) => normalizeDomainRouteTargets(r));
+  private renderBlocks(list: DomainRouteEntity[]): string {
     const blocks: string[] = [
       '# Archivo autogenerado por ALpanel (Prisma ORM)',
-      '# Enruta múltiples dominios (Frontend + Backend + Microservicios) con HTTPS automático',
+      '# Enruta múltiples dominios (Frontend + Backend + Microservicios + Cross-Server) con HTTPS automático',
       '',
     ];
 
@@ -56,22 +56,17 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
 
       blocks.push(`${safeDomain} {`);
       if (hasMainBack || hasExtraRoutes) {
-        // 1. Rutas específicas de microservicios primero (mayor especificidad que /api/*)
         for (const er of extraList) {
           const directive = er.stripPrefix ? 'handle_path' : 'handle';
           blocks.push(`    ${directive} ${er.pathPrefix} {`);
           blocks.push(`        reverse_proxy ${er.target}`);
           blocks.push(`    }`);
         }
-
-        // 2. Ruta general de Backend (/api/*) si aplica
         if (hasMainBack) {
           blocks.push(`    handle ${safePrefix} {`);
           blocks.push(`        reverse_proxy ${safeBack}`);
           blocks.push(`    }`);
         }
-
-        // 3. Fallback hacia Contenedor Principal / Frontend / Gateway Core
         blocks.push(`    handle {`);
         blocks.push(`        reverse_proxy ${safeFront}`);
         blocks.push(`    }`);
@@ -81,19 +76,45 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
       blocks.push(`}\n`);
     }
 
-    const content = blocks.join('\n');
+    return blocks.join('\n');
+  }
+
+  async generateCaddyfile(routes?: DomainRouteEntity[]): Promise<string> {
+    const rawList = routes || (await prismaDomainRouteRepository.listRoutes());
+    const list = rawList
+      .filter((r) => !r.serverId || r.serverId === 'local')
+      .map((r) => normalizeDomainRouteTargets(r));
+
+    const content = this.renderBlocks(list);
     // Escritura in-place obligatoria para preservar el inode del bind mount ./data/Caddyfile:/etc/caddy/Caddyfile en Docker
     fs.writeFileSync(this.caddyfilePath, content, { encoding: 'utf-8', mode: 0o644 });
     return content;
   }
 
+  private isIpAddress(host: string): boolean {
+    return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':');
+  }
+
   async reloadCaddy(): Promise<{ success: boolean; output: string }> {
     const rawRoutes = await prismaDomainRouteRepository.listRoutes();
-    const routes = rawRoutes.map((r) => normalizeDomainRouteTargets(r));
-    const caddyfileContent = await this.generateCaddyfile(routes);
+    const localRoutes = rawRoutes
+      .filter((r) => !r.serverId || r.serverId === 'local')
+      .map((r) => normalizeDomainRouteTargets(r));
+    const remoteRoutesByServer = new Map<string, DomainRouteEntity[]>();
+    for (const r of rawRoutes) {
+      if (r.serverId && r.serverId !== 'local') {
+        const arr = remoteRoutesByServer.get(r.serverId) || [];
+        arr.push(r);
+        remoteRoutesByServer.set(r.serverId, arr);
+      }
+    }
+
+    const caddyfileContent = await this.generateCaddyfile(localRoutes);
+    const logs: string[] = [];
+
     try {
-      const uniqueHosts = new Set<string>();
-      for (const r of routes) {
+      const uniqueLocalContainers = new Set<string>();
+      for (const r of localRoutes) {
         const allTargets = [
           r.frontendTarget,
           r.backendTarget,
@@ -104,13 +125,18 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
             .split(':')[0]
             .trim()
             .replace(/[^a-zA-Z0-9._-]/g, '');
-          if (host && host !== 'localhost' && host !== '127.0.0.1') {
-            uniqueHosts.add(host);
+          if (
+            host &&
+            host !== 'localhost' &&
+            host !== '127.0.0.1' &&
+            !this.isIpAddress(host)
+          ) {
+            uniqueLocalContainers.add(host);
           }
         }
       }
 
-      for (const host of uniqueHosts) {
+      for (const host of uniqueLocalContainers) {
         await execAsync(
           `docker network connect alpanel_proxy_net ${host} 2>/dev/null || true`
         ).catch(() => null);
@@ -120,18 +146,39 @@ export class CaddyProxyAdapter implements ReverseProxyPort {
         'docker ps --filter "ancestor=caddy:2" --format "{{.Names}}" | head -n 1'
       );
       const caddyContainer = stdout.trim();
-      if (!caddyContainer) {
-        return {
-          success: true,
-          output: `Caddyfile actualizado correctamente.\n\n${caddyfileContent}`,
-        };
+      if (caddyContainer) {
+        await execAsync(
+          `docker exec ${caddyContainer} caddy reload --config /etc/caddy/Caddyfile`
+        ).catch(() => null);
+        logs.push(`✅ Proxy Central (${caddyContainer}) recargado en vivo.`);
+      } else {
+        logs.push('✅ Caddyfile central actualizado.');
       }
-      await execAsync(
-        `docker exec ${caddyContainer} caddy reload --config /etc/caddy/Caddyfile`
-      ).catch(() => null);
+
+      // Sincronizar dominios independientes configurados en servidores remotos
+      for (const [serverId, serverRoutes] of remoteRoutesByServer.entries()) {
+        try {
+          const server = await manageServersUseCase.getStoredServerById(serverId);
+          const remoteCaddyContent = this.renderBlocks(serverRoutes);
+          const b64 = Buffer.from(remoteCaddyContent, 'utf-8').toString('base64');
+          const syncScript = [
+            'mkdir -p /etc/caddy',
+            `echo "${b64}" | base64 -d > /etc/caddy/Caddyfile`,
+            'CADDY_C=$(docker ps --filter "ancestor=caddy:2" --format "{{.Names}}" 2>/dev/null | head -n 1)',
+            'if [ -n "$CADDY_C" ]; then docker exec "$CADDY_C" caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true; elif command -v caddy >/dev/null 2>&1; then caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || systemctl reload caddy 2>/dev/null || true; fi',
+          ].join('\n');
+          await remoteExecutorService.execOnServer(server, syncScript, {
+            timeoutMs: 20000,
+          });
+          logs.push(`✅ Caddy independiente sincronizado en servidor remoto ${server.name}.`);
+        } catch (err: any) {
+          logs.push(`⚠️ No se pudo recargar Caddy en servidor ${serverId}: ${err?.message}`);
+        }
+      }
+
       return {
         success: true,
-        output: `Configuración guardada en MariaDB (Prisma) y recargada en vivo en ${caddyContainer}.\n\n${caddyfileContent}`,
+        output: `${logs.join('\n')}\n\n${caddyfileContent}`,
       };
     } catch (error: any) {
       return {
