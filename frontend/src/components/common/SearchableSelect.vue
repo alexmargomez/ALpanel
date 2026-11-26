@@ -11,6 +11,7 @@ import {
 export interface Select2Option {
   value: string | number;
   label: string;
+  sublabel?: string;
   badge?: string;
   disabled?: boolean;
 }
@@ -23,6 +24,7 @@ const props = withDefaults(
     searchPlaceholder?: string;
     disabled?: boolean;
     required?: boolean;
+    allowCustom?: boolean;
     size?: 'xs' | 'sm' | 'md';
     mono?: boolean;
     accent?: 'indigo' | 'emerald' | 'amber' | 'teal' | 'fuchsia';
@@ -33,6 +35,7 @@ const props = withDefaults(
     searchPlaceholder: 'Escribir para filtrar...',
     disabled: false,
     required: false,
+    allowCustom: false,
     size: 'sm',
     mono: false,
     accent: 'indigo',
@@ -76,13 +79,35 @@ const displayLabel = computed(() => {
 
 const filteredOptions = computed<Select2Option[]>(() => {
   const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return props.options;
-  return props.options.filter(
-    (o) =>
-      o.label.toLowerCase().includes(q) ||
-      String(o.value).toLowerCase().includes(q) ||
-      (o.badge && o.badge.toLowerCase().includes(q))
-  );
+  const matched = !q
+    ? props.options
+    : props.options.filter(
+        (o) =>
+          o.label.toLowerCase().includes(q) ||
+          String(o.value).toLowerCase().includes(q) ||
+          (o.sublabel && o.sublabel.toLowerCase().includes(q)) ||
+          (o.badge && o.badge.toLowerCase().includes(q))
+      );
+
+  if (props.allowCustom && q) {
+    const rawTrimmed = searchQuery.value.trim();
+    const exactExists = props.options.some(
+      (o) => String(o.value).toLowerCase() === q
+    );
+    if (!exactExists) {
+      return [
+        ...matched,
+        {
+          value: rawTrimmed,
+          label: rawTrimmed,
+          sublabel: 'Usar destino personalizado',
+          badge: 'CUSTOM',
+        },
+      ];
+    }
+  }
+
+  return matched;
 });
 
 const sizeClasses = computed(() => {
@@ -170,6 +195,13 @@ function selectItem(opt: Select2Option): void {
     emit('change', opt.value);
   }
   closeDropdown();
+}
+
+function clearSelection(e: MouseEvent): void {
+  e.stopPropagation();
+  if (props.disabled) return;
+  emit('update:modelValue', '');
+  emit('change', '');
 }
 
 function onKeyDown(e: KeyboardEvent): void {
@@ -266,10 +298,18 @@ onBeforeUnmount(() => {
       >
         {{ displayLabel || placeholder }}
       </span>
-      <i
-        class="fa-solid fa-chevron-down text-[10px] text-slate-400 shrink-0 transition-transform duration-150"
-        :class="{ 'rotate-180 text-indigo-400': isOpen }"
-      ></i>
+      <span class="flex items-center gap-1.5 shrink-0">
+        <i
+          v-if="allowCustom && displayLabel && !disabled"
+          @click="clearSelection"
+          class="fa-solid fa-xmark text-[10px] text-slate-500 hover:text-rose-400 px-0.5 transition"
+          title="Limpiar selección"
+        ></i>
+        <i
+          class="fa-solid fa-chevron-down text-[10px] text-slate-400 transition-transform duration-150"
+          :class="{ 'rotate-180 text-indigo-400': isOpen }"
+        ></i>
+      </span>
     </button>
 
     <Teleport to="body">
@@ -290,7 +330,11 @@ onBeforeUnmount(() => {
               ref="searchInputRef"
               v-model="searchQuery"
               type="text"
-              :placeholder="searchPlaceholder"
+              :placeholder="
+                allowCustom
+                  ? 'Filtrar o escribir IP:puerto personalizado...'
+                  : searchPlaceholder
+              "
               class="w-full bg-slate-900 border border-slate-800 rounded-lg pl-7 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             />
             <button
@@ -305,7 +349,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Lista de opciones -->
-        <div class="max-h-60 overflow-y-auto scrollbar-thin py-1">
+        <div class="max-h-64 overflow-y-auto scrollbar-thin py-1">
           <div
             v-if="filteredOptions.length === 0"
             class="px-3 py-3 text-center text-xs text-slate-400"
@@ -330,7 +374,15 @@ onBeforeUnmount(() => {
                 : 'text-slate-200 hover:bg-slate-800',
             ]"
           >
-            <span class="truncate">{{ opt.label }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="truncate">{{ opt.label }}</div>
+              <div
+                v-if="opt.sublabel"
+                class="text-[10px] text-slate-400 font-normal truncate mt-0.5"
+              >
+                {{ opt.sublabel }}
+              </div>
+            </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <span
                 v-if="opt.badge"

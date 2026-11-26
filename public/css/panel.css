@@ -98,7 +98,8 @@ html.light-mode .bg-slate-950\/50 {
 
 /* Mantener backdrop oscuro en modales superpuestos */
 html.light-mode .fixed.inset-0.bg-slate-950\/85,
-html.light-mode .fixed.inset-0.bg-slate-950\/80 {
+html.light-mode .fixed.inset-0.bg-slate-950\/80,
+html.light-mode .fixed.inset-0.bg-black\/75 {
   background-color: rgba(15, 23, 42, 0.55) !important;
 }
 
@@ -122,6 +123,7 @@ html.light-mode .from-slate-950.via-slate-900.to-indigo-950 {
 
 /* Bordes y divisores */
 html.light-mode .border-slate-800,
+html.light-mode .border-slate-800\/90,
 html.light-mode .border-slate-800\/80,
 html.light-mode .border-slate-800\/70,
 html.light-mode .border-slate-800\/60,
@@ -130,7 +132,10 @@ html.light-mode .border-slate-700\/80 {
   border-color: #CBD5E1 !important;
 }
 
-html.light-mode .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+html.light-mode .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.light-mode .divide-slate-800\/80 > :not([hidden]) ~ :not([hidden]),
+html.light-mode .divide-slate-800\/70 > :not([hidden]) ~ :not([hidden]),
+html.light-mode .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]) {
   border-color: #E2E8F0 !important;
 }
 
@@ -174,6 +179,10 @@ html.light-mode .text-slate-500 {
 html.light-mode .text-indigo-300,
 html.light-mode .text-indigo-400 {
   color: #4F46E5 !important;
+}
+
+html.light-mode .text-emerald-200 {
+  color: #047857 !important;
 }
 
 html.light-mode .text-emerald-300,
@@ -220,6 +229,10 @@ html.light-mode .bg-emerald-950\/60,
 html.light-mode .bg-emerald-950\/40,
 html.light-mode .bg-emerald-950\/30 {
   background-color: #D1FAE5 !important;
+}
+
+html.light-mode .bg-violet-950\/30 {
+  background-color: #F5F3FF !important;
 }
 
 /* Sombras suaves en Modo Día */

@@ -5,4 +5,6 @@ export interface CloneProjectPayload {
   envContent?: string;
   autoStart?: boolean;
   selectedMicroservices?: string[];
+  serverId?: string;
+  gitCredentialId?: string;
 }

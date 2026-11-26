@@ -14,6 +14,8 @@ import {
 } from './manage-container-power.use-case';
 import { domainsService } from '../../../domains/application/use-cases/manage-domains.use-case';
 import { manageProjectMicroservicesUseCase } from './manage-project-microservices.use-case';
+import { manageServersUseCase } from '../../../servers/application/use-cases/manage-servers.use-case';
+import { remoteExecutorService } from '../../../servers/infrastructure/services/remote-executor.service';
 import { resourceGuardService } from '../../../../shared/infrastructure/services/resource-guard.service';
 import { taskTelemetryService } from '../../../../shared/infrastructure/services/task-telemetry.service';
 
@@ -161,6 +163,8 @@ export class DeployGitProjectUseCase {
     envContent?: string;
     autoStart?: boolean;
     selectedMicroservices?: string[];
+    serverId?: string;
+    gitCredentialId?: string;
   }): Promise<{ success: boolean; output: string }> {
     const cleanName = new ProjectNameVO(payload.name).value;
     const targetDir = new ProjectNameVO(cleanName).resolvePath(
@@ -183,6 +187,17 @@ export class DeployGitProjectUseCase {
       return { success: false, output: err?.message || 'URL de repositorio Git inválida.' };
     }
 
+    const authenticatedRepoUrl = await manageServersUseCase.injectGitAuthInUrl(
+      safeRepoUrl,
+      payload.gitCredentialId
+    );
+    const targetServer = await manageServersUseCase.getStoredServerById(
+      payload.serverId || 'local'
+    );
+    const isRemoteServer = Boolean(targetServer && !targetServer.isLocal);
+    const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const isolatedNetwork = `alpanel_isolated_${slug}_net`;
+
     const lockKey = cleanName.toLowerCase();
     if (DeployGitProjectUseCase.activeDeployments.has(lockKey)) {
       return {
@@ -195,13 +210,15 @@ export class DeployGitProjectUseCase {
       ? payload.selectedMicroservices.length + 2
       : 2;
 
-    // 1. Validación preventiva de RAM ANTES de clonar siquiera el repositorio
-    resourceGuardService.assertMemoryAvailableForOperation({
-      operation: 'clonar y desplegar nuevo proyecto',
-      targetProject: cleanName,
-      requiresBuild: Boolean(payload.autoStart),
-      additionalContainersCount: payload.autoStart ? estimatedInitialContainers : 0,
-    });
+    if (!isRemoteServer) {
+      // 1. Validación preventiva de RAM ANTES de clonar siquiera el repositorio local
+      resourceGuardService.assertMemoryAvailableForOperation({
+        operation: 'clonar y desplegar nuevo proyecto',
+        targetProject: cleanName,
+        requiresBuild: Boolean(payload.autoStart),
+        additionalContainersCount: payload.autoStart ? estimatedInitialContainers : 0,
+      });
+    }
 
     DeployGitProjectUseCase.activeDeployments.add(lockKey);
     const logs: string[] = [];
@@ -211,9 +228,84 @@ export class DeployGitProjectUseCase {
     let clonedOnDisk = false;
     try {
       const branchArg = safeBranch ? `-b "${safeBranch}"` : '';
+
+      if (isRemoteServer && targetServer) {
+        const remoteRoot = (targetServer.projectsRoot || '/opt/projects').replace(/\/+$/, '');
+        const remoteDir = `${remoteRoot}/${cleanName}`;
+        pushStep(
+          `==> [Paso 1] Clonando ${safeRepoUrl} en servidor remoto ${targetServer.name} (${remoteDir})...`,
+          'Clonando en servidor remoto'
+        );
+        const cloneCmd = [
+          `mkdir -p "${remoteRoot}"`,
+          `docker network create "${isolatedNetwork}" >/dev/null 2>&1 || true`,
+          `git -c core.hooksPath=/dev/null clone --progress ${branchArg} "${authenticatedRepoUrl}" "${remoteDir}"`,
+          `chmod 600 "${remoteDir}/.git/config" 2>/dev/null || true`,
+        ].join(' && ');
+        const remoteCloneRes = await remoteExecutorService.execOnServer(
+          targetServer,
+          cloneCmd,
+          { timeoutMs: 180000 }
+        );
+        if (remoteCloneRes.stdout) logs.push(remoteCloneRes.stdout.trim());
+        if (remoteCloneRes.stderr) logs.push(remoteCloneRes.stderr.trim());
+
+        if (payload.envContent?.trim()) {
+          const b64Env = Buffer.from(payload.envContent.trim() + '\n', 'utf-8').toString(
+            'base64'
+          );
+          await remoteExecutorService.execOnServer(
+            targetServer,
+            `printf '%s' "${b64Env}" | base64 -d > "${remoteDir}/.env" && chmod 600 "${remoteDir}/.env"`,
+            { timeoutMs: 15000 }
+          );
+          pushStep(
+            '==> [Paso 2] Archivo .env transferido al servidor remoto (0600).',
+            'Configurando .env remoto'
+          );
+        }
+        if (payload.autoStart) {
+          pushStep(
+            `==> [Paso 3] Levantando contenedores en ${targetServer.name}...`,
+            'Docker Compose Remoto'
+          );
+          const upRemote = await remoteExecutorService.execOnServer(
+            targetServer,
+            `cd "${remoteDir}" && docker compose up -d --build`,
+            { timeoutMs: 600000 }
+          );
+          if (upRemote.stdout) logs.push(upRemote.stdout.trim());
+          if (upRemote.stderr) logs.push(upRemote.stderr.trim());
+        }
+
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(targetDir, '.alpanel-project.json'),
+          JSON.stringify(
+            {
+              projectName: cleanName,
+              serverId: targetServer.id,
+              serverName: targetServer.name,
+              isolatedNetwork,
+              linkedUpstreams: [],
+              createdAt: new Date().toISOString(),
+            },
+            null,
+            2
+          ) + '\n',
+          { encoding: 'utf-8', mode: 0o600 }
+        );
+        this.onInvalidateCache?.(targetDir);
+        pushStep(
+          `✅ Proyecto ${cleanName} desplegado exitosamente en ${targetServer.name}.`,
+          'Completado'
+        );
+        return { success: true, output: logs.join('\n') };
+      }
+
       pushStep(`==> [Paso 1] Clonando ${safeRepoUrl} en ${targetDir}...`, 'Clonando repositorio Git');
       const cloneRes = await resourceGuardService.execWithMemoryWatchdog(
-        `git -c core.hooksPath=/dev/null clone --progress ${branchArg} "${safeRepoUrl}" "${targetDir}"`,
+        `git -c core.hooksPath=/dev/null clone --progress ${branchArg} "${authenticatedRepoUrl}" "${targetDir}"`,
         {
           timeout: 180000,
           operation: 'git clone --progress',
@@ -222,6 +314,30 @@ export class DeployGitProjectUseCase {
       );
       clonedOnDisk = true;
       await this.hardenGitDirPermissions(targetDir);
+      if (payload.gitCredentialId) {
+        await execAsync(`chmod 600 "${path.join(targetDir, '.git', 'config')}" 2>/dev/null || true`).catch(
+          () => null
+        );
+      }
+      await execAsync(`docker network create "${isolatedNetwork}" >/dev/null 2>&1 || true`).catch(
+        () => null
+      );
+      fs.writeFileSync(
+        path.join(targetDir, '.alpanel-project.json'),
+        JSON.stringify(
+          {
+            projectName: cleanName,
+            serverId: 'local',
+            serverName: 'Nodo Central (Local)',
+            isolatedNetwork,
+            linkedUpstreams: [],
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2
+        ) + '\n',
+        { encoding: 'utf-8', mode: 0o600 }
+      );
       this.onInvalidateCache?.();
       if (cloneRes.stdout) logs.push(cloneRes.stdout.trim());
       if (cloneRes.stderr) logs.push(cloneRes.stderr.trim());

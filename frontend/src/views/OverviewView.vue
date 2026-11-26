@@ -5,6 +5,7 @@ import {
   hasPerm,
   openErdModal,
   openLogsModal,
+  openProjectWorkspace,
   openTerminalModal,
   panelStore,
   pruneServerDocker,
@@ -714,16 +715,26 @@ function openClone(): void {
         >
           <div>
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-white">Dominios & SSL</span>
+              <span class="text-xs font-bold text-white">Dominios &amp; SSL</span>
               <button
-                @click="switchTab('domains')"
+                @click="
+                  panelStore.domainRoutes[0]?.projectName
+                    ? openProjectWorkspace(panelStore.domainRoutes[0].projectName, 'domains')
+                    : switchTab('projects')
+                "
                 class="text-[11px] text-indigo-400 hover:underline font-semibold"
               >
-                Rutas SSL ›
+                Por Proyecto ›
               </button>
             </div>
             <div class="text-[11px] text-slate-400 mt-0.5">
-              {{ panelStore.domainRoutes.length }} dominios configurados en Caddy HTTPS
+              {{ panelStore.domainRoutes.length }} dominios activos ·
+              <button
+                @click="switchTab('servers')"
+                class="text-indigo-400 hover:underline font-semibold"
+              >
+                {{ panelStore.servers.length || 1 }} servidor(es)
+              </button>
             </div>
 
             <div class="mt-2.5 space-y-1.5">
@@ -740,15 +751,19 @@ function openClone(): void {
                   <i class="fa-solid fa-lock text-[9px] text-emerald-400"></i>
                   <span class="truncate">{{ r.domain }}</span>
                 </a>
-                <span class="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
-                  {{ r.projectName }}
-                </span>
+                <button
+                  @click="openProjectWorkspace(r.projectName, 'domains')"
+                  class="text-[10px] font-mono text-indigo-400 hover:underline shrink-0 ml-2"
+                  title="Administrar dominios de este proyecto"
+                >
+                  {{ r.projectName }} ›
+                </button>
               </div>
               <div
                 v-if="panelStore.domainRoutes.length === 0"
                 class="text-[11px] text-slate-500 py-2"
               >
-                Conecta tus proyectos a dominios con HTTPS automático.
+                Entra a <strong>Administrar</strong> en cualquier proyecto para vincular dominios HTTPS.
               </div>
             </div>
           </div>

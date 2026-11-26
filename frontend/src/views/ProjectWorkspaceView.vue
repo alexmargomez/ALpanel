@@ -340,7 +340,7 @@ watch(
 
           <button
             v-if="project.database?.containerName"
-            @click="openTerminalModal(project.name, project.database.containerName, 'sql', project.database.dbName || '')"
+            @click="openTerminalModal(project.name, project.database.containerName, 'sql', project.database.database || '')"
             class="p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-950 border border-slate-800 hover:border-emerald-500/40 text-left transition space-y-2"
           >
             <div class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
@@ -354,7 +354,7 @@ watch(
 
           <button
             v-if="project.database?.containerName"
-            @click="openErdModal(project.name, project.database.containerName, project.database.dbName || '')"
+            @click="openErdModal(project.name, project.database.containerName, project.database.database || '')"
             class="p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-950 border border-slate-800 hover:border-violet-500/40 text-left transition space-y-2"
           >
             <div class="w-9 h-9 rounded-xl bg-violet-500/15 text-violet-400 flex items-center justify-center">

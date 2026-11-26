@@ -7,6 +7,7 @@ import {
   openTerminalModal,
   runProjectAction,
 } from '../../composables/usePanelStore';
+import { formatBytes } from '../../services/api';
 import type { ProjectInfo } from '../../types/panel';
 
 const props = defineProps<{
@@ -114,8 +115,8 @@ function handleContainerRebuild(containerName: string): void {
               <span v-if="c.internalPort" class="text-indigo-400 font-mono">
                 :{{ c.internalPort }}
               </span>
-              <span v-if="c.stats" class="text-emerald-400 font-mono">
-                CPU {{ c.stats.cpuPercent }}% · RAM {{ c.stats.memUsage }}
+              <span v-if="c.state === 'running'" class="text-emerald-400 font-mono">
+                CPU {{ (c.cpuPercent || 0).toFixed(1) }}% · RAM {{ formatBytes(c.memoryBytes || 0) }}
               </span>
             </div>
           </div>

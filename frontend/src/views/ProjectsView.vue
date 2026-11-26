@@ -89,7 +89,7 @@ function getCpuPercent(p: ProjectInfo): string {
 }
 
 function getMemUsed(p: ProjectInfo): string {
-  const bytes = Number(p.resources?.memUsedBytes || 0);
+  const bytes = Number(p.resources?.memoryBytes || 0);
   return bytes > 0 ? formatBytes(bytes) : '0 B';
 }
 
@@ -274,7 +274,7 @@ onMounted(() => {
               <span v-if="p.git?.isRepo" class="flex items-center gap-1.5 font-mono">
                 <i class="fa-solid fa-code-branch text-[10px] text-emerald-400"></i>
                 <span class="text-slate-300">{{ p.git.branch }}</span>
-                <span class="text-slate-500">@{{ p.git.commit }}</span>
+                <span v-if="p.git.commitHash" class="text-slate-500">@{{ p.git.commitHash }}</span>
                 <span
                   v-if="p.git.behindCount > 0"
                   class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold"
