@@ -7,7 +7,6 @@ import {
   openErdModal,
   openTerminalModal,
   panelStore,
-  refreshAll,
   runProjectAction,
   showToast,
   switchTab,
@@ -191,14 +190,6 @@ watch(
         <!-- Acciones Maestras del Proyecto -->
         <div class="flex flex-wrap items-center gap-1.5">
           <button
-            @click="refreshAll"
-            class="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold"
-            title="Refrescar estado"
-          >
-            <i class="fa-solid fa-rotate"></i>
-          </button>
-
-          <button
             v-if="project.git?.isRepo && hasPerm('projects', 'git_pull')"
             @click="runProjectAction(project.name, 'pull')"
             class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5"
@@ -207,36 +198,54 @@ watch(
             <span>Git Pull</span>
           </button>
 
+          <!-- Botón Dinámico Único: Detener (si está activo/parcial) o Iniciar (si está detenido) -->
           <button
-            v-if="hasPerm('projects', 'deploy')"
-            @click="runProjectAction(project.name, 'start')"
-            class="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold"
+            v-if="
+              (project.status === 'running' || project.status === 'partial') &&
+              hasPerm('projects', 'delete')
+            "
+            @click="runProjectAction(project.name, 'stop')"
+            class="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5"
           >
-            <i class="fa-solid fa-play mr-1"></i>Start
+            <i class="fa-solid fa-stop text-[11px]"></i>
+            <span>Detener</span>
+          </button>
+          <button
+            v-else-if="hasPerm('projects', 'deploy')"
+            @click="runProjectAction(project.name, 'start')"
+            class="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5"
+          >
+            <i class="fa-solid fa-play text-[11px]"></i>
+            <span>Iniciar</span>
           </button>
 
           <button
             v-if="hasPerm('projects', 'deploy')"
             @click="runProjectAction(project.name, 'restart')"
-            class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+            class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5"
+            title="Reiniciar contenedores Docker del proyecto"
           >
-            <i class="fa-solid fa-rotate-right mr-1"></i>Restart
+            <i class="fa-solid fa-rotate-right text-[11px]"></i>
+            <span>Restart</span>
+          </button>
+
+          <button
+            v-if="hasPerm('projects', 'deploy')"
+            @click="runProjectAction(project.name, 'clear-cache')"
+            class="px-2.5 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-xs font-semibold flex items-center gap-1.5"
+            title="Limpiar caché interna del proyecto"
+          >
+            <i class="fa-solid fa-broom text-[11px]"></i>
+            <span>Limpiar Caché</span>
           </button>
 
           <button
             v-if="hasPerm('projects', 'deploy')"
             @click="runProjectAction(project.name, 'rebuild')"
-            class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold"
+            class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5"
           >
-            <i class="fa-solid fa-hammer mr-1"></i>Rebuild
-          </button>
-
-          <button
-            v-if="hasPerm('projects', 'delete')"
-            @click="runProjectAction(project.name, 'stop')"
-            class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 text-xs font-semibold"
-          >
-            <i class="fa-solid fa-stop mr-1"></i>Stop
+            <i class="fa-solid fa-hammer text-[11px]"></i>
+            <span>Rebuild</span>
           </button>
 
           <button

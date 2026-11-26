@@ -101,11 +101,16 @@ function getDiskUsed(p: ProjectInfo): string {
 async function checkRemoteGit(p: ProjectInfo): Promise<void> {
   checkingGitName.value = p.name;
   try {
-    await apiFetch(`/api/projects/${encodeURIComponent(p.name)}/git-check`, {
-      method: 'POST',
-    });
+    const res = await apiFetch<{ behindCount?: number; message?: string }>(
+      `/api/projects/${encodeURIComponent(p.name)}/check-updates`,
+      { method: 'POST' }
+    );
     await refreshAll();
-    showToast(`Estado remoto de ${p.name} actualizado.`);
+    if (res?.behindCount && res.behindCount > 0) {
+      showToast(`${p.name} tiene ${res.behindCount} commit(s) pendientes en remoto.`);
+    } else {
+      showToast(res?.message || `${p.name} está al día con el repositorio remoto.`);
+    }
   } catch (err: any) {
     showToast(`No se pudo consultar remoto: ${err.message}`, true);
   } finally {
