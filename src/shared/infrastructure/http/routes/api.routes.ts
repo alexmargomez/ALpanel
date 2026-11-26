@@ -10,6 +10,7 @@ import { registerProjectsRoutes } from '../../../../modules/projects/infrastruct
 import { registerGitRoutes } from '../../../../modules/git/infrastructure/routes/git.routes';
 import { registerDomainsRoutes } from '../../../../modules/domains/infrastructure/routes/domains.routes';
 import { registerSecurityRoutes } from '../../../../modules/security/infrastructure/routes/security.routes';
+import { registerServersRoutes } from '../../../../modules/servers/infrastructure/routes/servers.routes';
 
 /**
  * Enrutador Maestro de la Arquitectura Hexagonal de ALpanel
@@ -46,4 +47,5 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   await registerGitRoutes(app);
   await registerDomainsRoutes(app);
   await registerSecurityRoutes(app);
+  await registerServersRoutes(app);
 }

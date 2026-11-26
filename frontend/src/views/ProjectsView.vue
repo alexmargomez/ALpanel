@@ -1,746 +1,444 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import {
   apiFetch,
-  type BackgroundTaskItem,
-  enqueueBackgroundTask,
   hasPerm,
-  openCronjobsModal,
-  openEnvModal,
-  openErdModal,
-  openLogsModal,
-  openMicroservicesModal,
-  openTaskConsole,
-  openTerminalModal,
+  loadServers,
+  openProjectWorkspace,
   panelStore,
+  refreshAll,
   runProjectAction,
+  showToast,
 } from '../composables/usePanelStore';
 import { formatBytes } from '../services/api';
 import type { ProjectInfo } from '../types/panel';
+import SearchableSelect from '../components/common/SearchableSelect.vue';
 
-const confirmDestroyModal = reactive<{
-  open: boolean;
-  projectName: string;
-}>({
-  open: false,
-  projectName: '',
-});
+const serverFilter = ref('all');
+const expandedProjects = reactive<Record<string, boolean>>({});
+const checkingGitName = ref('');
 
-const confirmDeleteModal = reactive<{
-  open: boolean;
-  projectName: string;
-}>({
-  open: false,
-  projectName: '',
-});
+const serverFilterOptions = computed(() => [
+  {
+    value: 'all',
+    label: 'Todos los servidores',
+    sublabel: `${panelStore.projects.length} proyectos totales`,
+  },
+  ...panelStore.servers.map((s) => ({
+    value: s.id,
+    label: s.name,
+    sublabel: s.isLocal ? 'Nodo Local' : s.host,
+    badge: s.status === 'online' ? 'ONLINE' : s.status.toUpperCase(),
+  })),
+]);
 
-function openRebuildDestroyModal(project: ProjectInfo): void {
-  confirmDestroyModal.projectName = project.name;
-  confirmDestroyModal.open = true;
-}
-
-function closeRebuildDestroyModal(): void {
-  confirmDestroyModal.open = false;
-}
-
-async function confirmAndRunRebuildDestroy(): Promise<void> {
-  const projectName = confirmDestroyModal.projectName;
-  confirmDestroyModal.open = false;
-  if (!projectName) return;
-  await runProjectAction(projectName, 'rebuild-destroy');
-}
-
-function openDeleteProjectModal(project: ProjectInfo): void {
-  confirmDeleteModal.projectName = project.name;
-  confirmDeleteModal.open = true;
-}
-
-function closeDeleteProjectModal(): void {
-  confirmDeleteModal.open = false;
-}
-
-async function confirmAndRunDeleteProject(): Promise<void> {
-  const projectName = confirmDeleteModal.projectName;
-  confirmDeleteModal.open = false;
-  if (!projectName) return;
-  await runProjectAction(projectName, 'delete');
-}
-
-const filteredProjects = computed<ProjectInfo[]>(() => {
-  const q = (panelStore.projectSearchQuery || '').toLowerCase().trim();
-  if (!q) return panelStore.projects;
-  return panelStore.projects.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.domains.some((d) => d.toLowerCase().includes(q)) ||
-      p.stack.some((s) => s.toLowerCase().includes(q))
-  );
-});
-
-const canDeployProjects = computed(() => hasPerm('projects', 'deploy'));
-const canStopRebuildServer = computed(() => hasPerm('projects', 'delete'));
-const canViewLogs = computed(() => hasPerm('projects', 'edit'));
-const canViewDb = computed(() => hasPerm('project_db', 'view'));
-const canViewEnv = computed(() => hasPerm('project_env', 'view'));
-const canDeployGitProd = computed(() => hasPerm('git', 'deploy'));
-const canManageAppUsers = computed(() => hasPerm('projects.app_users', 'view'));
-
-function isSelfPanel(projectName: string): boolean {
-  return ['serverpanel', 'alpanel'].includes(projectName.toLowerCase());
-}
-
-function getRunningTaskForProject(projectName: string): BackgroundTaskItem | undefined {
-  return panelStore.backgroundTasks.find(
-    (t) =>
-      t.status === 'running' &&
-      t.projectName.toLowerCase() === projectName.toLowerCase()
-  );
-}
-
-async function checkGitUpdates(projectName: string): Promise<void> {
-  enqueueBackgroundTask({
-    title: `Verificando Git Remoto — ${projectName}`,
-    projectName,
-    action: 'check-updates',
-    runningMessage: `Consultando repositorio remoto de ${projectName}...`,
-    initialOutput: `⏳ Verificando commits remotos de ${projectName}...\n`,
-    taskFn: () =>
-      apiFetch<{ output: string }>(
-        `/api/projects/${encodeURIComponent(projectName)}/check-updates`,
-        { method: 'POST' }
-      ),
+const filteredProjects = computed(() => {
+  const q = panelStore.projectSearchQuery.trim().toLowerCase();
+  return panelStore.projects.filter((p) => {
+    const srvId = p.serverId || 'local';
+    if (serverFilter.value !== 'all' && srvId !== serverFilter.value) {
+      return false;
+    }
+    if (!q) return true;
+    const haystack = [
+      p.name,
+      p.serverName || '',
+      ...(p.stack || []),
+      ...(p.domains || []),
+      p.git?.branch || '',
+      ...p.containers.map((c) => c.name),
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
   });
+});
+
+function toggleExpand(name: string): void {
+  expandedProjects[name] = !expandedProjects[name];
 }
 
-function openDbModal(projectName: string): void {
-  panelStore.modals.db.projectName = projectName;
-  panelStore.modals.db.open = true;
+function getStatusBadge(p: ProjectInfo): { label: string; cls: string } {
+  if (p.containers.length === 0) {
+    return {
+      label: 'VACÍO',
+      cls: 'bg-slate-800 text-slate-300 border-slate-700',
+    };
+  }
+  if (p.status === 'running') {
+    return {
+      label: 'ACTIVO',
+      cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+    };
+  }
+  if (p.status === 'partial') {
+    return {
+      label: 'PARCIAL',
+      cls: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+    };
+  }
+  return {
+    label: 'DETENIDO',
+    cls: 'bg-rose-500/10 text-rose-400 border-rose-500/25',
+  };
 }
 
-function openAppUsersModal(projectName: string): void {
-  panelStore.modals.appUsers.projectName = projectName;
-  panelStore.modals.appUsers.open = true;
+function getCpuPercent(p: ProjectInfo): string {
+  const val = Number(p.resources?.cpuPercent || 0);
+  return `${val.toFixed(1)}%`;
 }
+
+function getMemUsed(p: ProjectInfo): string {
+  const bytes = Number(p.resources?.memUsedBytes || 0);
+  return bytes > 0 ? formatBytes(bytes) : '0 B';
+}
+
+function getDiskUsed(p: ProjectInfo): string {
+  const bytes = Number(p.resources?.diskBytes || 0);
+  return bytes > 0 ? formatBytes(bytes) : '—';
+}
+
+async function checkRemoteGit(p: ProjectInfo): Promise<void> {
+  checkingGitName.value = p.name;
+  try {
+    await apiFetch(`/api/projects/${encodeURIComponent(p.name)}/git-check`, {
+      method: 'POST',
+    });
+    await refreshAll();
+    showToast(`Estado remoto de ${p.name} actualizado.`);
+  } catch (err: any) {
+    showToast(`No se pudo consultar remoto: ${err.message}`, true);
+  } finally {
+    checkingGitName.value = '';
+  }
+}
+
+onMounted(() => {
+  if (panelStore.servers.length === 0) {
+    loadServers().catch(() => {});
+  }
+});
 </script>
 
 <template>
-  <section class="space-y-5">
-    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-      <div class="space-y-1.5">
-        <div>
-          <h2 class="text-2xl font-extrabold text-white tracking-tight">
-            Pipeline & Proyectos
-          </h2>
-          <div class="h-1 w-28 rounded-full bg-indigo-500 mt-1.5"></div>
+  <section class="space-y-4">
+    <!-- Barra Superior de Filtros y Acciones -->
+    <div
+      class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3"
+    >
+      <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[240px]">
+        <div class="relative flex-1 min-w-[200px] max-w-sm">
+          <i
+            class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"
+          ></i>
+          <input
+            v-model="panelStore.projectSearchQuery"
+            type="text"
+            placeholder="Filtrar proyecto, dominio, stack..."
+            class="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+          />
         </div>
-        <p class="text-xs text-slate-400">
-          {{ filteredProjects.length }} de {{ panelStore.projects.length }} proyectos desplegados en
-          <code class="text-indigo-400 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded font-mono">
-            {{ panelStore.projectsRoot }}
-          </code>
-          <button
-            v-if="panelStore.projectSearchQuery"
-            @click="panelStore.projectSearchQuery = ''"
-            class="ml-2 text-indigo-400 hover:underline font-semibold"
-          >
-            (Limpiar filtro: "{{ panelStore.projectSearchQuery }}")
-          </button>
-        </p>
+
+        <div class="w-56">
+          <SearchableSelect
+            v-model="serverFilter"
+            :options="serverFilterOptions"
+            placeholder="Filtrar por servidor..."
+            search-placeholder="Buscar servidor..."
+          />
+        </div>
       </div>
-      <div class="relative w-full sm:w-72">
-        <i class="fa-solid fa-search absolute left-3.5 top-3 text-slate-500 text-xs"></i>
-        <input
-          v-model="panelStore.projectSearchQuery"
-          type="text"
-          placeholder="Filtrar proyecto, dominio o stack..."
-          class="w-full bg-slate-900 border border-slate-800 rounded-full pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-        />
+
+      <div class="flex items-center gap-2">
+        <button
+          @click="refreshAll"
+          class="px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5"
+        >
+          <i
+            class="fa-solid fa-rotate text-[11px]"
+            :class="{ 'fa-spin': panelStore.loadingProjects }"
+          ></i>
+          <span>Sincronizar</span>
+        </button>
+
+        <button
+          v-if="hasPerm('git', 'create')"
+          @click="panelStore.modals.clone.open = true"
+          class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20"
+        >
+          <i class="fa-solid fa-plus text-[11px]"></i>
+          <span>Nuevo Proyecto</span>
+        </button>
       </div>
     </div>
 
+    <!-- Estado de Carga / Vacío -->
     <div
       v-if="panelStore.loadingProjects && panelStore.projects.length === 0"
-      class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center text-slate-300 text-sm flex flex-col items-center justify-center gap-3"
+      class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center text-slate-400 text-xs"
     >
-      <i class="fa-solid fa-circle-notch fa-spin text-2xl text-indigo-400"></i>
-      <span class="font-medium">Cargando proyectos alojados en el servidor...</span>
+      <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-lg mb-2"></i>
+      <div>Escaneando proyectos, contenedores y servidores...</div>
     </div>
 
     <div
       v-else-if="filteredProjects.length === 0"
-      class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-sm"
+      class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center space-y-3"
     >
-      {{
-        panelStore.projectSearchQuery
-          ? 'No se encontraron proyectos con ese filtro.'
-          : 'No hay proyectos alojados todavía en el servidor.'
-      }}
+      <div class="text-slate-400 text-xs">
+        No se encontraron proyectos con los filtros actuales.
+      </div>
+      <button
+        v-if="hasPerm('git', 'create')"
+        @click="panelStore.modals.clone.open = true"
+        class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+      >
+        <i class="fa-solid fa-plus mr-1.5"></i>Crear Primer Proyecto
+      </button>
     </div>
 
-    <div v-else class="grid grid-cols-1 gap-5">
+    <!-- Lista de Tarjetas Compactas de Proyectos -->
+    <div v-else class="space-y-2.5">
       <div
         v-for="p in filteredProjects"
         :key="p.name"
-        class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4"
+        class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl transition overflow-hidden"
       >
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div class="space-y-1.5">
-            <div class="flex flex-wrap items-center gap-2.5">
-              <h3 class="text-lg font-bold text-white">{{ p.name }}</h3>
-              <span
-                v-if="p.status === 'running'"
-                class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-              >
-                <i class="fa-solid fa-circle text-[8px] mr-1"></i>ACTIVO
-              </span>
-              <span
-                v-else-if="p.status === 'partial'"
-                class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20"
-              >
-                PARCIAL
-              </span>
-              <span
-                v-else
-                class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20"
-              >
-                DETENIDO
+        <!-- Fila Principal Compacta (Click despliega resumen inferior) -->
+        <div
+          @click="toggleExpand(p.name)"
+          class="px-4 py-3.5 flex flex-wrap lg:flex-nowrap items-center justify-between gap-4 cursor-pointer select-none"
+        >
+          <!-- Izquierda: Identidad + Servidor + Stack + Dominio + Git -->
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-bold text-white tracking-tight">
+                {{ p.name }}
               </span>
 
-              <button
-                v-if="getRunningTaskForProject(p.name)"
-                @click="openTaskConsole(getRunningTaskForProject(p.name)!)"
-                class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5 transition"
-                title="Operación en segundo plano en curso — clic para ver consola"
-              >
-                <i class="fa-solid fa-circle-notch fa-spin text-[10px]"></i>
-                <span>{{ getRunningTaskForProject(p.name)?.title }}</span>
-              </button>
-
               <span
-                v-if="p.git.behindCount > 0"
-                class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse"
+                class="px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                :class="getStatusBadge(p).cls"
               >
-                <i class="fa-solid fa-arrow-up mr-1"></i>{{ p.git.behindCount }} commit(s) por bajar
+                {{ getStatusBadge(p).label }}
               </span>
 
-              <button
+              <span
+                class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-950 border border-slate-800 text-slate-300 flex items-center gap-1"
+                title="Servidor donde vive este proyecto"
+              >
+                <i class="fa-solid fa-server text-[9px] text-indigo-400"></i>
+                <span>{{ p.serverName || 'Nodo Central (Local)' }}</span>
+              </span>
+
+              <span
+                v-for="st in (p.stack || []).slice(0, 4)"
+                :key="st"
+                class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"
+              >
+                {{ st }}
+              </span>
+
+              <span
                 v-if="p.microservices?.isMicroservicesArchitecture"
-                @click="openMicroservicesModal(p.name)"
-                class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 transition flex items-center gap-1"
-                title="Configurar qué microservicios integrar o apagar en este proyecto"
+                class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-500/15 text-violet-300 border border-violet-500/25"
               >
-                <i class="fa-solid fa-cubes text-[10px]"></i>
-                Microservicios: {{ p.microservices.enabledMicroservicesCount }}/{{
-                  p.microservices.totalMicroservices
-                }}
-                integrados
-              </button>
+                <i class="fa-solid fa-cubes mr-1 text-[9px]"></i>Microservicios
+              </span>
+            </div>
 
-              <div class="flex flex-wrap gap-1.5">
+            <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+              <a
+                v-if="p.domains && p.domains.length > 0"
+                :href="`https://${p.domains[0]}`"
+                target="_blank"
+                rel="noopener"
+                @click.stop
+                class="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 font-mono"
+              >
+                <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                <span>{{ p.domains[0] }}</span>
                 <span
-                  v-for="s in p.stack"
-                  :key="s"
-                  class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px] font-medium"
+                  v-if="p.domains.length > 1"
+                  class="text-[10px] text-slate-500"
                 >
-                  {{ s }}
+                  +{{ p.domains.length - 1 }}
                 </span>
+              </a>
+
+              <span v-if="p.git?.isRepo" class="flex items-center gap-1.5 font-mono">
+                <i class="fa-solid fa-code-branch text-[10px] text-emerald-400"></i>
+                <span class="text-slate-300">{{ p.git.branch }}</span>
+                <span class="text-slate-500">@{{ p.git.commit }}</span>
+                <span
+                  v-if="p.git.behindCount > 0"
+                  class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold"
+                >
+                  -{{ p.git.behindCount }} atrás
+                </span>
+                <button
+                  type="button"
+                  @click.stop="checkRemoteGit(p)"
+                  :disabled="checkingGitName === p.name"
+                  class="text-[10px] text-slate-400 hover:text-indigo-300 underline ml-1"
+                >
+                  {{ checkingGitName === p.name ? 'Verificando...' : 'Verificar remoto' }}
+                </button>
+              </span>
+
+              <span class="text-slate-500">
+                <i class="fa-brands fa-docker mr-1"></i>
+                {{ p.containers.filter((c) => c.state === 'running').length }}/{{ p.containers.length }} contenedores
+              </span>
+            </div>
+          </div>
+
+          <!-- Derecha: Mini-telemetría (CPU | RAM | DISCO) + Botón Administrar + Chevron -->
+          <div class="flex items-center gap-3 shrink-0 ml-auto">
+            <div
+              class="hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-xl bg-slate-950/90 border border-slate-800/90"
+            >
+              <div class="text-right">
+                <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+                  CPU Proyecto
+                </div>
+                <div class="text-xs font-mono font-bold text-indigo-300">
+                  {{ getCpuPercent(p) }}
+                </div>
+              </div>
+              <div class="w-px h-6 bg-slate-800"></div>
+              <div class="text-right">
+                <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+                  RAM Usada
+                </div>
+                <div class="text-xs font-mono font-bold text-emerald-300">
+                  {{ getMemUsed(p) }}
+                </div>
+              </div>
+              <div class="w-px h-6 bg-slate-800"></div>
+              <div class="text-right">
+                <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+                  Disco
+                </div>
+                <div class="text-xs font-mono font-bold text-amber-300">
+                  {{ getDiskUsed(p) }}
+                </div>
               </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-3 pt-0.5">
-              <template v-if="p.domains.length">
-                <a
-                  v-for="d in p.domains"
-                  :key="d"
-                  :href="`https://${d}`"
-                  target="_blank"
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 text-xs font-medium transition"
-                >
-                  <i class="fa-solid fa-lock text-[10px] text-emerald-400"></i>
-                  {{ d }}
-                  <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                </a>
-              </template>
-              <span v-else class="text-xs text-slate-500">Sin dominio asignado</span>
+            <button
+              type="button"
+              @click.stop="openProjectWorkspace(p.name, 'containers')"
+              class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20"
+            >
+              <i class="fa-solid fa-sliders text-[11px]"></i>
+              <span>Administrar</span>
+              <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
 
-              <span class="text-xs text-slate-400 font-mono">
-                <i class="fa-brands fa-git-alt text-orange-400 mr-1"></i>{{ p.git.branch }} ({{
-                  p.git.commitHash
-                }})
-              </span>
+            <button
+              type="button"
+              @click.stop="toggleExpand(p.name)"
+              class="w-8 h-8 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition"
+              :title="expandedProjects[p.name] ? 'Contraer resumen' : 'Ver resumen rápido'"
+            >
+              <i
+                class="fa-solid fa-chevron-down text-xs transition-transform duration-200"
+                :class="{ 'rotate-180': expandedProjects[p.name] }"
+              ></i>
+            </button>
+          </div>
+        </div>
 
+        <!-- Desplegable Rápido (Accordion) -->
+        <div
+          v-if="expandedProjects[p.name]"
+          class="px-4 pb-4 pt-3 border-t border-slate-800/80 bg-slate-950/50 space-y-3"
+        >
+          <!-- Accesos Rápidos a Pestañas del Workspace + Acciones Docker -->
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center gap-1.5">
               <button
-                v-if="p.git.isRepo && hasPerm('git', 'view')"
-                @click="checkGitUpdates(p.name)"
-                class="text-[11px] text-indigo-400 hover:underline"
-                title="Consultar si hay nuevos commits en el repositorio remoto"
+                @click="openProjectWorkspace(p.name, 'containers')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
               >
-                <i class="fa-solid fa-magnifying-glass mr-1"></i>Verificar remoto
+                <i class="fa-brands fa-docker text-sky-400 mr-1"></i>Contenedores
+              </button>
+              <button
+                @click="openProjectWorkspace(p.name, 'files')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
+              >
+                <i class="fa-solid fa-folder-tree text-amber-400 mr-1"></i>Archivos
+              </button>
+              <button
+                @click="openProjectWorkspace(p.name, 'git')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
+              >
+                <i class="fa-brands fa-git-alt text-orange-400 mr-1"></i>Git &amp; Commits
+              </button>
+              <button
+                @click="openProjectWorkspace(p.name, 'domains')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
+              >
+                <i class="fa-solid fa-globe text-emerald-400 mr-1"></i>Dominios &amp; Gateway
+              </button>
+              <button
+                @click="openProjectWorkspace(p.name, 'database')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
+              >
+                <i class="fa-solid fa-database text-violet-400 mr-1"></i>Base de Datos
+              </button>
+              <button
+                @click="openProjectWorkspace(p.name, 'env-cron')"
+                class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-medium"
+              >
+                <i class="fa-solid fa-sliders text-indigo-400 mr-1"></i>.env &amp; Cron
+              </button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                v-if="p.git?.isRepo && hasPerm('projects', 'git_pull')"
+                @click="runProjectAction(p.name, 'pull')"
+                class="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-[11px] font-semibold"
+              >
+                <i class="fa-solid fa-cloud-arrow-down mr-1"></i>Git Pull
+              </button>
+              <button
+                v-if="hasPerm('projects', 'deploy')"
+                @click="runProjectAction(p.name, 'restart')"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold"
+              >
+                <i class="fa-solid fa-rotate-right mr-1"></i>Restart
+              </button>
+              <button
+                v-if="hasPerm('projects', 'deploy')"
+                @click="runProjectAction(p.name, 'rebuild')"
+                class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-semibold"
+              >
+                <i class="fa-solid fa-hammer mr-1"></i>Rebuild
               </button>
             </div>
           </div>
 
-          <!-- Consumo del Proyecto -->
-          <div
-            class="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs"
-          >
-            <div>
-              <span class="text-slate-400 block text-[10px] uppercase">CPU Proyecto</span>
-              <span class="font-bold text-indigo-400 text-sm">{{ p.resources.cpuPercent }}%</span>
-            </div>
-            <div class="h-6 w-px bg-slate-800 mx-1"></div>
-            <div>
-              <span class="text-slate-400 block text-[10px] uppercase">RAM Usada</span>
-              <span class="font-bold text-emerald-400 text-sm">
-                {{ formatBytes(p.resources.memoryBytes) }}
-              </span>
-            </div>
-            <div class="h-6 w-px bg-slate-800 mx-1"></div>
-            <div>
-              <span class="text-slate-400 block text-[10px] uppercase">Disco</span>
-              <span class="font-bold text-amber-400 text-sm">
-                {{ formatBytes(p.resources.diskBytes) }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Botonera de Acciones del Proyecto -->
-        <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
-          <button
-            v-if="canDeployGitProd"
-            @click="runProjectAction(p.name, 'pull')"
-            class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
-            title="Descarga cambios de GitHub (git pull origin main) con Rollback de Git si hay conflictos, sin reiniciar ni destruir Docker"
-          >
-            <i class="fa-solid fa-cloud-arrow-down"></i> Git Pull
-          </button>
-
-          <button
-            v-if="p.microservices?.isMicroservicesArchitecture && canDeployProjects"
-            @click="openMicroservicesModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Decidir qué microservicios integrar, encender o apagar en este proyecto"
-          >
-            <i class="fa-solid fa-cubes"></i>
-            Microservicios ({{ p.microservices.enabledMicroservicesCount }}/{{
-              p.microservices.totalMicroservices
-            }})
-          </button>
-
-          <template v-if="canDeployProjects">
-            <button
-              @click="runProjectAction(p.name, 'restart')"
-              class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-              title="Reinicia los contenedores de aplicación (manteniendo la Base de Datos intacta)"
+          <!-- Resumen de Contenedores -->
+          <div v-if="p.containers.length > 0" class="flex flex-wrap gap-2">
+            <div
+              v-for="c in p.containers"
+              :key="c.name"
+              class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2 text-[11px]"
             >
-              <i class="fa-solid fa-rotate"></i> Restart Docker
-            </button>
-            <button
-              @click="runProjectAction(p.name, 'clear-cache')"
-              class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-              title="Limpia la caché del framework y recarga los contenedores de aplicación sin tocar la Base de Datos"
-            >
-              <i class="fa-solid fa-broom"></i> Limpiar Caché
-            </button>
-          </template>
-
-          <button
-            v-if="canViewDb"
-            @click="openDbModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-          >
-            <i class="fa-solid fa-database"></i> Base de Datos
-          </button>
-
-          <button
-            v-if="!isSelfPanel(p.name) && p.database?.hasDatabase && canManageAppUsers"
-            @click="openAppUsersModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-            :title="`Ver, crear y cambiar contraseñas de usuarios internos de ${p.name}`"
-          >
-            <i class="fa-solid fa-users-rectangle"></i> Usuarios App
-          </button>
-
-          <button
-            v-if="canDeployProjects"
-            @click="openCronjobsModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Programar y ejecutar Cronjobs en este proyecto"
-          >
-            <i class="fa-solid fa-clock"></i> Cronjobs
-          </button>
-
-          <button
-            v-if="canDeployProjects"
-            @click="openTerminalModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Abrir Terminal Interactiva en los contenedores o carpeta de este proyecto"
-          >
-            <i class="fa-solid fa-terminal"></i> Terminal
-          </button>
-
-          <button
-            v-if="canViewEnv"
-            @click="openEnvModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-          >
-            <i class="fa-solid fa-key"></i> .env
-          </button>
-
-          <button
-            v-if="canViewLogs"
-            @click="openLogsModal(p.name)"
-            class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-          >
-            <i class="fa-solid fa-scroll"></i> Logs
-          </button>
-
-          <button
-            v-if="canStopRebuildServer"
-            @click="runProjectAction(p.name, 'rebuild')"
-            class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Reconstruir imágenes sin caché (--no-cache) conservando intactos los datos de la Base de Datos"
-          >
-            <i class="fa-solid fa-hammer"></i> Rebuild
-          </button>
-
-          <button
-            v-if="canStopRebuildServer && !isSelfPanel(p.name)"
-            @click="openRebuildDestroyModal(p)"
-            class="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-700/60 text-xs font-semibold transition flex items-center gap-1.5"
-            title="Último recurso: Destruir todo (contenedores, imágenes, caché y volúmenes) y reconstruir desde cero con migraciones limpias"
-          >
-            <i class="fa-solid fa-skull-crossbones"></i> Rebuild Destroy
-          </button>
-
-          <span
-            v-if="isSelfPanel(p.name)"
-            class="ml-auto px-3 py-2 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 text-xs font-semibold flex items-center gap-1.5"
-          >
-            <i class="fa-solid fa-shield-halved"></i> Panel Principal
-          </span>
-          <div v-else-if="canStopRebuildServer" class="ml-auto flex items-center gap-2">
-            <button
-              v-if="p.status === 'running'"
-              @click="runProjectAction(p.name, 'stop')"
-              class="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 text-xs font-semibold transition flex items-center gap-1.5"
-            >
-              <i class="fa-solid fa-stop"></i> Detener
-            </button>
-            <button
-              v-else
-              @click="runProjectAction(p.name, 'start')"
-              class="px-3 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-800/60 text-xs font-semibold transition flex items-center gap-1.5"
-            >
-              <i class="fa-solid fa-play"></i> Iniciar
-            </button>
-            <button
-              @click="openDeleteProjectModal(p)"
-              class="px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-semibold transition flex items-center gap-1.5"
-              :title="`Eliminar por completo el proyecto ${p.name} del servidor`"
-            >
-              <i class="fa-solid fa-trash-can"></i> Eliminar
-            </button>
-          </div>
-        </div>
-
-        <!-- Lista de Contenedores del Proyecto -->
-        <div class="space-y-1.5 pt-1">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Contenedores del Proyecto ({{ p.containers.length }})
-          </div>
-          <div v-if="p.containers.length === 0" class="text-xs text-slate-500 italic">
-            No hay contenedores creados para este proyecto todavía.
-          </div>
-          <div
-            v-for="c in p.containers"
-            :key="c.id || c.name"
-            class="flex flex-wrap items-center justify-between gap-2 bg-slate-950/80 border border-slate-800/80 rounded-xl px-3.5 py-2 text-xs"
-          >
-            <div class="flex items-center gap-2.5 min-w-[180px]">
               <span
                 class="w-2 h-2 rounded-full"
-                :class="c.state === 'running' ? 'bg-emerald-400' : 'bg-rose-500'"
+                :class="c.state === 'running' ? 'bg-emerald-400' : 'bg-rose-400'"
               ></span>
-              <span class="font-semibold text-white">{{ c.name }}</span>
-              <span class="text-[11px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
-                <span v-if="c.role === 'database'" class="text-amber-400">
-                  <i class="fa-solid fa-database mr-1"></i>DB
-                </span>
-                <span v-else-if="c.role === 'proxy'" class="text-emerald-400">
-                  <i class="fa-solid fa-shield-halved mr-1"></i>SSL Proxy
-                </span>
-                <span v-else-if="c.isGateway || c.role === 'gateway'" class="text-emerald-300 font-semibold">
-                  <i class="fa-solid fa-network-wired mr-1"></i>Gateway / Core
-                </span>
-                <span v-else-if="c.role === 'frontend'" class="text-sky-400">
-                  <i class="fa-solid fa-desktop mr-1"></i>Frontend
-                </span>
-                <span v-else class="text-indigo-400">
-                  <i class="fa-solid fa-gears mr-1"></i>Backend
-                </span>
-              </span>
-            </div>
-
-            <div class="text-slate-400 text-[11px] font-mono">{{ c.image }}</div>
-
-            <div class="flex items-center gap-4 text-[11px]">
-              <span>
-                CPU: <strong class="text-slate-200">{{ c.cpuPercent }}%</strong>
-              </span>
-              <span>
-                RAM: <strong class="text-emerald-400">{{ formatBytes(c.memoryBytes) }}</strong>
-              </span>
-              <span v-if="c.ports.length" class="text-indigo-300 font-mono">
-                <i class="fa-solid fa-plug mr-1 text-slate-400"></i>{{ c.ports.join(', ') }}
-              </span>
-            </div>
-
-            <div class="flex items-center gap-1.5">
-              <button
-                v-if="c.role === 'database' && !/redis/i.test(c.image) && !/redis/i.test(c.name) && canViewDb"
-                @click="openErdModal(p.name, c.name)"
-                class="px-2.5 py-1 rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-[11px] font-semibold transition flex items-center gap-1"
-                :title="`Visualizar Modelo Gráfico DER / ERD del contenedor de Base de Datos ${c.name}`"
-              >
-                <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
-              </button>
-              <button
-                v-if="c.role === 'database' && !/redis/i.test(c.image) && !/redis/i.test(c.name) && canDeployProjects"
-                @click="openTerminalModal(p.name, c.name, 'sql')"
-                class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
-                :title="`Abrir Terminal SQL interactiva en el motor de Base de Datos ${c.name}`"
-              >
-                <i class="fa-solid fa-database"></i> Terminal SQL
-              </button>
-              <button
-                v-else-if="canDeployProjects"
-                @click="openTerminalModal(p.name, c.name, 'shell')"
-                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px]"
-                title="Abrir terminal interactiva en este contenedor"
-              >
-                <i class="fa-solid fa-terminal"></i> Terminal
-              </button>
-              <button
-                v-if="canDeployProjects"
-                @click="runProjectAction(p.name, 'restart', { containerName: c.name })"
-                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px]"
-                title="Reiniciar solo este contenedor"
-              >
-                <i class="fa-solid fa-rotate"></i> Restart
-              </button>
-              <button
-                v-if="canDeployProjects && c.role !== 'database' && c.role !== 'proxy'"
-                @click="
-                  runProjectAction(p.name, 'rebuild', {
-                    containerName: c.name,
-                    serviceName: c.serviceName,
-                  })
-                "
-                class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition"
-                :title="`Reconstruir imagen sin caché (--no-cache) y recrear únicamente el contenedor ${c.name} sin tocar la BD ni los demás servicios`"
-              >
-                <i class="fa-solid fa-hammer"></i> Rebuild
-              </button>
-              <button
-                v-if="canViewLogs"
-                @click="openLogsModal(p.name, c.name)"
-                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px]"
-                title="Ver logs de este contenedor"
-              >
-                <i class="fa-solid fa-scroll"></i> Logs
-              </button>
+              <span class="font-mono font-semibold text-slate-200">{{ c.name }}</span>
+              <span class="text-[10px] text-slate-500">{{ c.role }}</span>
             </div>
           </div>
-
-          <!-- Lista de Bases de Datos Alojadas en el Contenedor DB (Multi-Base / Multi-Tenant) -->
-          <div
-            v-if="p.database?.hasDatabase && p.database?.availableDatabases && p.database.availableDatabases.length > 0"
-            class="space-y-1.5 pt-2"
-          >
-            <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-400/90 flex items-center gap-1.5">
-              <i class="fa-solid fa-database text-[10px]"></i>
-              Bases de Datos Alojadas en {{ p.database.containerName || 'DB' }} ({{ p.database.availableDatabases.length }})
-            </div>
-            <div
-              v-for="dbName in p.database.availableDatabases"
-              :key="dbName"
-              class="flex flex-wrap items-center justify-between gap-2 bg-amber-950/15 border border-amber-500/20 rounded-xl px-3.5 py-2 text-xs"
-            >
-              <div class="flex items-center gap-2.5">
-                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                <span class="font-mono font-bold text-amber-200">{{ dbName }}</span>
-                <span
-                  v-if="dbName === p.database.database"
-                  class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-semibold"
-                >
-                  Principal / Core
-                </span>
-                <span
-                  v-else-if="dbName.includes('groups')"
-                  class="text-[10px] px-2 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30 font-semibold"
-                >
-                  Grupos de Clientes y Catálogo
-                </span>
-                <span
-                  v-else
-                  class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold"
-                >
-                  BD Aislada Cliente
-                </span>
-              </div>
-
-              <div class="text-slate-400 text-[11px] font-mono">
-                {{ p.database.engine }} · Contenedor: {{ p.database.containerName }}
-              </div>
-
-              <div class="flex items-center gap-1.5">
-                <button
-                  v-if="canViewDb"
-                  @click="openErdModal(p.name, p.database.containerName || '', dbName)"
-                  class="px-2.5 py-1 rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/30 text-[11px] font-semibold transition flex items-center gap-1"
-                  :title="`Visualizar Modelo DER / ERD de la base de datos ${dbName}`"
-                >
-                  <i class="fa-solid fa-diagram-project"></i> Modelo DER / ERD
-                </button>
-                <button
-                  v-if="canDeployProjects"
-                  @click="openTerminalModal(p.name, p.database.containerName || '', 'sql', dbName)"
-                  class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center gap-1"
-                  :title="`Abrir Terminal SQL interactiva conectada a la base de datos ${dbName}`"
-                >
-                  <i class="fa-solid fa-database"></i> Terminal SQL
-                </button>
-                <button
-                  v-if="canViewDb"
-                  @click="openDbModal(p.name)"
-                  class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] font-semibold transition flex items-center gap-1"
-                  :title="`Ver credenciales y descargar Backup SQL de ${dbName}`"
-                >
-                  <i class="fa-solid fa-file-arrow-down"></i> Credenciales / SQL
-                </button>
-              </div>
-            </div>
+          <div v-else class="text-[11px] text-slate-500">
+            Proyecto sin contenedores activos todavía. Entra a <strong>Administrar</strong> para agregar contenedores desde Git, otro servidor o Docker.
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal de Confirmación de Seguridad: Rebuild Destroy -->
-    <div
-      v-if="confirmDestroyModal.open"
-      class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
-      @click.self="closeRebuildDestroyModal"
-    >
-      <div
-        class="bg-slate-900 border border-rose-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
-      >
-        <div
-          class="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-rose-950/30"
-        >
-          <div class="flex items-center gap-2.5 text-rose-400 font-bold text-sm">
-            <i class="fa-solid fa-triangle-exclamation text-base"></i>
-            <span>¿Seguro que quieres ejecutar Rebuild Destroy?</span>
-          </div>
-          <button
-            @click="closeRebuildDestroyModal"
-            class="text-slate-400 hover:text-white text-sm px-2 py-1 rounded-lg"
-          >
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
-
-        <div class="p-5 space-y-3 text-xs text-slate-300">
-          <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3.5 space-y-1.5">
-            <p class="font-bold text-rose-300">
-              ⚠️ ADVERTENCIA DE DESTRUCCIÓN Y RECONSTRUCCIÓN TOTAL (ÚLTIMO RECURSO)
-            </p>
-            <p class="leading-relaxed text-slate-300">
-              Estás a punto de apagar y <strong>destruir por completo</strong> todo el proyecto
-              <strong class="text-white">{{ confirmDestroyModal.projectName }}</strong>. Esta
-              acción eliminará todos sus contenedores, imágenes, caché de compilación y
-              <strong class="text-rose-300">volúmenes de Base de Datos</strong>, y volverá a montar
-              todo y ejecutar las <strong>migraciones desde cero</strong> como recién instalado.
-            </p>
-          </div>
-        </div>
-
-        <div
-          class="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800 bg-slate-950/60"
-        >
-          <button
-            @click="closeRebuildDestroyModal"
-            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
-          >
-            Cancelar
-          </button>
-          <button
-            @click="confirmAndRunRebuildDestroy"
-            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30"
-          >
-            <i class="fa-solid fa-skull-crossbones"></i>
-            Sí, destruir y reconstruir desde cero
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal de Confirmación de Seguridad: Eliminar Proyecto Definitivamente -->
-    <div
-      v-if="confirmDeleteModal.open"
-      class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
-      @click.self="closeDeleteProjectModal"
-    >
-      <div
-        class="bg-slate-900 border border-rose-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
-      >
-        <div
-          class="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-rose-950/30"
-        >
-          <div class="flex items-center gap-2.5 text-rose-400 font-bold text-sm">
-            <i class="fa-solid fa-trash-can text-base"></i>
-            <span>¿Eliminar proyecto definitivamente del servidor?</span>
-          </div>
-          <button
-            @click="closeDeleteProjectModal"
-            class="text-slate-400 hover:text-white text-sm px-2 py-1 rounded-lg"
-          >
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
-
-        <div class="p-5 space-y-3 text-xs text-slate-300">
-          <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3.5 space-y-1.5">
-            <p class="font-bold text-rose-300">
-              🚨 ACCIÓN IRREVERSIBLE — ELIMINACIÓN PERMANENTE DEL SERVIDOR
-            </p>
-            <p class="leading-relaxed text-slate-300">
-              Estás a punto de <strong>eliminar por completo</strong> el proyecto
-              <strong class="text-white">{{ confirmDeleteModal.projectName }}</strong> del servidor.
-              Esta acción apagará y borrará todos sus contenedores Docker, volúmenes de Base de
-              Datos, rutas de dominio SSL en Caddy y la carpeta completa
-              <code class="text-rose-300">{{ panelStore.projectsRoot }}/{{ confirmDeleteModal.projectName }}</code>.
-            </p>
-          </div>
-        </div>
-
-        <div
-          class="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-800 bg-slate-950/60"
-        >
-          <button
-            @click="closeDeleteProjectModal"
-            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
-          >
-            Cancelar
-          </button>
-          <button
-            @click="confirmAndRunDeleteProject"
-            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30"
-          >
-            <i class="fa-solid fa-trash-can"></i>
-            Sí, eliminar proyecto del servidor
-          </button>
         </div>
       </div>
     </div>

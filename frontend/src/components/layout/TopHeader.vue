@@ -5,7 +5,6 @@ import {
   hasPerm,
   panelStore,
   switchTab,
-  toggleSidebar,
 } from '../../composables/usePanelStore';
 import { formatBytes } from '../../services/api';
 import type { PanelTab } from '../../types/panel';
@@ -18,7 +17,9 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 
 const tabLabels: Record<PanelTab, string> = {
   overview: 'Overview',
-  projects: 'Pipeline & Proyectos',
+  projects: 'Proyectos',
+  servers: 'Servidores & Nodos',
+  'project-workspace': 'Administrar Proyecto',
   domains: 'Dominios & SSL',
   guide: 'Guía Multi-Stack',
   users: 'Usuarios & Roles',
@@ -26,9 +27,12 @@ const tabLabels: Record<PanelTab, string> = {
   audit: 'Auditoría & Escudo',
 };
 
-const currentTabTitle = computed(
-  () => tabLabels[panelStore.activeTab] || 'Overview'
-);
+const currentTabTitle = computed(() => {
+  if (panelStore.activeTab === 'project-workspace') {
+    return panelStore.activeProjectWorkspace.projectName || 'Proyecto';
+  }
+  return tabLabels[panelStore.activeTab] || 'Overview';
+});
 
 const hostDisplayLabel = computed(() => {
   const h = (panelStore.host.hostname || '').trim();
@@ -102,30 +106,6 @@ onUnmounted(() => {
           <i class="fa-solid fa-bars text-xs"></i>
         </button>
 
-        <!-- Píldora de Espacios Apilados cuando el Rail está colapsado -->
-        <button
-          v-if="panelStore.sidebarCollapsed"
-          @click="toggleSidebar"
-          class="hidden lg:inline-flex items-center -space-x-1.5 px-2 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 transition"
-          title="Expandir barra lateral de espacios"
-        >
-          <span
-            class="w-4 h-4 rounded-md bg-indigo-600 keep-white text-[8px] font-bold flex items-center justify-center"
-          >
-            <i class="fa-solid fa-bolt"></i>
-          </span>
-          <span
-            class="w-4 h-4 rounded-md bg-emerald-600 keep-white text-[8px] font-bold flex items-center justify-center"
-          >
-            <i class="fa-solid fa-cubes"></i>
-          </span>
-          <span
-            class="w-4 h-4 rounded-md bg-violet-600 keep-white text-[8px] font-bold flex items-center justify-center"
-          >
-            <i class="fa-solid fa-server"></i>
-          </span>
-        </button>
-
         <div class="flex items-center gap-2 text-xs min-w-0">
           <button
             @click="switchTab('overview')"
@@ -134,7 +114,19 @@ onUnmounted(() => {
             {{ hostDisplayLabel }}
           </button>
           <span class="text-slate-500">/</span>
-          <span class="text-white font-semibold truncate">
+          <template v-if="panelStore.activeTab === 'project-workspace'">
+            <button
+              @click="switchTab('projects')"
+              class="text-slate-400 hover:text-indigo-400 font-medium truncate transition"
+            >
+              Proyectos
+            </button>
+            <span class="text-slate-500">/</span>
+            <span class="text-white font-semibold truncate">
+              {{ currentTabTitle }}
+            </span>
+          </template>
+          <span v-else class="text-white font-semibold truncate">
             {{ currentTabTitle }}
           </span>
         </div>

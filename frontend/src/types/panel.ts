@@ -80,9 +80,26 @@ export interface ProjectMicroservicesSummary {
   enabledServiceNames: string[];
 }
 
+export interface ProjectLinkedUpstream {
+  id: string;
+  serviceName: string;
+  containerName: string;
+  serverId: string;
+  serverName: string;
+  host: string;
+  port: string;
+  pathPrefix: string;
+  envVarName?: string;
+  linkedAt: string;
+}
+
 export interface ProjectInfo {
   name: string;
   path: string;
+  serverId?: string;
+  serverName?: string;
+  isolatedNetwork?: string;
+  linkedUpstreams?: ProjectLinkedUpstream[];
   status: 'running' | 'partial' | 'stopped' | string;
   stack: string[];
   domains: string[];
@@ -107,12 +124,14 @@ export interface DomainMicroserviceRoute {
   target: string;
   stripPrefix?: boolean;
   serviceName?: string;
+  serverId?: string;
 }
 
 export interface DomainRouteItem {
   id: string;
   domain: string;
   projectName: string;
+  serverId?: string;
   frontendTarget: string;
   apiPathPrefix: string;
   backendTarget: string;
@@ -404,9 +423,129 @@ export interface TaskStreamChunkPayload {
   timestamp: string;
 }
 
+export interface ServerNodeMetrics {
+  cpuCores: number;
+  cpuUsagePercent: number;
+  ramTotalMb: number;
+  ramUsedMb: number;
+  ramAvailableMb: number;
+  ramPercent: number;
+  diskTotalGb: number;
+  diskUsedGb: number;
+  diskPercent: number;
+  dockerVersion: string;
+  composeVersion: string;
+  caddyStatus: string;
+  osName: string;
+  containersRunning: number;
+  containersTotal: number;
+}
+
+export interface ServerNodePublic {
+  id: string;
+  name: string;
+  description: string;
+  isLocal: boolean;
+  host: string;
+  privateIp: string;
+  sshPort: number;
+  sshUser: string;
+  authType: 'key' | 'password' | 'local';
+  hasSecret: boolean;
+  projectsRoot: string;
+  hasCaddy: boolean;
+  status: 'online' | 'offline' | 'unknown';
+  lastCheckedAt: string | null;
+  lastError?: string;
+  metrics?: ServerNodeMetrics;
+  createdAt: string;
+}
+
+export interface RemoteContainerItem {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  ports: string;
+  internalPort: string;
+  composeProject: string;
+  composeService: string;
+  workingDir: string;
+  serverId: string;
+  serverName: string;
+  serverHost: string;
+}
+
+export interface GitCredentialPublic {
+  id: string;
+  label: string;
+  provider: 'github' | 'gitlab' | 'generic';
+  username: string;
+  hasToken: boolean;
+  createdAt: string;
+}
+
+export interface ProjectFileTreeEntry {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  sizeBytes: number;
+  updatedAt: string;
+  extension: string;
+}
+
+export interface ProjectFileReadResult {
+  relativePath: string;
+  content: string;
+  sizeBytes: number;
+  isBinary: boolean;
+  hasBackup: boolean;
+  updatedAt: string;
+}
+
+export interface GitChangedFileItem {
+  code: string;
+  statusLabel: string;
+  path: string;
+}
+
+export interface GitCommitHistoryItem {
+  hash: string;
+  shortHash: string;
+  authorName: string;
+  authorEmail: string;
+  dateIso: string;
+  relativeDate: string;
+  subject: string;
+  filesChanged: string[];
+}
+
+export interface ProjectGitInspectorOverview {
+  isRepo: boolean;
+  currentBranch: string;
+  remoteUrl: string;
+  aheadCount: number;
+  behindCount: number;
+  isDirty: boolean;
+  changedFiles: GitChangedFileItem[];
+  commits: GitCommitHistoryItem[];
+  branches: string[];
+}
+
+export type WorkspaceSubTab =
+  | 'containers'
+  | 'files'
+  | 'git'
+  | 'domains'
+  | 'database'
+  | 'env';
+
 export type PanelTab =
   | 'overview'
+  | 'servers'
   | 'projects'
+  | 'project-workspace'
   | 'domains'
   | 'guide'
   | 'users'

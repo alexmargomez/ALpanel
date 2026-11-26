@@ -3,6 +3,9 @@ import { projectsService } from '../../application/use-cases/projects-facade.use
 import { hostService } from '../../../../shared/infrastructure/services/host-metrics.service';
 import { manageAuditLogsUseCase } from '../../../security/application/use-cases/manage-audit-logs.use-case';
 import { manageProjectAppUsersUseCase } from '../../application/use-cases/manage-project-app-users.use-case';
+import { manageProjectFilesUseCase } from '../../application/use-cases/manage-project-files.use-case';
+import { manageProjectGitInspectorUseCase } from '../../application/use-cases/manage-project-git-inspector.use-case';
+import { manageProjectWorkspaceUseCase } from '../../application/use-cases/manage-project-workspace.use-case';
 
 export class ProjectsController {
   async list(_request: FastifyRequest, _reply: FastifyReply) {
@@ -455,6 +458,162 @@ export class ProjectsController {
           error?.message ||
           'Error inspeccionando arquitectura del repositorio remoto',
       });
+    }
+  }
+
+  async createEmptyWorkspace(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const body = (request.body || {}) as {
+        projectName: string;
+        description?: string;
+        serverId?: string;
+      };
+      const res = await manageProjectWorkspaceUseCase.createEmptyWorkspace(body);
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_CREATE_EMPTY',
+        `${body.projectName} (${body.serverId || 'local'})`,
+        request.ip,
+        'ok'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({
+        error: error?.message || 'Error creando proyecto aislado',
+      });
+    }
+  }
+
+  async addContainer(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    try {
+      const body = (request.body || {}) as any;
+      const res = await manageProjectWorkspaceUseCase.addContainerToProject(
+        name,
+        body
+      );
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_ADD_CONTAINER',
+        `${name}/${body.serviceName || 'service'} (${body.source || 'image'})`,
+        request.ip,
+        res.success ? 'ok' : 'error'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(error?.statusCode || 400).send({
+        error: error?.message || 'Error agregando contenedor al proyecto',
+      });
+    }
+  }
+
+  async listFiles(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { path: relPath } = (request.query || {}) as { path?: string };
+    try {
+      return manageProjectFilesUseCase.listDirectory(name, relPath || '');
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error listando archivos' });
+    }
+  }
+
+  async readFile(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { path: relPath } = (request.query || {}) as { path?: string };
+    try {
+      return manageProjectFilesUseCase.readFile(name, relPath || '');
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error leyendo archivo' });
+    }
+  }
+
+  async writeFile(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as { path: string; content: string };
+    try {
+      const res = await manageProjectFilesUseCase.writeFile(
+        name,
+        body.path,
+        body.content ?? ''
+      );
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_FILE_SAVE',
+        `${name}:${body.path}`,
+        request.ip,
+        'ok'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error guardando archivo' });
+    }
+  }
+
+  async restoreFileBackup(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as { path: string };
+    try {
+      return manageProjectFilesUseCase.restoreBackup(name, body.path);
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error restaurando respaldo' });
+    }
+  }
+
+  async createFileEntry(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const body = (request.body || {}) as {
+      path: string;
+      kind: 'file' | 'directory';
+    };
+    try {
+      return manageProjectFilesUseCase.createEntry(
+        name,
+        body.path,
+        body.kind === 'directory' ? 'directory' : 'file'
+      );
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error creando archivo o carpeta' });
+    }
+  }
+
+  async deleteFileEntry(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { path: relPath } = (request.query || {}) as { path?: string };
+    try {
+      const res = manageProjectFilesUseCase.deleteEntry(name, relPath || '');
+      await manageAuditLogsUseCase.recordAudit(
+        'PROJECT_FILE_DELETE',
+        `${name}:${relPath}`,
+        request.ip,
+        'ok'
+      );
+      return res;
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error eliminando elemento' });
+    }
+  }
+
+  async inspectGit(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { limit } = (request.query || {}) as { limit?: string };
+    try {
+      return await manageProjectGitInspectorUseCase.inspect(
+        name,
+        limit ? Number(limit) : 25
+      );
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error inspeccionando Git' });
+    }
+  }
+
+  async inspectGitDiff(request: FastifyRequest, reply: FastifyReply) {
+    const { name } = request.params as { name: string };
+    const { path: filePath } = (request.query || {}) as { path?: string };
+    try {
+      const diff = await manageProjectGitInspectorUseCase.getFileDiff(
+        name,
+        filePath || ''
+      );
+      return { path: filePath || '', diff };
+    } catch (error: any) {
+      return reply.code(400).send({ error: error?.message || 'Error obteniendo git diff' });
     }
   }
 }

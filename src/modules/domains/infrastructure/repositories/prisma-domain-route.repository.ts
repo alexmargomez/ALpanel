@@ -8,6 +8,7 @@ import {
 } from '../../domain/entities/domain-route.entity';
 
 const EXTRA_ROUTES_SETTING_KEY = 'domain_extra_routes_v1';
+const ROUTE_SERVERS_SETTING_KEY = 'domain_route_servers_v1';
 
 function sanitizeExtraRoutes(
   raw?: DomainMicroserviceRoute[]
@@ -26,6 +27,7 @@ function sanitizeExtraRoutes(
       target,
       stripPrefix: Boolean(item?.stripPrefix),
       serviceName: item?.serviceName ? String(item.serviceName).trim() : undefined,
+      serverId: item?.serverId ? String(item.serverId).trim() : undefined,
     });
   }
   return cleaned;
@@ -41,6 +43,34 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
       fs.mkdirSync(dataDir, { recursive: true });
     }
     this.dataFile = path.join(dataDir, 'domains.json');
+  }
+
+  private async readRouteServersMap(): Promise<Record<string, string>> {
+    try {
+      const row = await prisma.panelSetting.findUnique({
+        where: { settingKey: ROUTE_SERVERS_SETTING_KEY },
+      });
+      if (row?.settingValue) {
+        const parsed = JSON.parse(row.settingValue);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return {};
+  }
+
+  private async writeRouteServersMap(map: Record<string, string>): Promise<void> {
+    try {
+      const serialized = JSON.stringify(map);
+      await prisma.panelSetting.upsert({
+        where: { settingKey: ROUTE_SERVERS_SETTING_KEY },
+        update: { settingValue: serialized },
+        create: { settingKey: ROUTE_SERVERS_SETTING_KEY, settingValue: serialized },
+      });
+    } catch {
+      // ignore
+    }
   }
 
   private async readExtraRoutesMap(): Promise<
@@ -89,11 +119,12 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
 
   async listRoutes(): Promise<DomainRouteEntity[]> {
     try {
-      const [rows, extraMap] = await Promise.all([
+      const [rows, extraMap, serverMap] = await Promise.all([
         prisma.domainRoute.findMany({
           orderBy: { createdAt: 'asc' },
         }),
         this.readExtraRoutesMap(),
+        this.readRouteServersMap(),
       ]);
       const mapped: DomainRouteEntity[] = [];
       for (const r of rows) {
@@ -121,6 +152,7 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
           id: r.id,
           domain: r.domain,
           projectName: r.projectName,
+          serverId: serverMap[r.id] || 'local',
           frontendTarget,
           apiPathPrefix: r.apiPathPrefix || '',
           backendTarget,
@@ -188,18 +220,31 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
     });
 
     const extraRoutes = sanitizeExtraRoutes(route.extraRoutes);
-    const extraMap = await this.readExtraRoutesMap();
+    const [extraMap, serverMap] = await Promise.all([
+      this.readExtraRoutesMap(),
+      this.readRouteServersMap(),
+    ]);
     if (extraRoutes.length > 0) {
       extraMap[saved.id] = extraRoutes;
     } else {
       delete extraMap[saved.id];
     }
-    await this.writeExtraRoutesMap(extraMap);
+    const resolvedServerId = (route.serverId || 'local').trim() || 'local';
+    if (resolvedServerId !== 'local') {
+      serverMap[saved.id] = resolvedServerId;
+    } else {
+      delete serverMap[saved.id];
+    }
+    await Promise.all([
+      this.writeExtraRoutesMap(extraMap),
+      this.writeRouteServersMap(serverMap),
+    ]);
 
     return {
       id: saved.id,
       domain: saved.domain,
       projectName: saved.projectName,
+      serverId: resolvedServerId,
       frontendTarget: saved.frontendTarget,
       apiPathPrefix: saved.apiPathPrefix,
       backendTarget: saved.backendTarget,
@@ -211,10 +256,17 @@ export class PrismaDomainRouteRepository implements DomainRouteRepositoryPort {
 
   async deleteRoute(id: string): Promise<boolean> {
     await prisma.domainRoute.deleteMany({ where: { id } });
-    const extraMap = await this.readExtraRoutesMap();
+    const [extraMap, serverMap] = await Promise.all([
+      this.readExtraRoutesMap(),
+      this.readRouteServersMap(),
+    ]);
     if (extraMap[id]) {
       delete extraMap[id];
       await this.writeExtraRoutesMap(extraMap);
+    }
+    if (serverMap[id]) {
+      delete serverMap[id];
+      await this.writeRouteServersMap(serverMap);
     }
     return true;
   }

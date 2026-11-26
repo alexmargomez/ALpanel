@@ -4,15 +4,18 @@ import type {
   BatchIngestEngineStatus,
   DiscoveredCatalog,
   DomainRouteItem,
+  GitCredentialPublic,
   HostMetrics,
   PanelTab,
   ProjectInfo,
   RateLimitShieldStatus,
   RoleItem,
   RolePermissionEntry,
+  ServerNodePublic,
   TaskLiveTelemetryPayload,
   TaskStreamChunkPayload,
   UserItem,
+  WorkspaceSubTab,
 } from '../types/panel';
 import { DEFAULT_CATALOG } from '../services/api';
 
@@ -127,6 +130,12 @@ export const panelStore = reactive({
     disk: { totalBytes: 0, usedBytes: 0, usagePercent: 0 },
   } as HostMetrics,
   projects: [] as ProjectInfo[],
+  servers: [] as ServerNodePublic[],
+  gitCredentials: [] as GitCredentialPublic[],
+  activeProjectWorkspace: {
+    projectName: '',
+    subTab: 'containers' as WorkspaceSubTab,
+  },
   projectSearchQuery: '',
   domainRoutes: [] as DomainRouteItem[],
   caddyfilePreview: '',
@@ -171,6 +180,8 @@ export const panelStore = reactive({
     terminal: { open: false, projectName: '', containerName: '', mode: 'shell', databaseName: '' } as TerminalModalState,
     erd: { open: false, projectName: '', containerName: '', databaseName: '' } as ErdModalState,
     microservices: { open: false, projectName: '' } as MicroservicesModalState,
+    addServer: { open: false, server: null as ServerNodePublic | null },
+    addContainer: { open: false, projectName: '' },
   },
 });
 
@@ -453,10 +464,25 @@ export async function loadAuditLogs(): Promise<void> {
   if (data.ingest) panelStore.securityIngest = data.ingest;
 }
 
+export async function loadServers(): Promise<void> {
+  try {
+    const data = await apiFetch<{
+      servers: ServerNodePublic[];
+      gitCredentials: GitCredentialPublic[];
+    }>('/api/servers');
+    panelStore.servers = data.servers || [];
+    panelStore.gitCredentials = data.gitCredentials || [];
+  } catch {
+    // Keep existing cached server list on transient errors
+  }
+}
+
 export async function switchTab(tab: PanelTab): Promise<void> {
   const tabModMap: Record<PanelTab, string> = {
     overview: 'projects',
     projects: 'projects',
+    servers: 'projects',
+    'project-workspace': 'projects',
     domains: 'domains',
     guide: 'git',
     users: 'users',
@@ -478,11 +504,33 @@ export async function switchTab(tab: PanelTab): Promise<void> {
     if (hasPerm('security', 'view') && !panelStore.securityShield) {
       loadAuditLogs().catch(() => {});
     }
+    if (panelStore.servers.length === 0) {
+      loadServers().catch(() => {});
+    }
   }
+  if (tab === 'projects' && panelStore.servers.length === 0) {
+    loadServers().catch(() => {});
+  }
+  if (tab === 'servers') await loadServers();
   if (tab === 'domains') await loadDomains();
   if (tab === 'users') await loadUsersAndRoles();
   if (tab === 'permissions') await loadPermissionsModule();
   if (tab === 'audit') await loadAuditLogs();
+}
+
+export async function openProjectWorkspace(
+  projectName: string,
+  subTab: WorkspaceSubTab = 'containers'
+): Promise<void> {
+  panelStore.activeProjectWorkspace.projectName = projectName;
+  panelStore.activeProjectWorkspace.subTab = subTab;
+  await switchTab('project-workspace');
+  if (panelStore.servers.length === 0) {
+    loadServers().catch(() => {});
+  }
+  if (hasPerm('domains', 'view') && panelStore.domainRoutes.length === 0) {
+    loadDomains().catch(() => {});
+  }
 }
 
 export async function focusProjectCard(projectName: string): Promise<void> {
@@ -872,5 +920,16 @@ export function openMicroservicesModal(projectName: string): void {
   panelStore.modals.microservices.projectName = projectName;
   panelStore.modals.microservices.open = true;
 }
+
+export function openAddServerModal(server: ServerNodePublic | null = null): void {
+  panelStore.modals.addServer.server = server;
+  panelStore.modals.addServer.open = true;
+}
+
+export function openAddContainerModal(projectName: string): void {
+  panelStore.modals.addContainer.projectName = projectName;
+  panelStore.modals.addContainer.open = true;
+}
+
 
 

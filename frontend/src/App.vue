@@ -6,6 +6,7 @@ import {
   hasPerm,
   loadAuditLogs,
   loadDomains,
+  loadServers,
   panelStore,
   refreshAll,
   registerUnauthorizedHandler,
@@ -21,6 +22,8 @@ import ToastNotification from './components/layout/ToastNotification.vue';
 
 import OverviewView from './views/OverviewView.vue';
 import ProjectsView from './views/ProjectsView.vue';
+import ServersView from './views/ServersView.vue';
+import ProjectWorkspaceView from './views/ProjectWorkspaceView.vue';
 import DomainsView from './views/DomainsView.vue';
 import GitGuideView from './views/GitGuideView.vue';
 import UsersRolesView from './views/UsersRolesView.vue';
@@ -38,6 +41,8 @@ import CronjobsModal from './components/modals/CronjobsModal.vue';
 import TerminalModal from './components/modals/TerminalModal.vue';
 import DbErdModal from './components/modals/DbErdModal.vue';
 import MicroservicesModal from './components/modals/MicroservicesModal.vue';
+import AddServerModal from './components/modals/AddServerModal.vue';
+import AddContainerModal from './components/modals/AddContainerModal.vue';
 
 function logout(): void {
   panelStore.authToken = '';
@@ -82,6 +87,7 @@ async function bootstrapSession(): Promise<void> {
       } else {
         await refreshAll();
       }
+      loadServers().catch(() => {});
       if (hasPerm('domains', 'view')) {
         loadDomains().catch(() => {});
       }
@@ -120,7 +126,6 @@ onMounted(() => {
     v-else
     class="min-h-screen w-full flex gap-3.5 p-2.5 sm:p-3 max-w-[1640px] mx-auto"
   >
-    <!-- Barra Lateral Colapsable / Rail Izquierdo (Estilo Sylva) -->
     <SidebarNav @logout="logout" />
 
     <!-- Área Principal de Contenido -->
@@ -130,6 +135,10 @@ onMounted(() => {
       <main class="flex-1 space-y-5">
         <OverviewView v-if="panelStore.activeTab === 'overview'" />
         <ProjectsView v-else-if="panelStore.activeTab === 'projects'" />
+        <ServersView v-else-if="panelStore.activeTab === 'servers'" />
+        <ProjectWorkspaceView
+          v-else-if="panelStore.activeTab === 'project-workspace'"
+        />
         <DomainsView v-else-if="panelStore.activeTab === 'domains'" />
         <GitGuideView v-else-if="panelStore.activeTab === 'guide'" />
         <UsersRolesView v-else-if="panelStore.activeTab === 'users'" />
@@ -150,6 +159,8 @@ onMounted(() => {
     <TerminalModal />
     <DbErdModal />
     <MicroservicesModal />
+    <AddServerModal />
+    <AddContainerModal />
   </div>
 
   <ToastNotification />

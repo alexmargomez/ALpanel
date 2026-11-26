@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  focusProjectCard,
   hasPerm,
   panelStore,
   pruneServerDocker,
@@ -10,43 +9,11 @@ import {
   toggleSidebar,
   toggleTheme,
 } from '../../composables/usePanelStore';
-import type { PanelTab, ProjectInfo } from '../../types/panel';
+import type { PanelTab } from '../../types/panel';
 
 const emit = defineEmits<{
   (e: 'logout'): void;
 }>();
-
-const spaceBadges = [
-  { bgClass: 'bg-indigo-600 keep-white', icon: 'fa-bolt' },
-  { bgClass: 'bg-emerald-600 keep-white', icon: 'fa-cubes' },
-  { bgClass: 'bg-violet-600 keep-white', icon: 'fa-server' },
-  { bgClass: 'bg-amber-600 keep-white', icon: 'fa-database' },
-];
-
-const featuredSpaces = computed(() => {
-  return panelStore.projects.slice(0, 4).map((p, idx) => {
-    const palette = spaceBadges[idx % spaceBadges.length];
-    const primaryDomain =
-      p.domains?.[0] || p.stack?.[0] || p.git?.branch || 'Docker';
-    const statusLabel =
-      p.status === 'running'
-        ? 'Activo'
-        : p.status === 'partial'
-          ? 'Parcial'
-          : 'Detenido';
-    return {
-      project: p,
-      name: p.name,
-      subtitle: `${primaryDomain} · ${statusLabel}`,
-      bgClass: palette.bgClass,
-      icon: p.microservices?.isMicroservicesArchitecture
-        ? 'fa-cubes'
-        : p.database?.hasDatabase
-          ? 'fa-layer-group'
-          : palette.icon,
-    };
-  });
-});
 
 const menuItems = computed(() => {
   const items: Array<{
@@ -66,15 +33,15 @@ const menuItems = computed(() => {
       id: 'projects',
       mod: 'projects',
       icon: 'fa-layer-group',
-      label: 'Pipeline & Proyectos',
+      label: 'Proyectos',
       badge: panelStore.projects.length || undefined,
     },
     {
-      id: 'domains',
-      mod: 'domains',
-      icon: 'fa-globe',
-      label: 'Dominios & SSL',
-      badge: panelStore.domainRoutes.length || undefined,
+      id: 'servers',
+      mod: 'projects',
+      icon: 'fa-server',
+      label: 'Servidores',
+      badge: panelStore.servers.length || undefined,
     },
     {
       id: 'guide',
@@ -106,6 +73,13 @@ const menuItems = computed(() => {
   return items.filter((item) => hasPerm(item.mod, 'view'));
 });
 
+function isMenuActive(itemId: PanelTab): boolean {
+  if (itemId === 'projects' && panelStore.activeTab === 'project-workspace') {
+    return true;
+  }
+  return panelStore.activeTab === itemId;
+}
+
 const userInitials = computed(() => {
   const raw =
     panelStore.currentUser?.fullName ||
@@ -117,25 +91,6 @@ const userInitials = computed(() => {
   }
   return raw.slice(0, 2).toUpperCase();
 });
-
-function handleSpaceClick(proj: ProjectInfo): void {
-  if (
-    panelStore.activeTab === 'projects' &&
-    panelStore.projectSearchQuery.toLowerCase() === proj.name.toLowerCase()
-  ) {
-    panelStore.projectSearchQuery = '';
-  } else {
-    focusProjectCard(proj.name);
-  }
-  panelStore.mobileSidebarOpen = false;
-}
-
-function isSpaceSelected(name: string): boolean {
-  return (
-    panelStore.activeTab === 'projects' &&
-    panelStore.projectSearchQuery.trim().toLowerCase() === name.toLowerCase()
-  );
-}
 </script>
 
 <template>
@@ -198,59 +153,6 @@ function isSpaceSelected(name: string): boolean {
           </button>
         </div>
 
-        <!-- SPACES (Proyectos Rápidos) -->
-        <div v-if="featuredSpaces.length > 0" class="space-y-1.5">
-          <div class="flex items-center justify-between px-2">
-            <span
-              class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500"
-            >
-              Spaces
-            </span>
-            <button
-              v-if="panelStore.projectSearchQuery"
-              @click="panelStore.projectSearchQuery = ''"
-              class="text-[10px] text-indigo-400 hover:underline font-semibold"
-            >
-              Ver todos
-            </button>
-          </div>
-
-          <div class="space-y-1">
-            <button
-              v-for="sp in featuredSpaces"
-              :key="sp.name"
-              @click="handleSpaceClick(sp.project)"
-              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl text-left transition group"
-              :class="
-                isSpaceSelected(sp.name)
-                  ? 'bg-slate-800 border border-indigo-500/40'
-                  : 'hover:bg-slate-800/70 border border-transparent'
-              "
-            >
-              <div
-                class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs shadow-sm transition group-hover:scale-105"
-                :class="sp.bgClass"
-              >
-                <i class="fa-solid" :class="sp.icon"></i>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div
-                  class="text-xs font-semibold text-white truncate flex items-center gap-1.5"
-                >
-                  <span class="truncate">{{ sp.name }}</span>
-                  <span
-                    v-if="sp.project.status === 'running'"
-                    class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"
-                  ></span>
-                </div>
-                <div class="text-[10px] text-slate-400 truncate">
-                  {{ sp.subtitle }}
-                </div>
-              </div>
-            </button>
-          </div>
-        </div>
-
         <!-- MENÚ PRINCIPAL -->
         <div class="space-y-1.5">
           <div class="px-2">
@@ -268,7 +170,7 @@ function isSpaceSelected(name: string): boolean {
               @click="switchTab(item.id)"
               class="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition"
               :class="
-                panelStore.activeTab === item.id
+                isMenuActive(item.id)
                   ? 'bg-indigo-500/15 text-indigo-400 font-semibold border border-indigo-500/25'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/70 font-medium border border-transparent'
               "
@@ -278,14 +180,14 @@ function isSpaceSelected(name: string): boolean {
                   class="fa-solid w-4 text-center text-[12px]"
                   :class="[
                     item.icon,
-                    panelStore.activeTab === item.id
+                    isMenuActive(item.id)
                       ? 'text-indigo-400'
                       : 'text-slate-400',
                   ]"
                 ></i>
                 <span class="truncate">{{ item.label }}</span>
                 <span
-                  v-if="panelStore.activeTab === item.id"
+                  v-if="isMenuActive(item.id)"
                   class="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"
                 ></span>
               </div>
@@ -410,14 +312,14 @@ function isSpaceSelected(name: string): boolean {
             :title="item.label"
             class="relative w-9 h-9 rounded-xl flex items-center justify-center transition"
             :class="
-              panelStore.activeTab === item.id
+              isMenuActive(item.id)
                 ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             "
           >
             <i class="fa-solid text-xs" :class="item.icon"></i>
             <span
-              v-if="panelStore.activeTab === item.id"
+              v-if="isMenuActive(item.id)"
               class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-400"
             ></span>
           </button>

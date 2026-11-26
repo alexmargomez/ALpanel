@@ -36,10 +36,15 @@ export interface DatabaseConnectionInfo {
 }
 
 import type { ProjectMicroservicesSummary } from '../../application/use-cases/manage-project-microservices.use-case';
+import type { ProjectLinkedUpstream } from '../../application/use-cases/manage-project-workspace.use-case';
 
 export interface ProjectInfo {
   name: string;
   path: string;
+  serverId?: string;
+  serverName?: string;
+  isolatedNetwork?: string;
+  linkedUpstreams?: ProjectLinkedUpstream[];
   stack: string[];
   status: 'running' | 'partial' | 'stopped';
   domains: string[];
